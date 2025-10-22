@@ -1,13 +1,12 @@
 import argparse
-import math
+import logging
 import os
+import random
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
 
+import numpy as np
 import torch
 import torch.distributed as dist
-import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
@@ -79,6 +78,23 @@ def weights_init(m):
 ''' 
 ----- Models ----- 
 '''
+
+
+def seed_everything(seed: int) -> None:
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def get_distributed_context():
+    world_size = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
+    rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
+    local_rank = int(os.environ.get("LOCAL_RANK", rank))
+    return world_size, rank, local_rank
 
 
 def normal_kl(mean1, logvar1, mean2, logvar2):
@@ -522,64 +538,69 @@ def get_dataset(num_points, num_nn, path, dataset, augment):
 
 
 def get_dataloader(opt, train_dataset, test_dataset=None):
-    if opt.distribution_type == 'multi':
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    is_distributed = world_size > 1
+
+    if is_distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
             train_dataset,
-            num_replicas=opt.world_size,
-            rank=opt.rank)
-
-        if test_dataset is not None:
-            test_sampler = torch.utils.data.distributed.DistributedSampler(
-                test_dataset,
-                num_replicas=opt.world_size,
-                rank=opt.rank)
-        else:
-            test_sampler = None
-
+            num_replicas=world_size,
+            rank=rank,
+        )
+        test_sampler = (
+            torch.utils.data.distributed.DistributedSampler(test_dataset, num_replicas=world_size, rank=rank)
+            if test_dataset is not None else None
+        )
     else:
         train_sampler = None
         test_sampler = None
 
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=opt.bs, sampler=train_sampler,
-                                                   shuffle=train_sampler is None, num_workers=int(opt.workers),
-                                                   drop_last=True)
+    global_batch = opt.bs
+    per_device_batch = max(global_batch // world_size, 1)
+    num_workers = max(opt.workers // world_size, 0)
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=per_device_batch,
+        sampler=train_sampler,
+        shuffle=train_sampler is None,
+        num_workers=num_workers,
+        drop_last=True,
+        pin_memory=True,
+    )
 
     if test_dataset is not None:
-        test_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=opt.bs, sampler=test_sampler,
-                                                      shuffle=False, num_workers=int(opt.workers), drop_last=False)
+        test_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=per_device_batch,
+            sampler=test_sampler,
+            shuffle=False,
+            num_workers=num_workers,
+            drop_last=False,
+            pin_memory=True,
+        )
     else:
         test_dataloader = None
 
     return train_dataloader, test_dataloader, train_sampler, test_sampler
 
 
-def train(gpu, opt, output_dir, noises_init):
+def train(_, opt, output_dir, noises_init):
     logger = setup_logging(output_dir)
 
-    if opt.distribution_type == 'multi':
-        should_diag = gpu == 0
-
-    else:
-        should_diag = True
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", gpu if gpu is not None else 0))
+    should_diag = rank == 0
 
     if should_diag:
         outf_syn, = setup_output_subdirs(output_dir, 'syn')
 
-    if opt.distribution_type == 'multi':
-        if opt.dist_url == "env://" and opt.rank == -1:
-            opt.rank = int(os.environ["RANK"])
-
-        base_rank = opt.rank * opt.ngpus_per_node
-        opt.rank = base_rank + gpu
-        dist.init_process_group(backend=opt.dist_backend, init_method=opt.dist_url,
-                                world_size=opt.world_size, rank=opt.rank)
-
-        opt.bs = int(opt.bs / opt.ngpus_per_node)
-        opt.workers = 0
-
-        opt.saveIter = int(opt.saveIter / opt.ngpus_per_node)
-        opt.diagIter = int(opt.diagIter / opt.ngpus_per_node)
-        opt.vizIter = int(opt.vizIter / opt.ngpus_per_node)
+    is_distributed = world_size > 1
+    if is_distributed:
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(backend=opt.dist_backend)
 
     ''' Dataset and data loader '''
     train_dataset = get_dataset(opt.num_points, opt.num_nn, opt.path, opt.dataset, opt.augment)
@@ -589,29 +610,16 @@ def train(gpu, opt, output_dir, noises_init):
     betas = get_betas(opt.schedule_type, opt.beta_start, opt.beta_end, opt.time_num)
     model = Model(opt, betas, opt.loss_type, opt.model_mean_type, opt.model_var_type, opt.width_mult, opt.vox_res_mult)
 
-    if opt.distribution_type == 'multi':  # Multiple processes, single GPU per process
+    if is_distributed:
+        model = model.cuda(local_rank)
+
         def _transform_(m):
-            return nn.parallel.DistributedDataParallel(
-                m, device_ids=[gpu], output_device=gpu)
+            return nn.parallel.DistributedDataParallel(m, device_ids=[local_rank], output_device=local_rank)
 
-        torch.cuda.set_device(gpu)
-        model.cuda(gpu)
         model.multi_gpu_wrapper(_transform_)
-
-    elif opt.distribution_type == 'single':
-        def _transform_(m):
-            return nn.parallel.DataParallel(m)
-
-        model = model.cuda()
-        model.multi_gpu_wrapper(_transform_)
-
-    elif gpu is not None:
-        "Set GPU"
-        torch.cuda.set_device(gpu)
-        model = model.cuda(gpu)
-
     else:
-        raise ValueError('distribution_type = multi | single | None')
+        if torch.cuda.is_available():
+            model = model.cuda()
 
     if should_diag:
         logger.info(opt)
@@ -624,23 +632,25 @@ def train(gpu, opt, output_dir, noises_init):
         model.load_state_dict(ckpt['model_state'])
         optimizer.load_state_dict(ckpt['optimizer_state'])
 
-    if opt.model != '':
-        start_epoch = torch.load(opt.model)['epoch'] + 1
-
-    else:
-        start_epoch = 0
+    start_epoch = 0
+    if opt.model:
+        checkpoint = torch.load(opt.model, map_location="cpu")
+        start_epoch = checkpoint.get('epoch', -1) + 1
+        if start_epoch > 0 and should_diag:
+            logger.info(f"Resuming from checkpoint {opt.model} at epoch {start_epoch}")
 
     # Training loop
     for epoch in range(start_epoch, opt.niter):
-        if opt.distribution_type == 'multi':
+        if is_distributed and train_sampler is not None:
             train_sampler.set_epoch(epoch)
 
         for i, data in enumerate(dataloader):
             pc_in = data['train_points'].transpose(1, 2)  # Input point cloud
             noises_batch = noises_init[data['idx']].transpose(1, 2)  # Noise (num_nn points)
 
-            pc_in = pc_in.cuda(gpu)
-            noises_batch = noises_batch.cuda(gpu)
+            if torch.cuda.is_available():
+                pc_in = pc_in.cuda()
+                noises_batch = noises_batch.cuda()
 
             # Compute training loss
             loss = model.get_loss_iter(pc_in, noises_batch).mean()
@@ -706,21 +716,19 @@ def train(gpu, opt, output_dir, noises_init):
             model.train()
 
         if (epoch + 1) % opt.saveIter == 0:
-            if should_diag:
-                save_dict = {'epoch': epoch,
-                             'model_state': model.state_dict(),
-                             'optimizer_state': optimizer.state_dict()
-                             }
+            save_dict = {
+                'epoch': epoch,
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict()
+            }
 
-                torch.save(save_dict, '%s/epoch_%d.pth' % (output_dir, epoch))
+            torch.save(save_dict, '%s/epoch_%d.pth' % (output_dir, epoch))
 
-            if opt.distribution_type == 'multi':
+            if is_distributed:
                 dist.barrier()
-                map_location = {'cuda:%d' % 0: 'cuda:%d' % gpu}
-                model.load_state_dict(
-                    torch.load('%s/epoch_%d.pth' % (output_dir, epoch), map_location=map_location)['model_state'])
 
-    dist.destroy_process_group()
+    if is_distributed:
+        dist.destroy_process_group()
 
 
 def main():
@@ -730,12 +738,9 @@ def main():
     dir_id = os.path.dirname(__file__)
     output_dir = get_output_dir(dir_id, exp_id)
     copy_source(__file__, output_dir)
-
-    ''' Workaround '''
+    ''' Initialization '''
+    seed_everything(opt.manualSeed)
     noises_init = torch.randn(570, opt.num_nn, 3)  # Init noise (num_nn random points)
-
-    if opt.dist_url == "env://" and opt.world_size == -1:
-        opt.world_size = int(os.environ["WORLD_SIZE"])
 
     train(opt.gpu, opt, output_dir, noises_init)
 
@@ -782,20 +787,9 @@ def parse_args():
     # Model path (for continuing the training of existing models)
     parser.add_argument('--model', default='', help="path to model (to continue training)")
 
-    ''' Distributed training environment '''
-    # The distributed training environment was not tested. We can not ensure that it works properly.
-    parser.add_argument('--world_size', default=1, type=int, help='Number of distributed nodes.')
-    parser.add_argument('--dist_url', default='tcp://127.0.0.1:9991', type=str,
-                        help='url used to set up distributed training')
-    parser.add_argument('--dist_backend', default='nccl', type=str, help='distributed backend')
-    parser.add_argument('--distribution_type', default=None, choices=['multi', 'single', None],
-                        help='Use multi-processing distributed training to launch '
-                             'N processes per node, which has N GPUs. This is the '
-                             'fastest way to use PyTorch for either single node or '
-                             'multi node data parallel training')
-    parser.add_argument('--rank', default=0, type=int, help='node rank for distributed training')
-
-    parser.add_argument('--gpu', default=0, type=int, help='GPU id to use. None means using all available GPUs.')
+    # Distributed training (torchrun handles world size / rank via environment variables)
+    parser.add_argument('--dist-backend', default='nccl', type=str,
+                        help='torch.distributed backend to use when launched via torchrun')
 
     ''' Evaluation '''
     parser.add_argument('--saveIter', type=int, default=1000, help='unit: epoch')
@@ -808,9 +802,6 @@ def parse_args():
 
     # Parse arguments
     opt = parser.parse_args()
-
-    if getattr(opt, "distribution_type", None) not in {None, "multi"}:
-        raise ValueError("Distributed training now relies on torchrun. Use --distribution_type=multi or omit.")
 
     return opt
 

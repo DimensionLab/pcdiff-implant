@@ -1,7 +1,6 @@
 import os
 import random
 import sys
-
 from shutil import copyfile
 import datetime
 
