@@ -1,69 +1,105 @@
 import argparse
+import os
+from pathlib import Path
+
 import diplib as dip
 import nrrd
 import numpy as np
-import os
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
 import yaml
 from eval_metrics import bdc, dc, hd95
 from src import config
 from src.model import Encode2Points
 from src.data.core import SkullEval
-from src.utils import load_config, load_model_manual, readCT, crop, padding, reverse_padding, reverse_crop, \
-    re_sample_shape, filter_voxels_within_radius
+from src.utils import (load_config, load_model_manual, readCT, crop, padding,
+                       reverse_padding, reverse_crop, re_sample_shape,
+                       filter_voxels_within_radius)
 from tqdm import tqdm
 from scipy import ndimage
 
 np.set_printoptions(precision=4)
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, help='Path to config file you want to use.')
-    parser.add_argument('--no_cuda', action='store_true', default=False, help='Disables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S', help='Set a random seed (default: 1)')
-    parser.add_argument('--iter', type=int, metavar='S', help='The training iteration to be evaluated.')
+    parser.add_argument('--no_cuda', action='store_true', default=False, help='Disable CUDA even if available')
+    parser.add_argument('--seed', type=int, default=1, metavar='S', help='Random seed')
+    parser.add_argument('--iter', type=int, metavar='S', help='Training iteration to evaluate (unused)')
+    parser.add_argument('--dist-backend', default='nccl', help='torch.distributed backend')
+    return parser.parse_args()
 
-    args = parser.parse_args()
+
+def init_distributed(backend: str):
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    is_dist = world_size > 1
+    if is_dist:
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(backend=backend)
+    return is_dist, world_size, rank, local_rank
+
+
+def cleanup_distributed(is_dist: bool):
+    if is_dist and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def main():
+    args = parse_args()
+    is_dist, world_size, rank, local_rank = init_distributed(args.dist_backend)
+
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
 
     cfg = load_config(args.config, 'voxelization/configs/default.yaml')
     use_cuda = not args.no_cuda and torch.cuda.is_available()
-    dev = "cuda:" + str(cfg['train']['gpu'])
-    device = torch.device(dev if use_cuda else "cpu")
-    vis_n_outputs = cfg['generation']['vis_n_outputs']
+    device = torch.device('cuda', local_rank) if use_cuda else torch.device('cpu')
+    vis_n_outputs = cfg['generation']['vis_n_outputs'] or -1
 
-    if vis_n_outputs is None:
-        vis_n_outputs = -1
-
-    # Shorthands
-    out_dir = cfg['train']['out_dir']
-    if not out_dir:
-        os.makedirs(out_dir)
-
-    generation_dir = os.path.join(out_dir, cfg['generation']['generation_dir'])
-
-    # PYTORCH VERSION > 1.0.0
-    assert(float(torch.__version__.split('.')[-3]) > 0)
+    out_dir = Path(cfg['train']['out_dir'] or 'runs')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    generation_dir = out_dir / cfg['generation']['generation_dir']
 
     dataset = SkullEval(cfg['data']['path'])
-    test_loader = torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
+    sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=False) if is_dist else None
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=cfg['generation'].get('batch_size', 1),
+        sampler=sampler,
+        shuffle=(sampler is None),
+        num_workers=cfg['generation'].get('num_workers', 0),
+        pin_memory=use_cuda,
+    )
+
     model = Encode2Points(cfg).to(device)
+    if is_dist and use_cuda:
+        ddp_model = DistributedDataParallel(model, device_ids=[local_rank])
+        module = ddp_model.module
+    else:
+        ddp_model = model
+        module = model
 
-    # load model
-    print('\n---------- Load model----------')
-    print("Load best model from: " + cfg['test']['model_file'] + '\n')
-    state_dict = torch.load(cfg['test']['model_file'], map_location=device)
-    load_model_manual(state_dict['state_dict'], model)
+    print('\n---------- Load model----------') if rank == 0 else None
+    if rank == 0:
+        print("Load best model from: " + cfg['test']['model_file'] + '\n')
+    state_dict = torch.load(cfg['test']['model_file'], map_location='cpu')
+    module = ddp_model.module if isinstance(ddp_model, DistributedDataParallel) else ddp_model
+    load_model_manual(state_dict['state_dict'], module)
 
-    # Generator
-    generator = config.get_generator(model, cfg, device=device)
+    generator = config.get_generator(module, cfg, device=device)
+    ddp_model.eval()
 
-    # Generate
-    model.eval()
+    if rank == 0:
+        print('\n---------- Voxelizing point clouds ----------')
 
-    print('\n---------- Voxelizing point clouds ----------')
-    for it, data in enumerate(test_loader):
-        print("Sampling step [" + str(it+1) + "/" + str(len(test_loader)) + "] ...")
+    for it, data in enumerate(loader):
+        if rank == 0:
+            print(f"Sampling step [{it + 1}/{len(loader)}] ...")
         name = data['name'][0]
 
         # ----- Get defective skull -----
@@ -212,6 +248,8 @@ def main():
             # Write scores to .yaml file
             with open(name + '/eval_metrics.yaml', 'w') as file:
                 documents = yaml.dump(eval_mets, file)
+
+    cleanup_distributed(is_dist)
 
 
 if __name__ == '__main__':
