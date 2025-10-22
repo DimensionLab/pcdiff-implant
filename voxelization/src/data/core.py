@@ -4,11 +4,12 @@ import torch
 import open3d as o3d
 from torch.utils import data
 from pdb import set_trace as st
-from src.dpsr import DPSR
+from pathlib import Path
 import csv
 import trimesh
 import numpy as np
 import yaml
+from src.dpsr import DPSR
 
 logger = logging.getLogger(__name__)
 
@@ -95,18 +96,34 @@ class SkullEval(data.Dataset):
 class SkullDataset(data.Dataset):
     def __init__(self, path, split, noise_stddev=None, outlier_ratio=None):
         self.split = split
-        self.path = path
+        self.path = Path(path).expanduser().resolve()
         self.database = []
         self.noise_stddev = noise_stddev
         self.outlier_ratio = outlier_ratio
 
-        with open(path, 'r', newline='') as file:
+        with open(self.path, 'r', newline='') as file:
             csvreader = csv.reader(file)
             for row in csvreader:
-                datapoint = dict()
-                datapoint['pointcloud'] = '../' + row[0] + '_pc.npz'
-                datapoint['gt_psr'] = '../' + row[0] + '_vox.npz'
-                self.database.append(datapoint)
+                if not row:
+                    continue
+
+                base_path = Path(row[0])
+                if not base_path.is_absolute():
+                    base_path = (self.path.parent / base_path).resolve()
+
+                pointcloud_path = base_path.with_suffix('')  # ensure no accidental suffix
+                pointcloud_path = Path(str(pointcloud_path) + '_pc.npz')
+                psr_path = Path(str(base_path) + '_vox.npz')
+
+                if not pointcloud_path.exists():
+                    raise FileNotFoundError(f"Point cloud npz not found: {pointcloud_path}")
+                if not psr_path.exists():
+                    raise FileNotFoundError(f"Voxel npz not found: {psr_path}")
+
+                self.database.append({
+                    'pointcloud': pointcloud_path,
+                    'gt_psr': psr_path,
+                })
 
     def __len__(self):
         return len(self.database)

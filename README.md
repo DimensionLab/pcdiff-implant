@@ -5,6 +5,8 @@
 
 This is the official PyTorch implementation of the MICCAI 2023 paper [Point Cloud Diffusion Models for Automatic Implant Generation](https://pfriedri.github.io/pcdiff-implant-io/) by Paul Friedrich, Julia Wolleb, Florentin Bieder, Florian M. Thieringer and Philippe C. Cattin.
 
+> **🚀 Quick Start**: Get running in 5 minutes with Python 3.14, CUDA 13, and `uv`! See **[QUICKSTART.md](./QUICKSTART.md)**
+
 If you find our work useful, please consider to :star: **star this repository** and :memo: **cite our paper**:
 ```bibtex
 @InProceedings{10.1007/978-3-031-43996-4_11,
@@ -50,6 +52,17 @@ datasets
     └───defective_skull
     └───implant
 ```
+
+## Installation
+
+### Modern Setup (Python 3.14 + uv) - RECOMMENDED
+For a modern setup using Python 3.14, CUDA 13, and `uv` for dependency management, see the comprehensive guide:
+* **[Modern Setup Guide (SETUP.md)](./SETUP.md)** ← Start here!
+
+### Legacy Setup (Conda)
+The original conda environments are still available but not recommended for new installations:
+* `pcdiff/pcd_env.yaml` - Python 3.6, PyTorch 1.7.1
+* `voxelization/vox_env.yaml` - Python 3.8, PyTorch 1.12.0
 
 ## Training & Using the Networks
 Both networks, the point cloud diffusion model and the voxelization network are trained independently:

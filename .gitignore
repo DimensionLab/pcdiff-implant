@@ -1,5 +1,8 @@
 # Data related directories and files
 /datasets
+/.venv/
+/.uv/
+uv.lock
 *.nrrd
 *.ply
 *.npy

@@ -2,9 +2,21 @@
 To **train your own models** or **reproduce our results**, please follow the next steps.
 
 ## Install the Environment
-First you have to ensure that you have all dependencies installed. The simplest way to do so is to use a conda environment (You can use [Mambaforge](https://github.com/conda-forge/miniforge#mambaforge) to create and manage them. If you use Anaconda/Miniconda just replace `mamba` with `conda`).
 
-You can create and activate such an environment called `pcd` by running the following command:
+### Modern Setup (Python 3.12 + uv) - RECOMMENDED
+See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.12 and `uv`.
+
+**Quick start:**
+```sh
+# From project root
+uv venv --python python3.12
+source .venv/bin/activate
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv pip install -e .
+```
+
+### Legacy Setup (Conda)
+If you prefer the original conda environment (Python 3.6, PyTorch 1.7.1):
 ```sh
 mamba env create -f pcdiff/pcd_env.yaml
 mamba activate pcd
