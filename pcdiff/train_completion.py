@@ -1,19 +1,23 @@
+import argparse
+import math
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+import torch
+import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
-
-import argparse
 from torch.distributions import Normal
 
-from utils.file_utils import *
-from utils.visualize import *
-from model.pvcnn_completion import PVCNN2Base
-import torch.distributed as dist
 from datasets.skullbreak_data import SkullBreakDataset
 from datasets.skullfix_data import SkullFixDataset
-
-import os
+from model.pvcnn_completion import PVCNN2Base
+from utils.file_utils import copy_source, get_output_dir, setup_logging, setup_output_subdirs
+from utils.visualize import export_to_pc_batch
 
 '''
 ----- Some utilities -----
@@ -733,13 +737,7 @@ def main():
     if opt.dist_url == "env://" and opt.world_size == -1:
         opt.world_size = int(os.environ["WORLD_SIZE"])
 
-    if opt.distribution_type == 'multi':
-        opt.ngpus_per_node = torch.cuda.device_count()
-        opt.world_size = opt.ngpus_per_node * opt.world_size
-        mp.spawn(train, nprocs=opt.ngpus_per_node, args=(opt, output_dir, noises_init))
-
-    else:
-        train(opt.gpu, opt, output_dir, noises_init)
+    train(opt.gpu, opt, output_dir, noises_init)
 
 
 def parse_args():
@@ -810,6 +808,9 @@ def parse_args():
 
     # Parse arguments
     opt = parser.parse_args()
+
+    if getattr(opt, "distribution_type", None) not in {None, "multi"}:
+        raise ValueError("Distributed training now relies on torchrun. Use --distribution_type=multi or omit.")
 
     return opt
 
