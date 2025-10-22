@@ -1,5 +1,5 @@
 # Point Cloud Diffusion Models for Automatic Implant Generation
-# Requirements for Python 3.12 with uv
+# Requirements for Python 3.14 with uv
 #
 # Installation:
 #   uv pip install -r requirements.txt

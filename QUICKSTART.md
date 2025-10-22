@@ -47,7 +47,8 @@ uv venv --python python3.14
 source .venv/bin/activate
 
 # 2. Install PyTorch with CUDA 13 (H100)
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install torch --index-url https://download.pytorch.org/whl/cu130
+uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
 
 # 3. Install project dependencies
 uv pip install -e .
@@ -120,7 +121,8 @@ python3 voxelization/generate.py voxelization/configs/gen_skullbreak.yaml
 nvcc --version
 
 # Install matching PyTorch
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118  # for CUDA 11.8
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+uv pip install torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 
 ### PyTorch3D installation fails

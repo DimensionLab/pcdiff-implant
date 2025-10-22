@@ -3,17 +3,21 @@ To **train your own models** or **reproduce our results**, please follow the nex
 
 ## Install the Environment
 
-### Modern Setup (Python 3.12 + uv) - RECOMMENDED
-See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.12 and `uv`.
+### Modern Setup (Python 3.14 + uv) - RECOMMENDED
+See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.14 and `uv`.
 
-**Quick start:**
+**Quick start (single node, single GPU):**
 ```sh
 # From project root
-uv venv --python python3.12
+uv venv --python python3.14
 source .venv/bin/activate
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv pip install torch --index-url https://download.pytorch.org/whl/cu130
+uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
 uv pip install -e .
 ```
+
+**Multi-GPU:**
+Use `torchrun --nproc_per_node=<GPUs>` when launching `pcdiff/train_completion.py` to enable DistributedDataParallel training. The script automatically respects `WORLD_SIZE`, `RANK`, and `LOCAL_RANK` provided by `torchrun`.
 
 ### Legacy Setup (Conda)
 If you prefer the original conda environment (Python 3.6, PyTorch 1.7.1):
@@ -60,3 +64,5 @@ python pcdiff/test_completion.py --path datasets/SkullBreak/test.csv --dataset S
 and the SkullFix data set (if you want to use the proposed ensembling method, use the `--num_ens` flag to specifiy the number of different implants to be generated):
 ```python
 python pcdiff/test_completion.py --path datasets/SkullFix/test.csv --dataset SkullFix --num_ens 5 --model MODELPATH --eval_path datasets/SkullFix/results
+
+```

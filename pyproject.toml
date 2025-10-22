@@ -2,7 +2,7 @@
 name = "pcdiff-implant"
 version = "1.1.0"
 description = "Point Cloud Diffusion Models for Automatic Implant Generation"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -15,7 +15,8 @@ authors = [
 
 dependencies = [
     # Install PyTorch with CUDA 13 support separately, e.g.
-    # uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+    # uv pip install torch --index-url https://download.pytorch.org/whl/cu130
+    # uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
     "torch>=2.5.0",
     "torchvision>=0.20.0",
 
@@ -50,11 +51,21 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-dev-dependencies = [
+[tool.uv.dependency-groups]
+dev = [
     "ipdb>=0.13.0",
     "pytest>=8.0.0",
     "pre-commit>=3.8.0",
 ]
+extra = [
+    "black>=24.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pcdiff", "voxelization"]
+
+[tool.hatch.build.targets.editable]
+packages = ["pcdiff", "voxelization"]
 
 [project.urls]
 Homepage = "https://pfriedri.github.io/pcdiff-implant-io/"

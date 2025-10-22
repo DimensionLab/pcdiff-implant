@@ -5,7 +5,7 @@
 
 This is the official PyTorch implementation of the MICCAI 2023 paper [Point Cloud Diffusion Models for Automatic Implant Generation](https://pfriedri.github.io/pcdiff-implant-io/) by Paul Friedrich, Julia Wolleb, Florentin Bieder, Florian M. Thieringer and Philippe C. Cattin.
 
-> **🚀 Quick Start**: Get running in 5 minutes with Python 3.14, CUDA 13, and `uv`! See **[QUICKSTART.md](./QUICKSTART.md)**
+> **🚀 Quick Start**: Get running in minutes with Python 3.14, CUDA 13, and `uv`! See **[QUICKSTART.md](./QUICKSTART.md)**
 
 If you find our work useful, please consider to :star: **star this repository** and :memo: **cite our paper**:
 ```bibtex

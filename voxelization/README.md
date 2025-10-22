@@ -3,22 +3,23 @@ To **train your own models** or **reproduce our results**, please follow the nex
 
 ## Install the Environment
 
-### Modern Setup (Python 3.12 + uv) - RECOMMENDED
-See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.12 and `uv`.
+### Modern Setup (Python 3.14 + uv) - RECOMMENDED
+See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.14 and `uv`.
 
 **Quick start:**
 ```sh
 # From project root
-uv venv --python python3.12
+uv venv --python python3.14
 source .venv/bin/activate
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv pip install torch --index-url https://download.pytorch.org/whl/cu130
+uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
 uv pip install -e .
 
 # Install PyTorch3D (required)
-uv pip install pytorch3d
+uv pip install git+https://github.com/facebookresearch/pytorch3d.git@stable
 
 # Install PyTorch Scatter (required)
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu121.html
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0%2Bcu130.html
 ```
 
 ### Legacy Setup (Conda)
