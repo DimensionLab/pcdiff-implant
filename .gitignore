@@ -48,3 +48,11 @@ cuda_*.run
 wandb/
 
 /inference*
+
+# Web Viewer
+/web_viewer/frontend/node_modules/
+/web_viewer/frontend/dist/
+/web_viewer/frontend/.env
+/web_viewer/frontend/.env.local
+/web_viewer/backend/__pycache__/
+*.pyc
