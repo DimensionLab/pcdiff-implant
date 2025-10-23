@@ -1,15 +1,15 @@
-# Quick Start Guide (uv + Python 3.14 + CUDA 13)
+# Quick Start Guide (uv + Python 3.10 + PyTorch 2.5)
 
 Get up and running in 5 minutes! 🚀
 
 ## Prerequisites
-- Python 3.14 installed (`python3 --version`)
-- NVIDIA GPU with CUDA 13.0.2+ (H100 recommended)
+- Python 3.10 (installed via `uv python install 3.10`)
+- NVIDIA GPU with CUDA 12.4+ or 13.0+ (H100 recommended)
 - uv package manager
 
 ## Install uv
 ```bash
-# Option 1: Using pip (requires Python 3.14)
+# Option 1: Using pip
 pip install uv
 
 # Option 2: Standalone installer (recommended)
@@ -21,12 +21,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```bash
 cd /home/michaltakac/pcdiff-implant
 
-# Run the setup script (defaults to CUDA 13.0)
+# Run the setup script (defaults to CUDA 12.4, compatible with CUDA 13)
 ./setup_uv.sh
 
 # For different CUDA versions:
-./setup_uv.sh cu130  # CUDA 13.0 (default)
-./setup_uv.sh cu124  # CUDA 12.4
+./setup_uv.sh cu124  # CUDA 12.4 (default, works with CUDA 13 drivers)
+./setup_uv.sh cu121  # CUDA 12.1
 ./setup_uv.sh cpu    # CPU only
 ```
 
@@ -43,30 +43,43 @@ If you prefer to install manually:
 
 ```bash
 # 1. Create and activate virtual environment
-uv venv --python python3.14
+uv python install 3.10  # Download Python 3.10 if needed
+uv venv --python 3.10
 source .venv/bin/activate
 
-# 2. Install PyTorch with CUDA 13 (H100)
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+# 2. Install PyTorch 2.5.0 with CUDA 12.4 (works with CUDA 13 drivers)
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 
 # 3. Install project dependencies
 uv pip install -e .
 
-# 4. Install PyTorch3D (for voxelization)
+# 4. Install PyTorch3D (optional, for voxelization only)
+# First try pre-built wheels (fast)
+uv pip install --no-deps fvcore iopath
 uv pip install pytorch3d
 
-# 5. Install PyTorch Scatter (for voxelization)
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu130.html
+# If that fails, build from source (~5-10 min)
+# Make sure CUDA_HOME matches PyTorch's CUDA version
+export CUDA_HOME=/usr/local/cuda-12.4  # Match PyTorch's CUDA 12.4
+uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+
+# 5. Install PyTorch Scatter (for voxelization, pre-built wheel)
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
 ```
 
 ## Verify Installation
 
 ```bash
+# Activate the virtual environment first!
+source .venv/bin/activate
+
 # Quick test
 python3 -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 python3 -c "import pytorch3d, torch_scatter; print('All dependencies OK!')"
 ```
+
+> **💡 Tip**: If you get `ModuleNotFoundError`, make sure you activated the virtual environment with `source .venv/bin/activate`
 
 ## Next Steps
 
@@ -78,18 +91,25 @@ Organize as shown in [README.md](./README.md#data).
 
 ### 2. Preprocess Data
 ```bash
+# Make sure virtual environment is activated!
+source .venv/bin/activate
+
 python3 pcdiff/utils/preproc_skullbreak.py
 python3 pcdiff/utils/preproc_skullfix.py
 ```
 
 ### 3. Create Train/Test Split
 ```bash
+source .venv/bin/activate
+
 python3 pcdiff/utils/split_skullbreak.py
 python3 pcdiff/utils/split_skullfix.py
 ```
 
 ### 4. Train Point Cloud Diffusion Model
 ```bash
+source .venv/bin/activate
+
 python3 pcdiff/train_completion.py \
     --path datasets/SkullBreak/train.csv \
     --dataset SkullBreak
@@ -97,11 +117,15 @@ python3 pcdiff/train_completion.py \
 
 ### 5. Train Voxelization Network
 ```bash
+source .venv/bin/activate
+
 python3 voxelization/train.py voxelization/configs/train_skullbreak.yaml
 ```
 
 ### 6. Generate Implants
 ```bash
+source .venv/bin/activate
+
 # Point cloud generation
 python3 pcdiff/test_completion.py \
     --path datasets/SkullBreak/test.csv \
@@ -115,6 +139,22 @@ python3 voxelization/generate.py voxelization/configs/gen_skullbreak.yaml
 
 ## Troubleshooting
 
+### ModuleNotFoundError (mcubes, torch, etc.)
+
+**Problem**: `ModuleNotFoundError: No module named 'mcubes'` or similar errors
+
+**Solution**: You forgot to activate the virtual environment!
+```bash
+# Always activate before running any Python scripts
+source .venv/bin/activate
+
+# Verify it's activated (you should see (.venv) in your prompt)
+which python3  # Should show: /home/YOUR_USER/pcdiff-implant/.venv/bin/python3
+
+# Now run your script
+python3 pcdiff/utils/preproc_skullbreak.py
+```
+
 ### CUDA not available
 ```bash
 # Check CUDA version
@@ -125,11 +165,39 @@ uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 uv pip install torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 
-### PyTorch3D installation fails
+### PyTorch3D installation fails (CUDA version mismatch)
+
+**Problem**: PyTorch3D build fails with "CUDA version (13.0) mismatches the version that was used to compile PyTorch (12.4)"
+
+**Solution 1 - Install matching CUDA toolkit** (Recommended):
 ```bash
-# Try building from source
+# Install CUDA 12.4 toolkit
+wget https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/cuda_12.4.0_550.54.14_linux.run
+sudo sh cuda_12.4.0_550.54.14_linux.run --toolkit --silent --override
+
+# Set environment variables
+export CUDA_HOME=/usr/local/cuda-12.4
+export PATH=${CUDA_HOME}/bin:${PATH}
+export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# Re-run setup
+./setup_uv.sh
+```
+
+**Solution 2 - Skip PyTorch3D** (if only using point cloud diffusion):
+```bash
+# PyTorch3D is only needed for voxelization
+# The main point cloud diffusion model works without it
+# Just proceed with the other dependencies
+```
+
+**Solution 3 - Manual build**:
+```bash
+# Clone and build from source with proper CUDA paths
 git clone https://github.com/facebookresearch/pytorch3d.git
-cd pytorch3d && uv pip install -e .
+cd pytorch3d
+export CUDA_HOME=/usr/local/cuda-12.4  # Match PyTorch's CUDA version
+uv pip install -e .
 ```
 
 ### diplib fails

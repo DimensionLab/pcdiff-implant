@@ -5,7 +5,7 @@
 
 This is the official PyTorch implementation of the MICCAI 2023 paper [Point Cloud Diffusion Models for Automatic Implant Generation](https://pfriedri.github.io/pcdiff-implant-io/) by Paul Friedrich, Julia Wolleb, Florentin Bieder, Florian M. Thieringer and Philippe C. Cattin.
 
-> **🚀 Quick Start**: Get running in minutes with Python 3.14, CUDA 13, and `uv`! See **[QUICKSTART.md](./QUICKSTART.md)**
+> **🚀 Quick Start**: Get running in minutes with Python 3.10, PyTorch 2.5, and `uv`! See **[INSTALL.md](./INSTALL.md)**
 
 If you find our work useful, please consider to :star: **star this repository** and :memo: **cite our paper**:
 ```bibtex
@@ -55,9 +55,13 @@ datasets
 
 ## Installation
 
-### Modern Setup (Python 3.14 + uv) - RECOMMENDED
-For a modern setup using Python 3.14, CUDA 13, and `uv` for dependency management, see the comprehensive guide:
-* **[Modern Setup Guide (SETUP.md)](./SETUP.md)** ← Start here!
+### Modern Setup (Python 3.10 + PyTorch 2.5 + uv) - RECOMMENDED
+Quick install (PyTorch 2.5.0 + CUDA 12.4 works with CUDA 13 drivers):
+* **[INSTALL.md](./INSTALL.md)** ← Fastest way to get started!
+* [SETUP.md](./SETUP.md) - Comprehensive setup guide
+* [QUICKSTART.md](./QUICKSTART.md) - Step-by-step walkthrough
+
+**Why CUDA 12.4 binaries?** PyTorch's CUDA 12.4 build has better ecosystem support (torch-scatter wheels) and is forward-compatible with your CUDA 13.0 drivers.
 
 ### Legacy Setup (Conda)
 The original conda environments are still available but not recommended for new installations:

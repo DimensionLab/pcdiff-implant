@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick setup script for pcdiff-implant using uv and Python 3.14
+# Quick setup script for pcdiff-implant using uv and Python 3.10
 # Usage: ./setup_uv.sh [cuda_version]
 # Example: ./setup_uv.sh cu130  # CUDA 13.0 (default)
 # Example: ./setup_uv.sh cu124  # CUDA 12.4
@@ -14,12 +14,12 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}pcdiff-implant Setup (Python 3.14 + uv)${NC}"
+echo -e "${GREEN}pcdiff-implant Setup (Python 3.10 + uv)${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
-# Determine CUDA version
-CUDA_VERSION="${1:-cu130}"  # Default to CUDA 13.0
+# Determine CUDA version (using cu124 for better torch-scatter support)
+CUDA_VERSION="${1:-cu124}"  # Default to CUDA 12.4 (compatible with CUDA 13 drivers)
 echo -e "${YELLOW}Using CUDA version: ${CUDA_VERSION}${NC}"
 
 # Check if uv is installed
@@ -39,8 +39,8 @@ fi
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
 echo -e "${YELLOW}Python version: ${PYTHON_VERSION}${NC}"
 
-if [[ "$PYTHON_VERSION" < "3.14" ]]; then
-    echo -e "${RED}Warning: Python 3.14+ is recommended, you have ${PYTHON_VERSION}${NC}"
+if [[ "$PYTHON_VERSION" < "3.10" ]]; then
+    echo -e "${RED}Warning: Python 3.10+ is recommended, you have ${PYTHON_VERSION}${NC}"
     read -p "Continue anyway? (y/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -57,48 +57,112 @@ if [ -d ".venv" ]; then
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         rm -rf .venv
-        uv venv --python python3.14
+        uv venv --python 3.10
     fi
 else
-    uv venv --python python3.14
+    uv venv --python 3.10
 fi
 
 # Activate virtual environment
 echo ""
-echo -e "${GREEN}[2/6] Activating virtual environment...${NC}"
+echo -e "${GREEN}[3/7] Activating virtual environment...${NC}"
 source .venv/bin/activate
 
 # Install PyTorch with CUDA
 echo ""
-echo -e "${GREEN}[3/6] Installing PyTorch with ${CUDA_VERSION}...${NC}"
+echo -e "${GREEN}[4/7] Installing PyTorch 2.5.0 with ${CUDA_VERSION}...${NC}"
 if [ "$CUDA_VERSION" = "cpu" ]; then
-    uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    uv pip install "torch==2.5.0" "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cpu
 else
-    uv pip install torch --index-url https://download.pytorch.org/whl/${CUDA_VERSION}
-    uv pip install torchvision --index-url https://download.pytorch.org/whl/${CUDA_VERSION}
+    uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/${CUDA_VERSION}
+    uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/${CUDA_VERSION}
 fi
 
 # Install main dependencies
 echo ""
-echo -e "${GREEN}[4/6] Installing project dependencies...${NC}"
+echo -e "${GREEN}[5/7] Installing project dependencies...${NC}"
 uv pip install -e .
 
 # Install PyTorch3D
 echo ""
-echo -e "${GREEN}[5/6] Installing PyTorch3D...${NC}"
-echo -e "${YELLOW}(This may take a few minutes and might require compilation)${NC}"
-uv pip install pytorch3d || {
-    echo -e "${RED}PyTorch3D installation failed. You may need to install it manually.${NC}"
-    echo "See: https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md"
-}
+echo -e "${GREEN}[6/7] Installing PyTorch3D...${NC}"
 
-# Install PyTorch Scatter
+# First, try pre-built wheels (much faster, no compilation needed)
+echo -e "${YELLOW}Trying pre-built PyTorch3D wheels...${NC}"
+if uv pip install --no-deps "fvcore" "iopath" 2>/dev/null; then
+    if uv pip install "pytorch3d" 2>/dev/null; then
+        echo -e "${GREEN}✓ Installed PyTorch3D from pre-built wheels${NC}"
+        PYTORCH3D_INSTALLED=true
+    else
+        PYTORCH3D_INSTALLED=false
+    fi
+else
+    PYTORCH3D_INSTALLED=false
+fi
+
+# If pre-built wheels failed, try building from source with CUDA compatibility fix
+if [ "$PYTORCH3D_INSTALLED" = false ]; then
+    echo -e "${YELLOW}Pre-built wheels not available, building from source...${NC}"
+    echo -e "${YELLOW}(This takes ~5-10 minutes)${NC}"
+    
+    # Force PyTorch3D to use the same CUDA version as PyTorch
+    export FORCE_CUDA="1"
+    export TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0"  # Common GPU architectures
+    
+    # Get PyTorch's CUDA version to ensure compatibility
+    PYTORCH_CUDA=$(python3 -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo "")
+    
+    if [ -n "$PYTORCH_CUDA" ]; then
+        echo -e "${YELLOW}PyTorch was built with CUDA ${PYTORCH_CUDA}${NC}"
+        echo -e "${YELLOW}Setting CUDA_HOME to match PyTorch's CUDA version...${NC}"
+        
+        # Try to find matching CUDA installation
+        if [ -d "/usr/local/cuda-${PYTORCH_CUDA}" ]; then
+            export CUDA_HOME="/usr/local/cuda-${PYTORCH_CUDA}"
+            export PATH="${CUDA_HOME}/bin:${PATH}"
+            export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
+        fi
+    fi
+    
+    # Install dependencies first
+    uv pip install --no-deps "fvcore" "iopath"
+    
+    # Try building PyTorch3D
+    if uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"; then
+        echo -e "${GREEN}✓ Built PyTorch3D from source${NC}"
+    else
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${RED}PyTorch3D installation failed!${NC}"
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo -e "${YELLOW}This is usually due to CUDA version mismatch.${NC}"
+        echo -e "${YELLOW}Your system has CUDA $(nvcc --version 2>/dev/null | grep release | sed 's/.*release //' | sed 's/,.*//' || echo 'unknown')${NC}"
+        echo -e "${YELLOW}PyTorch was built with CUDA ${PYTORCH_CUDA}${NC}"
+        echo ""
+        echo -e "${YELLOW}Options to fix this:${NC}"
+        echo -e "  1. Install CUDA ${PYTORCH_CUDA} toolkit and set CUDA_HOME:"
+        echo -e "     export CUDA_HOME=/usr/local/cuda-${PYTORCH_CUDA}"
+        echo -e "     Then re-run this script"
+        echo ""
+        echo -e "  2. Use a different PyTorch version matching your system CUDA"
+        echo ""
+        echo -e "  3. Skip PyTorch3D (only needed for voxelization)"
+        echo ""
+        echo -e "${YELLOW}Manual installation:${NC}"
+        echo -e "  See: https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md"
+        echo ""
+    fi
+fi
+
+# Install PyTorch Scatter (pre-built wheel for PyTorch 2.5)
 echo ""
-echo -e "${GREEN}[6/6] Installing PyTorch Scatter...${NC}"
-TORCH_VERSION=$(python -c "import torch; print(torch.__version__.split('+')[0])")
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-${TORCH_VERSION}+${CUDA_VERSION}.html || {
-    echo -e "${RED}PyTorch Scatter installation failed. You may need to install it manually.${NC}"
-    echo "See: https://github.com/rusty1s/pytorch_scatter"
+echo -e "${GREEN}[7/7] Installing PyTorch Scatter...${NC}"
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+${CUDA_VERSION}.html || {
+    echo -e "${YELLOW}Pre-built wheel not found, building from source (~2-3 min)...${NC}"
+    uv pip install --no-build-isolation "git+https://github.com/rusty1s/pytorch_scatter.git" || {
+        echo -e "${RED}PyTorch Scatter installation failed. You may need to install it manually.${NC}"
+        echo "See: https://github.com/rusty1s/pytorch_scatter"
+    }
 }
 
 # Verify installation
@@ -123,6 +187,7 @@ def check_import(module_name, display_name=None):
         return False
 
 print("")
+print("Core dependencies:")
 all_ok = True
 all_ok &= check_import('torch', 'PyTorch')
 all_ok &= check_import('torchvision', 'TorchVision')
@@ -134,15 +199,19 @@ all_ok &= check_import('tqdm', 'tqdm')
 all_ok &= check_import('yaml', 'PyYAML')
 all_ok &= check_import('scipy', 'SciPy')
 
-# Voxelization-specific
-all_ok &= check_import('pytorch3d', 'PyTorch3D')
-all_ok &= check_import('torch_scatter', 'PyTorch Scatter')
+print("")
+print("Optional (voxelization only):")
+pytorch3d_ok = check_import('pytorch3d', 'PyTorch3D')
+scatter_ok = check_import('torch_scatter', 'PyTorch Scatter')
 
 print("")
 if all_ok:
     print("✓ All core dependencies installed successfully!")
+    if not pytorch3d_ok:
+        print("⚠ PyTorch3D not installed (only needed for voxelization)")
+        print("  The main point cloud diffusion model will work fine without it.")
 else:
-    print("✗ Some dependencies are missing. See errors above.")
+    print("✗ Some core dependencies are missing. See errors above.")
     sys.exit(1)
 
 # Check CUDA

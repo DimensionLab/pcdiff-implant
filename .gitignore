@@ -42,3 +42,4 @@ share/python-wheels/
 MANIFEST
 
 .idea/
+cuda_*.run

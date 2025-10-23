@@ -3,21 +3,27 @@ To **train your own models** or **reproduce our results**, please follow the nex
 
 ## Install the Environment
 
-### Modern Setup (Python 3.14 + uv) - RECOMMENDED
-See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.14 and `uv`.
+### Modern Setup (Python 3.10 + uv) - RECOMMENDED
+See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.10 and `uv`.
 
 **Quick start (single node, single GPU):**
 ```sh
 # From project root
-uv venv --python python3.14
+uv venv --python 3.10
 source .venv/bin/activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 uv pip install -e .
 ```
 
-**Multi-GPU:**
-Use `torchrun --nproc_per_node=<GPUs>` when launching `pcdiff/train_completion.py` to enable DistributedDataParallel training. The script automatically respects `WORLD_SIZE`, `RANK`, and `LOCAL_RANK` provided by `torchrun`.
+**Multi-GPU (8x H100):**
+```sh
+torchrun --nproc_per_node=8 pcdiff/train_completion.py \
+    --path datasets/SkullBreak/train.csv \
+    --dataset SkullBreak \
+    --bs 64
+```
+The script automatically respects `WORLD_SIZE`, `RANK`, and `LOCAL_RANK` from torchrun.
 
 ### Legacy Setup (Conda)
 If you prefer the original conda environment (Python 3.6, PyTorch 1.7.1):

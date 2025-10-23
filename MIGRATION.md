@@ -1,4 +1,4 @@
-# Migration Guide: Conda → uv (Python 3.14)
+# Migration Guide: Conda → uv (Python 3.10)
 
 This guide helps you migrate from the legacy conda environments to the modern uv-based setup.
 
@@ -6,7 +6,7 @@ This guide helps you migrate from the legacy conda environments to the modern uv
 
 | Aspect | Legacy (Conda) | Modern (uv) |
 |--------|---------------|-------------|
-| **Python** | 3.6 (pcd) / 3.8 (vox) | 3.14 |
+| **Python** | 3.6 (pcd) / 3.8 (vox) | 3.10 |
 | **PyTorch** | 1.7.1 / 1.12.0 | 2.x |
 | **CUDA** | 10.1 / 11.3 | 13.0+ |
 | **Environment Manager** | conda/mamba | uv |
@@ -49,42 +49,45 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 cd /home/michaltakac/pcdiff-implant
 
 # Create virtual environment
-uv venv --python python3.14
+uv python install 3.10
+uv venv --python 3.10
 
 # Activate it
 source .venv/bin/activate
 
 # Install PyTorch with CUDA support
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 
 # Install all dependencies
 uv pip install -e .
 
 # Install PyTorch3D and PyTorch Scatter
-uv pip install git+https://github.com/facebookresearch/pytorch3d.git@stable
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0%2Bcu130.html
+uv pip install pytorch3d
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.9.0%2Bcu130.html
 ```
 
 #### Option B: Separate Environments (Like Before)
 ```bash
 # Point Cloud Diffusion
 cd /home/michaltakac/pcdiff-implant/pcdiff
-uv venv --python python3.14
+uv python install 3.10
+uv venv --python 3.10
 source .venv/bin/activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 uv pip install -e .
 
 # Voxelization
 cd /home/michaltakac/pcdiff-implant/voxelization
-uv venv --python python3.14
+uv python install 3.10
+uv venv --python 3.10
 source .venv/bin/activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 uv pip install -e .
-uv pip install git+https://github.com/facebookresearch/pytorch3d.git@stable
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0%2Bcu130.html
+uv pip install pytorch3d
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.9.0%2Bcu130.html
 ```
 
 ### 4. Verify Installation
@@ -134,8 +137,8 @@ source .venv/bin/activate
 ```bash
 nvcc --version  # Check your CUDA version
 # Install matching PyTorch (adjust cu121 to your version)
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 ```
 
 ### Issue: PyTorch3D installation fails

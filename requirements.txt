@@ -1,11 +1,12 @@
 # Point Cloud Diffusion Models for Automatic Implant Generation
-# Requirements for Python 3.14 with uv
+# Requirements for Python 3.10 with uv
 #
 # Installation:
 #   uv pip install -r requirements.txt
 #
 # Note: Install PyTorch first with CUDA support:
-#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+#   uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 
 # Core PyTorch (install separately with CUDA)
 # torch>=2.0.0
@@ -42,6 +43,9 @@ plotly>=5.14.0
 ninja>=1.11.0
 
 # Note: Install these separately after PyTorch:
-# pytorch3d (for voxelization)
-# torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu121.html
+# 1. Python 3.10 is installed automatically by uv (uv python install 3.10)
+# 2. pytorch3d (builds from source, ~5-10 min):
+#   uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+# 3. torch-scatter (pre-built wheel):
+#   uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
 

@@ -2,7 +2,7 @@
 name = "pcdiff"
 version = "1.0.0"
 description = "Point Cloud Diffusion Model for Anatomy Restoration"
-requires-python = ">=3.14"
+requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",

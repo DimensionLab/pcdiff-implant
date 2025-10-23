@@ -98,7 +98,7 @@ def main():
         print('\n---------- Voxelizing point clouds ----------')
 
     for it, data in enumerate(loader):
-        if rank == 0:
+        if rank == 0 and it % max(1, len(loader)//10 or 1) == 0:
             print(f"Sampling step [{it + 1}/{len(loader)}] ...")
         name = data['name'][0]
 

@@ -1,13 +1,14 @@
-# Modern Setup Guide (Python 3.14 + uv)
+# Modern Setup Guide (Python 3.10 + uv)
 
-This guide explains how to set up the project using Python 3.14 and `uv` for dependency management.
+This guide explains how to set up the project using Python 3.10 and `uv` for dependency management.
 
 ## Prerequisites
 
-1. **Python 3.14** installed on your system (accessible via `python3`)
+1. **Python 3.10** (installed via `uv python install 3.10`)
 2. **uv** package manager ([installation guide](https://github.com/astral-sh/uv))
-3. **CUDA-capable GPU** (NVIDIA A100 recommended, as per original paper)
-4. **CUDA Toolkit 13.0+** installed on your system (tested with CUDA 13.0.2)
+3. **CUDA-capable GPU** (H100 recommended, tested with CUDA 13.0.2)
+
+**Note**: We use PyTorch 2.5.0 + CUDA 12.4 binaries which are forward-compatible with CUDA 13 drivers and have pre-built torch-scatter wheels.
 
 ## Installation Options
 
@@ -17,23 +18,23 @@ Install all dependencies in a single environment using the root `pyproject.toml`
 
 ```bash
 # Create virtual environment and install dependencies
-uv venv --python python3.14
+uv python install 3.10  # Install Python 3.10 if needed
+uv venv --python 3.10
 source .venv/bin/activate  # On Linux/Mac
 # or: .venv\Scripts\activate  # On Windows
 
-# Install PyTorch with CUDA support (adjust for your CUDA version)
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+# Install PyTorch 2.5.0 with CUDA 12.4 (compatible with CUDA 13 drivers)
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 
 # Install all other dependencies
 uv pip install -e .
 
-# Install PyTorch3D (required for voxelization network)
-# Note: This can be tricky - see "Installing PyTorch3D" section below
-uv pip install pytorch3d
+# Install PyTorch3D (required for voxelization network, builds from source)
+uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 
-# Install PyTorch Scatter (required for voxelization network)
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu121.html
+# Install PyTorch Scatter (required for voxelization network, pre-built wheel)
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
 ```
 
 ### Option 2: Separate Environments
@@ -43,12 +44,13 @@ If you prefer to keep the environments separate (e.g., for dependency isolation)
 #### For Point Cloud Diffusion Model:
 ```bash
 cd pcdiff
-uv venv --python python3.14
+uv python install 3.10  # Install Python 3.10 if needed
+uv venv --python 3.10
 source .venv/bin/activate
 
-# Install PyTorch with CUDA
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+# Install PyTorch with CUDA 12.4
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 
 # Install dependencies
 uv pip install -e .
@@ -57,34 +59,38 @@ uv pip install -e .
 #### For Voxelization Network:
 ```bash
 cd voxelization
-uv venv --python python3.14
+uv python install 3.10  # Install Python 3.10 if needed
+uv venv --python 3.10
 source .venv/bin/activate
 
-# Install PyTorch with CUDA
-uv pip install torch --index-url https://download.pytorch.org/whl/cu130
-uv pip install torchvision --index-url https://download.pytorch.org/whl/cu130
+# Install PyTorch with CUDA 12.4
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
 
 # Install dependencies
 uv pip install -e .
 
-# Install PyTorch3D and PyTorch Scatter (see below)
-uv pip install git+https://github.com/facebookresearch/pytorch3d.git@stable
-uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0%2Bcu130.html
+# Install PyTorch3D and PyTorch Scatter
+uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
 ```
 
-## Installing PyTorch3D
+## Installing PyTorch3D & PyTorch Scatter
 
-PyTorch3D can be challenging to install. Here are the recommended methods:
-
-### Installing from source (recommended for Python 3.14)
+### Prerequisites
 ```bash
-# Install build dependencies
-uv pip install fvcore iopath
+# Python 3.10 is installed automatically by uv
+# Verify CUDA is accessible
+nvcc --version  # should show 13.0
+```
 
-# Clone and build
-git clone https://github.com/facebookresearch/pytorch3d.git
-cd pytorch3d
-uv pip install -e .
+### Installation
+```bash
+# PyTorch3D (~5-10 minutes, must build from source)
+uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+
+# PyTorch Scatter (pre-built wheel, instant)
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
 ```
 
 ## Verifying Installation
@@ -114,6 +120,22 @@ nvcc --version  # or nvidia-smi
 
 ## Troubleshooting
 
+### PyTorch3D or PyTorch Scatter build errors
+
+**Missing Python.h:**
+```bash
+sudo apt-get install python3.12-dev
+```
+
+**Missing CUDA or build tools:**
+```bash
+# On Ubuntu/Debian:
+sudo apt-get install build-essential libgl1-mesa-dev libglib2.0-0
+
+# Check CUDA is properly installed
+nvcc --version
+```
+
 ### diplib installation fails
 ```bash
 # diplib might need system dependencies
@@ -124,21 +146,12 @@ sudo apt-get install libdip-dev
 conda install diplib -c diplib
 ```
 
-### PyTorch3D build errors
-Make sure you have:
-```bash
-# On Ubuntu/Debian:
-sudo apt-get install libgl1-mesa-dev libglib2.0-0
-
-# Check CUDA is properly installed
-nvcc --version
-```
-
 ### Version conflicts
 ```bash
 # Start fresh
 rm -rf .venv
-uv venv --python python3.14
+uv python install 3.10  # Install Python 3.10 if needed
+uv venv --python 3.10
 source .venv/bin/activate
 # Then reinstall following steps above
 ```
@@ -146,14 +159,14 @@ source .venv/bin/activate
 ## Migration Notes from Conda Environments
 
 **Key changes from original setup:**
-- Python 3.6/3.8 → Python 3.14
+- Python 3.6/3.8 → Python 3.10
 - PyTorch 1.7.1/1.12.0 → PyTorch 2.x
 - Conda/Mamba → uv
 - CUDA 10.1/11.3 → CUDA 12.1 (or your system version)
 - Unified environment possible (original used two separate environments)
 
 **Compatibility considerations:**
-- All major dependencies support Python 3.14
+- All major dependencies support Python 3.10
 - PyTorch 2.x is largely backward compatible with 1.x models
 - Some old model checkpoints might need conversion (test thoroughly)
 - Performance should be equal or better with modern PyTorch
