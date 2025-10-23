@@ -2,20 +2,32 @@
 To **train your own models** or **reproduce our results**, please follow the next steps.
 
 ## Install the Environment
-First you have to ensure that you have all dependencies installed. The simplest way to do so is to use a conda environment (You can use [Mambaforge](https://github.com/conda-forge/miniforge#mambaforge) to create and manage them. If you use Anaconda/Miniconda just replace `mamba` with `conda`).
 
-You can create and activate such an environment called `vox` by running the following command:
+### Modern Setup (Python 3.10 + uv) - RECOMMENDED
+See the main [SETUP.md](../SETUP.md) guide for detailed installation instructions using Python 3.10 and `uv`.
+
+**Quick start:**
+```sh
+# From project root
+uv venv --python 3.10
+source .venv/bin/activate
+uv pip install "torch==2.5.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cu124
+uv pip install -e .
+
+# Install PyTorch3D (required, builds from source ~5-10 min)
+uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+
+# Install PyTorch Scatter (required, pre-built wheel)
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+```
+
+### Legacy Setup (Conda)
+If you prefer the original conda environment (Python 3.8, PyTorch 1.12.0):
 ```sh
 mamba env create -f voxelization/vox_env.yaml
 mamba activate vox
-```
-Next you should install [PyTorch3D](https://pytorch3d.org) **(>=0.5)** following the [official instruction](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md). The following command should work:
-```sh
 mamba install pytorch3d -c pytorch3d
-```
-
-The last thing to do is to install [PyTorch Scatter](https://github.com/rusty1s/pytorch_scatter):
-```sh
 mamba install pytorch-scatter -c pyg
 ```
 

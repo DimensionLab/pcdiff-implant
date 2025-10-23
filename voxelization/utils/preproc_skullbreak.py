@@ -1,29 +1,86 @@
-import os
 import argparse
-import multiprocessing
+import csv
+import multiprocessing as mp
+import time
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
+from typing import Iterable
+
+import nrrd
 import numpy as np
 from tqdm import tqdm
-import nrrd
-import time
-import csv
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--multiprocessing', type=eval, default=True, help="set multiprocessing True/False")
-parser.add_argument('--threads', type=int, default=8, help="define number of threads")
-parser.add_argument('--num_points', type=int, default=30720, help="number of points the point cloud should contain")
-parser.add_argument('--num_nn', type=int, default=3072, help="number of points that represent the implant")
-parser.add_argument('--path', type=str, default='datasets/SkullBreak/skullbreak.csv')
-opt = parser.parse_args()
+@dataclass(frozen=True)
+class VoxelizationConfig:
+    root: Path
+    csv_path: Path
+    num_points: int
+    num_nn: int
+    multiprocessing: bool
+    threads: int
+    overwrite: bool
 
-multiprocess = opt.multiprocessing
-njobs = opt.threads
-save_pointcloud = True
-save_psr_field = True
-num_points = opt.num_points
-num_nn = opt.num_nn
-padding = 1.2
-mesh_factor = 1.1
+
+def parse_args() -> VoxelizationConfig:
+    parser = argparse.ArgumentParser(
+        description="Prepare voxelization point clouds for the SkullBreak dataset",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path("datasets/SkullBreak"),
+        help="Root directory of the SkullBreak dataset",
+    )
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        default=Path("datasets/SkullBreak/skullbreak.csv"),
+        help="CSV listing complete-skull volumes (see split_skullbreak.py)",
+    )
+    parser.add_argument(
+        "--num-points",
+        type=int,
+        default=30_720,
+        help="Number of total points per sample (defective + implant)",
+    )
+    parser.add_argument(
+        "--num-nn",
+        type=int,
+        default=3_072,
+        help="Number of implant points",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=max(mp.cpu_count() - 1, 1),
+        help="Number of workers when multiprocessing is enabled",
+    )
+    parser.add_argument(
+        "--multiprocessing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable multiprocessing",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Recompute samples even if cached .npz exists",
+    )
+
+    args = parser.parse_args()
+    return VoxelizationConfig(
+        root=args.root.expanduser().resolve(),
+        csv_path=args.csv.expanduser().resolve(),
+        num_points=args.num_points,
+        num_nn=args.num_nn,
+        multiprocessing=args.multiprocessing,
+        threads=args.threads,
+        overwrite=args.overwrite,
+    )
 
 
 def array2voxel(voxel_array):
@@ -40,87 +97,89 @@ def array2voxel(voxel_array):
     return grid_index_array
 
 
-def process_one(obj):
-    pc_np = np.load(obj['defective_skull'])  # Defective skull pc
-    pc_d_np = np.load(obj['implant'])  # Implant pc
-    gt_vox, _ = nrrd.read(obj['gt_vox'])  # Gt vox
+def load_csv(csv_path: Path) -> list[str]:
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
-    # Downsample point clouds
-    num_pc = pc_np.shape[0]
-    idx_pc = np.random.randint(0, num_pc, num_points - num_nn)
-    pc_np = pc_np[idx_pc, :]
-
-    num_pc_d = pc_d_np.shape[0]
-    idx_pc_d = np.random.randint(0, num_pc_d, num_nn)
-    pc_d_np = pc_d_np[idx_pc_d, :]
-
-    points = np.concatenate((pc_np, pc_d_np), axis=0)  # Pc complete (defective skull + implant)
-
-    vox = np.ones((512, 512, 512), dtype=bool) * 0.5
-    vox[gt_vox > 0] = -0.5
-    vox = vox.astype(np.float32)
-
-    name_vox = os.path.join(obj['defective_skull'].split('/defective')[0], 'voxelization',
-                            obj['gt_vox'].split('.nrr')[0][-3:] + '_' + obj['defect'] + '_vox.npz')
-    name_points = os.path.join(obj['defective_skull'].split('/defective')[0], 'voxelization',
-                               obj['gt_vox'].split('.nrr')[0][-3:] + '_' + obj['defect'] + '_pc.npz')
-
-    # normalize pc
-    max = 512.0
-    points /= max
-
-    if save_pointcloud:
-        np.savez_compressed(name_points, points=points)
-    if save_psr_field:
-        np.savez_compressed(name_vox, psr=vox)
+    with csv_path.open() as fp:
+        reader = csv.reader(fp)
+        return [row[0] for row in reader if row]
 
 
-def main():
+def voxelization_output_paths(root: Path, case_id: str, defect: str) -> tuple[Path, Path]:
+    target_dir = root / "voxelization"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    suffix = f"{case_id[-3:]}_{defect}"
+    return target_dir / f"{suffix}_vox.npz", target_dir / f"{suffix}_pc.npz"
 
-    print('---------------------------------------')
-    print('Processing SkullBreak dataset')
-    print('---------------------------------------')
 
-    dataset_folder = opt.path
-    defects = ['bilateral', 'frontoorbital', 'parietotemporal', 'random_1', 'random_2']
-    database = []
+def sample_points(path: Path, k: int) -> np.ndarray:
+    points = np.load(path)
+    if points.shape[0] < k:
+        raise ValueError(f"Point cloud {path} has {points.shape[0]} points < required {k}")
+    idx = np.random.default_rng().choice(points.shape[0], k, replace=False)
+    return points[idx]
 
-    if not os.path.isdir('datasets/SkullBreak/voxelization'):
-        os.makedirs('datasets/SkullBreak/voxelization')
 
-    with open(dataset_folder, 'r') as file:
-        csv_reader = csv.reader(file)
-        for row in csv_reader:
-            for defect_id in range(5):
-                datapoint = dict()
-                datapoint['defective_skull'] = row[0].split('complete')[0] + 'defective_skull/' + \
-                                               defects[defect_id] + row[0].split('skull')[1].split('.')[0] + '_surf.npy'
-                datapoint['implant'] = row[0].split('complete')[0] + 'implant/' + \
-                                       defects[defect_id] + row[0].split('skull')[1].split('.')[0] + '_surf.npy'
-                datapoint['gt_vox'] = row[0]
-                datapoint['defect'] = defects[defect_id]
-                database.append(datapoint)
+def process_entry(
+    root: Path,
+    sample_path: Path,
+    cfg: VoxelizationConfig,
+) -> None:
+    defects = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
+    base = sample_path.stem  # complete skull filename without extension
 
-    if multiprocess:
-        # multiprocessing.set_start_method('spawn', force=True)
-        pool = multiprocessing.Pool(njobs)
-        try:
-            for _ in tqdm(pool.imap_unordered(process_one, database), total=len(database)):
+    for defect in defects:
+        defective_pc = root / "defective_skull" / defect / f"{base}_surf.npy"
+        implant_pc = root / "implant" / defect / f"{base}_surf.npy"
+        gt_vox_path = root / "defective_skull" / defect / f"{base}.nrrd"
+
+        vox_out, points_out = voxelization_output_paths(root, base, defect)
+        if (not cfg.overwrite) and vox_out.exists() and points_out.exists():
+            continue
+
+        defective_points = sample_points(defective_pc, cfg.num_points - cfg.num_nn)
+        implant_points = sample_points(implant_pc, cfg.num_nn)
+        combined = np.concatenate((defective_points, implant_points), axis=0) / 512.0
+
+        gt_vox, _ = nrrd.read(gt_vox_path)
+        vox = np.full((512, 512, 512), 0.5, dtype=np.float32)
+        vox[gt_vox > 0] = -0.5
+
+        np.savez_compressed(points_out, points=combined)
+        np.savez_compressed(vox_out, psr=vox)
+
+
+def iter_samples(csv_rows: Iterable[str]) -> list[Path]:
+    return [Path(row).expanduser().resolve() for row in csv_rows]
+
+
+def run(cfg: VoxelizationConfig) -> None:
+    csv_rows = load_csv(cfg.csv_path)
+    entries = iter_samples(csv_rows)
+
+    process = partial(process_entry, cfg.root, cfg=cfg)
+    total_tasks = len(entries) * 5  # 5 defects per entry
+
+    if cfg.multiprocessing and cfg.threads > 1:
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=cfg.threads) as pool:
+            for _ in tqdm(pool.imap_unordered(process, entries), total=len(entries)):
                 pass
-            # pool.map_async(process_one, obj_list).get()
-        except KeyboardInterrupt:
-            # Allow ^C to interrupt from any thread.
-            exit()
-        pool.close()
     else:
-        for obj in tqdm(database):
-            process_one(obj)
+        for entry in tqdm(entries):
+            process(entry)
 
-    print('Done Processing')
+    print(f"Done processing {total_tasks} voxelization samples")
+
+
+def main() -> None:
+    cfg = parse_args()
+    t_start = time.time()
+    run(cfg)
+    t_end = time.time()
+    print(f"Total processing time: {t_end - t_start:.2f}s")
 
 
 if __name__ == "__main__":
-    t_start = time.time()
     main()
-    t_end = time.time()
-    print('Total processing time: ', t_end - t_start)

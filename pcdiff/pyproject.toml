@@ -1,0 +1,27 @@
+[project]
+name = "pcdiff"
+version = "1.0.0"
+description = "Point Cloud Diffusion Model for Anatomy Restoration"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "matplotlib>=3.7.0",
+    "tqdm>=4.65.0",
+    "trimesh>=4.0.0",
+    "ninja>=1.11.0",
+    "pynrrd>=1.0.0",
+    "open3d>=0.18.0",
+    "PyMCubes>=0.1.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "ipdb>=0.13.0",
+    "pytest>=7.0.0",
+]
+

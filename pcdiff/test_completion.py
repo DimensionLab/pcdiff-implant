@@ -514,7 +514,8 @@ def get_dataset(path, num_points, num_nn, dataset):
 
 def evaluate_recon_mvr(opt, model, save_dir):
     test_dataset = get_dataset(opt.path, opt.num_points, opt.num_nn, opt.dataset)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=opt.bs, shuffle=False,
+    # Force batch_size=1 for inference (ensembling is handled separately)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False,
                                                   num_workers=int(opt.workers), drop_last=False)
 
     model.eval()
@@ -573,7 +574,15 @@ def main(opt):
         logger.info("Perform sampling with:%s" % opt.model)
 
         resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
-        model.load_state_dict(resumed_param['model_state'])
+        
+        # Handle DDP-saved checkpoints (remove 'module.' prefix if present)
+        state_dict = resumed_param['model_state']
+        if list(state_dict.keys())[0].startswith('model.module.'):
+            # Checkpoint was saved with DistributedDataParallel
+            state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
+            logger.info("Loaded checkpoint from distributed training (removed 'module.' prefix)")
+        
+        model.load_state_dict(state_dict)
 
         if opt.eval_recon_mvr:
             # Evaluate generation
