@@ -237,6 +237,27 @@ sudo systemctl status pcdiff-training.service
 
 **Solution:** Already fixed in `pcdiff/utils/file_utils.py` with `exist_ok=True`
 
+### Issue: "Missing key(s) in state_dict" or "module." prefix mismatch
+
+**Error message:**
+```
+RuntimeError: Error(s) in loading state_dict for Model:
+    Missing key(s) in state_dict: "model.sa_layers.0.0.voxel_layers.0.weight"...
+    Unexpected key(s) in state_dict: "model.module.sa_layers.0.0.voxel_layers.0.weight"...
+```
+
+**Cause:** Checkpoint was saved during distributed training with `DistributedDataParallel`, which adds a `module.` prefix to all parameters. When loading on single GPU for inference, the model expects keys without this prefix.
+
+**Solution:** Already fixed in `pcdiff/test_completion.py`. The script now automatically detects and removes the `module.` prefix when loading DDP-saved checkpoints.
+
+If you're using an older version or custom script, add this before `load_state_dict()`:
+```python
+state_dict = torch.load(checkpoint_path)['model_state']
+if list(state_dict.keys())[0].startswith('model.module.'):
+    state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
+model.load_state_dict(state_dict)
+```
+
 ### Issue: Loss is too noisy
 
 **Cause:** Per-GPU batch size is too small (e.g., 1)

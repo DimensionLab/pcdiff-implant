@@ -133,11 +133,33 @@ We provide many flags to change the hyperparameters of the model (details in the
 
 ## Use the Model
 For using a trained model, we provide the script `test_completion.py` and two exemplary commands on how to use it for the SkullBreak:
-```python
-python pcdiff/test_completion.py --path pcdiff/datasets/SkullBreak/test.csv --dataset SkullBreak --model MODELPATH --eval_path pcdiff/datasets/SkullBreak/results
+```bash
+python pcdiff/test_completion.py \
+    --path pcdiff/datasets/SkullBreak/test.csv \
+    --dataset SkullBreak \
+    --model MODELPATH \
+    --eval_path pcdiff/datasets/SkullBreak/results
 ```
-and the SkullFix data set (if you want to use the proposed ensembling method, use the `--num_ens` flag to specifiy the number of different implants to be generated):
-```python
-python pcdiff/test_completion.py --path pcdiff/datasets/SkullFix/test.csv --dataset SkullFix --num_ens 5 --model MODELPATH --eval_path pcdiff/datasets/SkullFix/results
 
+For the SkullFix data set (if you want to use the proposed ensembling method, use the `--num_ens` flag to specify the number of different implants to be generated):
+```bash
+python pcdiff/test_completion.py \
+    --path pcdiff/datasets/SkullFix/test.csv \
+    --dataset SkullFix \
+    --num_ens 5 \
+    --model MODELPATH \
+    --eval_path pcdiff/datasets/SkullFix/results
 ```
+
+**Using DDIM sampling** (faster inference with fewer steps):
+```bash
+python pcdiff/test_completion.py \
+    --path pcdiff/datasets/SkullBreak/test.csv \
+    --dataset SkullBreak \
+    --model MODELPATH \
+    --eval_path ./inference_results \
+    --sampling_method ddim \
+    --sampling_steps 50
+```
+
+**Note:** The test script processes one sample at a time internally (batch_size=1) regardless of the `--bs` flag. Ensembling is controlled by `--num_ens`.

@@ -46,3 +46,5 @@ MANIFEST
 .idea/
 cuda_*.run
 wandb/
+
+/inference*
