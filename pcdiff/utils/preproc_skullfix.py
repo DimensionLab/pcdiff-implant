@@ -10,7 +10,7 @@ import scipy
 from tqdm import tqdm
 
 # Path to the complete_skull folder of SkullFix dataset
-directory = 'datasets/SkullFix/complete_skull'
+directory = 'pcdiff/datasets/SkullFix/complete_skull'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--multiprocessing', type=eval, default=True, help="set multiprocessing True/False")

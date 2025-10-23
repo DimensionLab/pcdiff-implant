@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("datasets/SkullBreak"),
+        default=Path("pcdiff/datasets/SkullBreak"),
         help="Root directory of the SkullBreak dataset",
     )
     parser.add_argument(

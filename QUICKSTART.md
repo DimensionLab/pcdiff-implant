@@ -111,7 +111,7 @@ python3 pcdiff/utils/split_skullfix.py
 source .venv/bin/activate
 
 python3 pcdiff/train_completion.py \
-    --path datasets/SkullBreak/train.csv \
+    --path pcdiff/datasets/SkullBreak/train.csv \
     --dataset SkullBreak
 ```
 
@@ -128,10 +128,10 @@ source .venv/bin/activate
 
 # Point cloud generation
 python3 pcdiff/test_completion.py \
-    --path datasets/SkullBreak/test.csv \
+    --path pcdiff/datasets/SkullBreak/test.csv \
     --dataset SkullBreak \
     --model MODELPATH \
-    --eval_path datasets/SkullBreak/results
+    --eval_path pcdiff/datasets/SkullBreak/results
 
 # Voxelization
 python3 voxelization/generate.py voxelization/configs/gen_skullbreak.yaml

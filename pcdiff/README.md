@@ -19,7 +19,7 @@ uv pip install -e .
 **Multi-GPU (8x H100):**
 ```sh
 torchrun --nproc_per_node=8 pcdiff/train_completion.py \
-    --path datasets/SkullBreak/train.csv \
+    --path pcdiff/datasets/SkullBreak/train.csv \
     --dataset SkullBreak \
     --bs 64
 ```
@@ -54,21 +54,21 @@ The script creates a `train.csv` and `test.csv` file in the corresponding folder
 ## Train the Model
 For training new models, we provide the script `train_completion.py` and two exemplary commands on how to use it for the SkullBreak:
 ```python
-python pcdiff/train_completion.py --path datasets/SkullBreak/train.csv --dataset SkullBreak
+python pcdiff/train_completion.py --path pcdiff/datasets/SkullBreak/train.csv --dataset SkullBreak
 ```
 and the SkullFix data set:
 ```python
-python pcdiff/train_completion.py --path datasets/SkullFix/train.csv --dataset SkullFix
+python pcdiff/train_completion.py --path pcdiff/datasets/SkullFix/train.csv --dataset SkullFix
 ```
 We provide a lot of different flags to change the hyperparameters of the model (details in the code). The hyperparameters used to generate the presented results are set as default.
 
 ## Use the Model
 For using a trained model, we provide the script `test_completion.py` and two exemplary commands on how to use it for the SkullBreak:
 ```python
-python pcdiff/test_completion.py --path datasets/SkullBreak/test.csv --dataset SkullBreak --model MODELPATH --eval_path datasets/SkullBreak/results
+python pcdiff/test_completion.py --path pcdiff/datasets/SkullBreak/test.csv --dataset SkullBreak --model MODELPATH --eval_path pcdiff/datasets/SkullBreak/results
 ```
 and the SkullFix data set (if you want to use the proposed ensembling method, use the `--num_ens` flag to specifiy the number of different implants to be generated):
 ```python
-python pcdiff/test_completion.py --path datasets/SkullFix/test.csv --dataset SkullFix --num_ens 5 --model MODELPATH --eval_path datasets/SkullFix/results
+python pcdiff/test_completion.py --path pcdiff/datasets/SkullFix/test.csv --dataset SkullFix --num_ens 5 --model MODELPATH --eval_path pcdiff/datasets/SkullFix/results
 
 ```
