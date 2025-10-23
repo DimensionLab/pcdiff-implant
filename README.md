@@ -6,6 +6,8 @@
 This is the official PyTorch implementation of the MICCAI 2023 paper [Point Cloud Diffusion Models for Automatic Implant Generation](https://pfriedri.github.io/pcdiff-implant-io/) by Paul Friedrich, Julia Wolleb, Florentin Bieder, Florian M. Thieringer and Philippe C. Cattin.
 
 > **🚀 Quick Start**: Get running in minutes with Python 3.10, PyTorch 2.5, and `uv`! See **[INSTALL.md](./INSTALL.md)**
+> 
+> **📚 Wiki**: Comprehensive documentation including multi-GPU training guides available in **[wiki-home.md](./wiki-home.md)**
 
 If you find our work useful, please consider to :star: **star this repository** and :memo: **cite our paper**:
 ```bibtex
@@ -79,6 +81,33 @@ Both networks, the point cloud diffusion model and the voxelization network are 
 * **2D U-Net**: For implementing the paper [Cranial Implant Prediction by Learning an Ensemble of Slice-Based Skull Completion Networks](https://link.springer.com/chapter/10.1007/978-3-030-92652-6_8), we used their publicly available [implementation](https://github.com/YouJianFengXue/Cranial-implant-prediction-by-learning-an-ensemble-of-slice-based-skull-completion-networks). As there was no implementation detail given in the paper, we just followed the comments in the jupyter notebook.
 
 All experiments were performed on an NVIDIA A100 (40GB) GPU.
+
+## Multi-GPU & Distributed Training
+
+The point cloud diffusion model supports distributed training across multiple GPUs using PyTorch's `torchrun`. For detailed guidance on batch size scaling and learning rate adjustments, see [pcdiff/distributed-training.md](./pcdiff/distributed-training.md).
+
+### Quick Example (8x H100)
+```bash
+torchrun --nproc_per_node=8 pcdiff/train_completion.py \
+    --path pcdiff/datasets/SkullBreak/train.csv \
+    --dataset SkullBreak \
+    --bs 64 \
+    --lr 1.6e-3
+```
+
+**Key points:**
+- Use `--bs 64` (not `--bs 8`) to maintain per-GPU batch size of 8
+- Scale learning rate linearly: `--lr 1.6e-3` (8× the default `2e-4`)
+- The model uses GroupNorm (not BatchNorm), so it handles small per-GPU batches well
+- Training speed: ~8× faster with 8 GPUs when using proper batch size
+
+For running training as a persistent background process that survives SSH disconnections, use `tmux`:
+```bash
+tmux new -s training
+torchrun --nproc_per_node=8 pcdiff/train_completion.py [...]
+# Detach: Ctrl+B, then D
+# Reattach later: tmux attach -t training
+```
 
 ## Results
 ### Results on the SkullBreak dataset

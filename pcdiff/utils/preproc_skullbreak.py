@@ -56,8 +56,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--threads",
         type=int,
-        default=max(mp.cpu_count() - 1, 1),
-        help="Number of worker processes when multiprocessing is enabled",
+        default=min(mp.cpu_count() - 1, 16),
+        help="Number of worker processes when multiprocessing is enabled (capped at 16 to avoid spawn overhead)",
     )
     parser.add_argument(
         "--keep-mesh",
@@ -119,53 +119,84 @@ def generate_point_cloud(
     target_points: int,
     keep_mesh: bool,
     overwrite: bool,
-) -> None:
+) -> str:
+    """Generate point cloud from volume. Returns 'processed', 'skipped', or 'failed'."""
     obj_path, npy_path = _surface_paths(volume_path)
+    npy_path_tmp = npy_path.with_suffix('.npy.tmp')
 
+    # Check if valid output already exists
     if not overwrite and npy_path.exists():
-        return
-
-    volume, _ = nrrd.read(str(volume_path))
-    verts, faces = mcubes.marching_cubes(volume, 0)
-    mcubes.export_obj(verts, faces, str(obj_path))
-
-    mesh = o3d.io.read_triangle_mesh(str(obj_path))
-    if mesh.is_empty():
-        raise RuntimeError(f"Empty mesh generated from volume {volume_path}")
-
-    pc = mesh.sample_points_poisson_disk(target_points)
-    pc_np = np.asarray(pc.points, dtype=np.float32)
-    np.save(npy_path, pc_np)
-
-    if not keep_mesh:
         try:
-            obj_path.unlink()
-        except FileNotFoundError:
-            pass
+            data = np.load(npy_path, mmap_mode='r')
+            if data.shape[0] > 100:  # Basic validation: at least 100 points
+                return "skipped"
+        except Exception:
+            pass  # File corrupted, will regenerate
+
+    try:
+        volume, _ = nrrd.read(str(volume_path))
+        verts, faces = mcubes.marching_cubes(volume, 0)
+        mcubes.export_obj(verts, faces, str(obj_path))
+
+        mesh = o3d.io.read_triangle_mesh(str(obj_path))
+        if mesh.is_empty():
+            raise RuntimeError(f"Empty mesh generated from volume {volume_path}")
+
+        pc = mesh.sample_points_poisson_disk(target_points)
+        pc_np = np.asarray(pc.points, dtype=np.float32)
+        
+        # Atomic write
+        np.save(npy_path_tmp, pc_np)
+        npy_path_tmp.rename(npy_path)
+
+        if not keep_mesh:
+            try:
+                obj_path.unlink()
+            except FileNotFoundError:
+                pass
+        
+        # Clean up any leftover temp files
+        if npy_path_tmp.exists():
+            npy_path_tmp.unlink()
+            
+        return "processed"
+    except Exception as e:
+        # Clean up temp files on failure
+        if npy_path_tmp.exists():
+            npy_path_tmp.unlink()
+        return "failed"
 
 
-def process_sample(sample: SkullBreakSample, *, target_points: int, keep_mesh: bool, overwrite: bool) -> None:
+def process_sample(sample: SkullBreakSample, *, target_points: int, keep_mesh: bool, overwrite: bool) -> dict:
+    """Process a sample and return statistics dict."""
+    results = {"processed": 0, "skipped": 0, "failed": 0}
+    
     if sample.complete_path is not None:
-        generate_point_cloud(
+        status = generate_point_cloud(
             sample.complete_path,
             target_points=target_points,
             keep_mesh=keep_mesh,
             overwrite=overwrite,
         )
+        results[status] += 1
 
-    generate_point_cloud(
+    status = generate_point_cloud(
         sample.defective_path,
         target_points=target_points,
         keep_mesh=keep_mesh,
         overwrite=overwrite,
     )
+    results[status] += 1
 
-    generate_point_cloud(
+    status = generate_point_cloud(
         sample.implant_path,
         target_points=target_points,
         keep_mesh=keep_mesh,
         overwrite=overwrite,
     )
+    results[status] += 1
+    
+    return results
 
 
 def run(samples: list[SkullBreakSample], args: argparse.Namespace) -> None:
@@ -176,14 +207,24 @@ def run(samples: list[SkullBreakSample], args: argparse.Namespace) -> None:
         overwrite=args.overwrite,
     )
 
+    total_stats = {"processed": 0, "skipped": 0, "failed": 0}
+    
     if args.multiprocessing and args.threads > 1:
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=args.threads) as pool:
-            for _ in tqdm(pool.imap_unordered(worker, samples), total=len(samples)):
-                pass
+            for result in tqdm(pool.imap_unordered(worker, samples), total=len(samples)):
+                for key in total_stats:
+                    total_stats[key] += result[key]
     else:
         for sample in tqdm(samples):
-            worker(sample)
+            result = worker(sample)
+            for key in total_stats:
+                total_stats[key] += result[key]
+    
+    print(f"\nProcessing summary:")
+    print(f"  Processed: {total_stats['processed']}")
+    print(f"  Skipped (already done): {total_stats['skipped']}")
+    print(f"  Failed: {total_stats['failed']}")
 
 
 def main() -> None:

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Quick setup script for pcdiff-implant using uv and Python 3.10
-# Usage: ./setup_uv.sh [cuda_version]
-# Example: ./setup_uv.sh cu130  # CUDA 13.0 (default)
-# Example: ./setup_uv.sh cu124  # CUDA 12.4
-# Example: ./setup_uv.sh cpu    # CPU only
+# Usage: ./setup_uv.sh [cuda_version] [--wandb]
+# Example: ./setup_uv.sh cu124         # CUDA 12.4 (default)
+# Example: ./setup_uv.sh cu124 --wandb # CUDA 12.4 with wandb
+# Example: ./setup_uv.sh cpu           # CPU only
 
 set -e  # Exit on error
 
@@ -18,9 +18,26 @@ echo -e "${GREEN}pcdiff-implant Setup (Python 3.10 + uv)${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
-# Determine CUDA version (using cu124 for better torch-scatter support)
-CUDA_VERSION="${1:-cu124}"  # Default to CUDA 12.4 (compatible with CUDA 13 drivers)
+# Parse arguments
+CUDA_VERSION="cu124"  # Default to CUDA 12.4 (compatible with CUDA 13 drivers)
+INSTALL_WANDB=false
+
+for arg in "$@"; do
+    if [[ "$arg" == "--wandb" ]]; then
+        INSTALL_WANDB=true
+    elif [[ "$arg" == cu* ]] || [[ "$arg" == "cpu" ]]; then
+        CUDA_VERSION="$arg"
+    else
+        echo -e "${YELLOW}Unknown argument: $arg${NC}"
+        echo "Usage: ./setup_uv.sh [cuda_version] [--wandb]"
+        exit 1
+    fi
+done
+
 echo -e "${YELLOW}Using CUDA version: ${CUDA_VERSION}${NC}"
+if [ "$INSTALL_WANDB" = true ]; then
+    echo -e "${YELLOW}Wandb will be installed for experiment tracking${NC}"
+fi
 
 # Check if uv is installed
 if ! command -v uv &> /dev/null; then
@@ -48,9 +65,27 @@ if [[ "$PYTHON_VERSION" < "3.10" ]]; then
     fi
 fi
 
+# Check and install GCC-9 for CUDA compilation
+echo ""
+echo -e "${GREEN}[1/8] Checking GCC-9 compiler...${NC}"
+if ! command -v gcc-9 &> /dev/null; then
+    echo -e "${YELLOW}GCC-9 not found. Installing gcc-9 and g++-9 (required for CUDA extensions)...${NC}"
+    echo -e "${YELLOW}This requires sudo privileges.${NC}"
+    sudo apt-get update && sudo apt-get install -y gcc-9 g++-9
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ GCC-9 installed successfully${NC}"
+    else
+        echo -e "${RED}Failed to install gcc-9. You may need to install it manually.${NC}"
+        echo -e "${RED}Run: sudo apt-get install gcc-9 g++-9${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}✓ GCC-9 already installed${NC}"
+fi
+
 # Create virtual environment
 echo ""
-echo -e "${GREEN}[1/6] Creating virtual environment...${NC}"
+echo -e "${GREEN}[2/8] Creating virtual environment...${NC}"
 if [ -d ".venv" ]; then
     echo -e "${YELLOW}Virtual environment already exists. Remove it? (y/N)${NC}"
     read -p "" -n 1 -r
@@ -65,12 +100,12 @@ fi
 
 # Activate virtual environment
 echo ""
-echo -e "${GREEN}[3/7] Activating virtual environment...${NC}"
+echo -e "${GREEN}[3/8] Activating virtual environment...${NC}"
 source .venv/bin/activate
 
 # Install PyTorch with CUDA
 echo ""
-echo -e "${GREEN}[4/7] Installing PyTorch 2.5.0 with ${CUDA_VERSION}...${NC}"
+echo -e "${GREEN}[4/8] Installing PyTorch 2.5.0 with ${CUDA_VERSION}...${NC}"
 if [ "$CUDA_VERSION" = "cpu" ]; then
     uv pip install "torch==2.5.0" "torchvision==0.20.0" --index-url https://download.pytorch.org/whl/cpu
 else
@@ -80,12 +115,19 @@ fi
 
 # Install main dependencies
 echo ""
-echo -e "${GREEN}[5/7] Installing project dependencies...${NC}"
+echo -e "${GREEN}[5/8] Installing project dependencies...${NC}"
 uv pip install -e .
+
+# Install Wandb (optional, for experiment tracking)
+if [ "$INSTALL_WANDB" = true ]; then
+    echo ""
+    echo -e "${GREEN}[6/8] Installing Weights & Biases...${NC}"
+    uv pip install wandb
+fi
 
 # Install PyTorch3D
 echo ""
-echo -e "${GREEN}[6/7] Installing PyTorch3D...${NC}"
+echo -e "${GREEN}[7/8] Installing PyTorch3D...${NC}"
 
 # First, try pre-built wheels (much faster, no compilation needed)
 echo -e "${YELLOW}Trying pre-built PyTorch3D wheels...${NC}"
@@ -156,7 +198,7 @@ fi
 
 # Install PyTorch Scatter (pre-built wheel for PyTorch 2.5)
 echo ""
-echo -e "${GREEN}[7/7] Installing PyTorch Scatter...${NC}"
+echo -e "${GREEN}[8/8] Installing PyTorch Scatter...${NC}"
 uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+${CUDA_VERSION}.html || {
     echo -e "${YELLOW}Pre-built wheel not found, building from source (~2-3 min)...${NC}"
     uv pip install --no-build-isolation "git+https://github.com/rusty1s/pytorch_scatter.git" || {
@@ -223,6 +265,20 @@ if torch.cuda.is_available():
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
 else:
     print("(Running in CPU mode)")
+
+# Check GCC-9
+import subprocess
+print("")
+try:
+    result = subprocess.run(['gcc-9', '--version'], capture_output=True, text=True)
+    if result.returncode == 0:
+        gcc_version = result.stdout.split('\n')[0].split()[-1]
+        print(f"✓ GCC-9 available: {gcc_version} (required for CUDA extensions)")
+    else:
+        print("✗ GCC-9 not found")
+except FileNotFoundError:
+    print("✗ GCC-9 not found (needed for training with CUDA extensions)")
+    print("  Install with: sudo apt-get install gcc-9 g++-9")
 EOF
 
 if [ $? -eq 0 ]; then
@@ -234,12 +290,17 @@ if [ $? -eq 0 ]; then
     echo -e "${YELLOW}To activate this environment in the future:${NC}"
     echo -e "  source .venv/bin/activate"
     echo ""
+    echo -e "${YELLOW}Before training, set these environment variables:${NC}"
+    echo -e "  export CC=/usr/bin/gcc-9"
+    echo -e "  export CXX=/usr/bin/g++-9"
+    echo ""
     echo -e "${YELLOW}Next steps:${NC}"
     echo -e "  1. Download datasets (see README.md)"
     echo -e "  2. Preprocess data: python3 pcdiff/utils/preproc_skullbreak.py"
     echo -e "  3. Train model: python3 pcdiff/train_completion.py --help"
     echo ""
     echo -e "${YELLOW}For more information, see:${NC}"
+    echo -e "  - QUICKSTART.md (quick start guide)"
     echo -e "  - SETUP.md (comprehensive setup guide)"
     echo -e "  - MIGRATION.md (migration from conda)"
     echo -e "  - pcdiff/README.md (point cloud diffusion model)"

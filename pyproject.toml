@@ -50,6 +50,9 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.optional-dependencies]
+wandb = ["wandb>=0.16.0"]
+
 [dependency-groups]
 dev = ["ipdb>=0.13.0", "pytest>=8.0.0", "pre-commit>=3.8.0"]
 

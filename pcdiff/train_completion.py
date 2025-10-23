@@ -18,6 +18,13 @@ from model.pvcnn_completion import PVCNN2Base
 from utils.file_utils import copy_source, get_output_dir, setup_logging, setup_output_subdirs
 from utils.visualize import export_to_pc_batch
 
+# Optional wandb integration for experiment tracking
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 '''
 ----- Some utilities -----
 '''
@@ -586,7 +593,7 @@ def get_dataloader(opt, train_dataset, test_dataset=None):
     return train_dataloader, test_dataloader, train_sampler, test_sampler
 
 
-def train(_, opt, output_dir, noises_init):
+def train(gpu, opt, output_dir, noises_init):
     logger = setup_logging(output_dir)
 
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -623,6 +630,20 @@ def train(_, opt, output_dir, noises_init):
 
     if should_diag:
         logger.info(opt)
+
+    # Initialize wandb (only on main process)
+    use_wandb = WANDB_AVAILABLE and not opt.no_wandb and should_diag
+    if use_wandb:
+        wandb_name = opt.wandb_name or f"{opt.dataset}_ep{opt.niter}_bs{opt.bs}_lr{opt.lr}"
+        wandb.init(
+            project=opt.wandb_project,
+            entity=opt.wandb_entity,
+            name=wandb_name,
+            config=vars(opt),
+            resume='allow'
+        )
+        wandb.watch(model, log='all', log_freq=opt.print_freq * 10)
+        logger.info(f"Wandb logging enabled: {wandb.run.url}")
 
     optimizer = optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
     lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
@@ -664,6 +685,14 @@ def train(_, opt, output_dir, noises_init):
             if i % opt.print_freq == 0 and should_diag:
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
                             .format(epoch, opt.niter, i, len(dataloader), loss.item()))
+                
+                # Log to wandb
+                if use_wandb:
+                    wandb.log({
+                        "train/loss": loss.item(),
+                        "train/epoch": epoch,
+                        "train/lr": optimizer.param_groups[0]['lr']
+                    }, step=epoch * len(dataloader) + i)
         lr_scheduler.step()
 
         # Evaluate
@@ -683,6 +712,17 @@ def train(_, opt, output_dir, noises_init):
                                 kl_stats['total_bpd_b'].item(),
                                 kl_stats['terms_bpd'].item(), kl_stats['prior_bpd_b'].item(),
                                 kl_stats['mse_bt'].item()))
+            
+            # Log diagnostics to wandb
+            if use_wandb:
+                wandb.log({
+                    "diag/total_bpd": kl_stats['total_bpd_b'].item(),
+                    "diag/terms_bpd": kl_stats['terms_bpd'].item(),
+                    "diag/prior_bpd": kl_stats['prior_bpd_b'].item(),
+                    "diag/mse": kl_stats['mse_bt'].item(),
+                    "diag/x_min": x_range[0],
+                    "diag/x_max": x_range[1]
+                }, step=epoch * len(dataloader))
 
         # Visualize some samples
         if (epoch + 1) % opt.vizIter == 0 and should_diag:
@@ -702,6 +742,15 @@ def train(_, opt, output_dir, noises_init):
                             'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
                             'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
                             .format(epoch, opt.niter, *gen_eval_range, *gen_stats))
+                
+                # Log generation stats to wandb
+                if use_wandb:
+                    wandb.log({
+                        "gen/mean": gen_stats[0].item(),
+                        "gen/std": gen_stats[1].item(),
+                        "gen/min": gen_eval_range[0],
+                        "gen/max": gen_eval_range[1]
+                    }, step=epoch * len(dataloader))
 
             # Save samples and ground truth
             export_to_pc_batch('%s/epoch_%03d_samples_eval' % (outf_syn, epoch),
@@ -726,6 +775,10 @@ def train(_, opt, output_dir, noises_init):
 
             if is_distributed:
                 dist.barrier()
+
+    # Finish wandb run
+    if use_wandb:
+        wandb.finish()
 
     if is_distributed:
         dist.destroy_process_group()
@@ -788,6 +841,8 @@ def parse_args():
     parser.add_argument('--model', default='', help="path to model (to continue training)")
 
     # Distributed training (torchrun handles world size / rank via environment variables)
+    parser.add_argument('--gpu', default=None, type=int,
+                        help='GPU id to use (auto-detected from LOCAL_RANK if not specified)')
     parser.add_argument('--dist-backend', default='nccl', type=str,
                         help='torch.distributed backend to use when launched via torchrun')
 
@@ -799,6 +854,12 @@ def parse_args():
 
     # Manual seed for deterministic sampling, etc.
     parser.add_argument('--manualSeed', default=1234, type=int, help='random seed')
+
+    # Experiment tracking with Weights & Biases
+    parser.add_argument('--wandb-project', type=str, default='pcdiff-implant', help='wandb project name')
+    parser.add_argument('--wandb-entity', type=str, default=None, help='wandb entity/team name')
+    parser.add_argument('--wandb-name', type=str, default=None, help='wandb run name (auto-generated if not set)')
+    parser.add_argument('--no-wandb', action='store_true', help='disable wandb logging even if installed')
 
     # Parse arguments
     opt = parser.parse_args()

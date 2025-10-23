@@ -1,5 +1,6 @@
 # Data related directories and files
 /datasets
+/pcdiff/datasets/Skull*
 /.venv/
 /.uv/
 uv.lock
@@ -11,6 +12,7 @@ uv.lock
 
 # Model output
 /pcdiff/output
+/voxelization/output
 /voxelization/out
 
 # Log-files
@@ -43,3 +45,4 @@ MANIFEST
 
 .idea/
 cuda_*.run
+wandb/

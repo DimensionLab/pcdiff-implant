@@ -52,15 +52,84 @@ python pcdiff/utils/split_skullfix.py
 ```
 The script creates a `train.csv` and `test.csv` file in the corresponding folder of the dataset, which can be used for the `--path` flag during training.
 ## Train the Model
-For training new models, we provide the script `train_completion.py` and two exemplary commands on how to use it for the SkullBreak:
-```python
-python pcdiff/train_completion.py --path pcdiff/datasets/SkullBreak/train.csv --dataset SkullBreak
+
+### Single GPU Training
+For training new models on a single GPU, use the script `train_completion.py`:
+
+**SkullBreak:**
+```bash
+python pcdiff/train_completion.py \
+    --path pcdiff/datasets/SkullBreak/train.csv \
+    --dataset SkullBreak \
+    --bs 8
 ```
-and the SkullFix data set:
-```python
-python pcdiff/train_completion.py --path pcdiff/datasets/SkullFix/train.csv --dataset SkullFix
+
+**SkullFix:**
+```bash
+python pcdiff/train_completion.py \
+    --path pcdiff/datasets/SkullFix/train.csv \
+    --dataset SkullFix \
+    --bs 8
 ```
-We provide a lot of different flags to change the hyperparameters of the model (details in the code). The hyperparameters used to generate the presented results are set as default.
+
+### Multi-GPU Training (Distributed)
+
+For distributed training across multiple GPUs using `torchrun`:
+
+**SkullBreak on 8x GPU:**
+```bash
+torchrun --nproc_per_node=8 pcdiff/train_completion.py \
+    --path pcdiff/datasets/SkullBreak/train.csv \
+    --dataset SkullBreak \
+    --bs 64 \
+    --lr 1.6e-3
+```
+
+**SkullFix on 8x GPU:**
+```bash
+torchrun --nproc_per_node=8 pcdiff/train_completion.py \
+    --path pcdiff/datasets/SkullFix/train.csv \
+    --dataset SkullFix \
+    --bs 64 \
+    --lr 1.6e-3
+```
+
+**Important:** When scaling to N GPUs:
+- Set `--bs` to `N × 8` (e.g., 64 for 8 GPUs) to maintain per-GPU batch size of 8
+- Scale learning rate linearly: `--lr` = `N × 2e-4` (e.g., 1.6e-3 for 8 GPUs)
+- See [distributed-training.md](./distributed-training.md) for detailed guidance
+
+### Background Training (Persistent Sessions)
+
+To keep training running even if SSH disconnects:
+
+```bash
+# Start a tmux session
+tmux new -s training
+
+# Run your training command
+torchrun --nproc_per_node=8 pcdiff/train_completion.py [your args]
+
+# Detach from session: Press Ctrl+B, then D
+# The training continues in the background
+
+# Reattach later
+tmux attach -t training
+
+# View logs in real-time
+tail -f pcdiff/output/train_completion/*/output.log
+```
+
+Alternative using `screen`:
+```bash
+screen -S training
+torchrun --nproc_per_node=8 pcdiff/train_completion.py [your args]
+# Detach: Ctrl+A, then D
+# Reattach: screen -r training
+```
+
+### Hyperparameters
+We provide many flags to change the hyperparameters of the model (details in the code). The hyperparameters used to generate the presented results are set as default.
 
 ## Use the Model
 For using a trained model, we provide the script `test_completion.py` and two exemplary commands on how to use it for the SkullBreak:

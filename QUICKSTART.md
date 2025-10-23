@@ -110,9 +110,21 @@ python3 pcdiff/utils/split_skullfix.py
 ```bash
 source .venv/bin/activate
 
+# Set GCC-9 for CUDA extension compilation (required)
+export CC=/usr/bin/gcc-9
+export CXX=/usr/bin/g++-9
+
+# Basic training
 python3 pcdiff/train_completion.py \
     --path pcdiff/datasets/SkullBreak/train.csv \
     --dataset SkullBreak
+
+# With Weights & Biases tracking (if installed with --wandb flag)
+python3 pcdiff/train_completion.py \
+    --path pcdiff/datasets/SkullBreak/train.csv \
+    --dataset SkullBreak \
+    --wandb-project my-project \
+    --wandb-entity my-team
 ```
 
 ### 5. Train Voxelization Network
@@ -138,6 +150,30 @@ python3 voxelization/generate.py voxelization/configs/gen_skullbreak.yaml
 ```
 
 ## Troubleshooting
+
+### CUDA Extension Compilation Fails
+
+**Problem**: Training fails with `nvcc fatal: Failed to preprocess host compiler properties` or `/usr/bin/gcc-9: No such file or directory`
+
+**Solution**: Set correct GCC version for CUDA compilation
+
+The training script compiles custom CUDA extensions on first run. This requires GCC-9 which should be installed by the setup script.
+
+```bash
+# Verify GCC-9 is installed
+which gcc-9
+gcc-9 --version
+
+# If not installed, install it manually:
+sudo apt-get install gcc-9 g++-9
+
+# Set environment variables before training:
+export CC=/usr/bin/gcc-9
+export CXX=/usr/bin/g++-9
+
+# Then run training
+python3 pcdiff/train_completion.py --path pcdiff/datasets/SkullBreak/train.csv --dataset SkullBreak
+```
 
 ### ModuleNotFoundError (mcubes, torch, etc.)
 

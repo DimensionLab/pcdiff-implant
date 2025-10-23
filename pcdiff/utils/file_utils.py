@@ -45,8 +45,7 @@ def setup_logging(output_dir):
 def get_output_dir(prefix, exp_id):
     t = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     output_dir = os.path.join(prefix, 'output/' + exp_id, t)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
     return output_dir
 
 
