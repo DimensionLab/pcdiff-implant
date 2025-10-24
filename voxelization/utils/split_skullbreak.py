@@ -23,7 +23,7 @@ def parse_args() -> SplitConfig:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("datasets/SkullBreak"),
+        default=Path("pcdiff/datasets/SkullBreak"),
         help="Root directory of the SkullBreak dataset",
     )
     parser.add_argument(

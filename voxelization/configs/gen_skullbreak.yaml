@@ -5,7 +5,7 @@ train:
 
 data:
   dset: SkullBreak
-  path: datasets/SkullBreak/results/syn  # Path to results folder of point cloud diffusion model (SkullBreak)
+  path: pcdiff/datasets/SkullBreak/results/syn  # Path to results folder of point cloud diffusion model (SkullBreak)
 
 generation:
   generation_dir: gen_skullbreak

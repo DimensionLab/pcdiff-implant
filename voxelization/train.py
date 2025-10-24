@@ -5,14 +5,36 @@ import numpy as np
 import shutil
 import argparse
 import time
+from datetime import timedelta
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 from src import config
 from src.data import collate_remove_none, collate_stack_together, worker_init_fn, SkullDataset
 from src.training import Trainer
 from src.model import Encode2Points
 from src.utils import load_config, initialize_logger, AverageMeter, load_model_manual
 
+# Optional wandb integration for experiment tracking
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 np.set_printoptions(precision=4)
+
+# Parse arguments BEFORE changing directory to handle paths correctly
+parser = argparse.ArgumentParser()
+parser.add_argument('config', type=str, help='Path to config file.')
+parser.add_argument('--no_cuda', action='store_true', default=False, help='Disables CUDA training.')
+parser.add_argument('--seed', type=int, default=1, metavar='S', help='Set a random seed (default: 1)')
+parser.add_argument('--wandb-project', type=str, default='pcdiff-implant-vox', help='wandb project name')
+parser.add_argument('--wandb-entity', type=str, default=None, help='wandb entity/team name')
+parser.add_argument('--wandb-name', type=str, default=None, help='wandb run name (auto-generated if not set)')
+parser.add_argument('--no-wandb', action='store_true', help='disable wandb logging even if installed')
+early_args = parser.parse_args()
+# Convert config path to absolute path BEFORE changing directory
+CONFIG_PATH = os.path.abspath(early_args.config)
 
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
@@ -20,13 +42,10 @@ os.chdir(dname)
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--no_cuda', action='store_true', default=False, help='Disables CUDA training.')
-    parser.add_argument('--seed', type=int, default=1, metavar='S', help='Set a random seed (default: 1)')
-    
-    args = parser.parse_args()
-    cfg = load_config(args.config, 'configs/default.yaml')
+    # Use the pre-parsed arguments
+    args = early_args
+    # Use the absolute config path
+    cfg = load_config(CONFIG_PATH, 'configs/default.yaml')
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     dev = "cuda:" + str(cfg['train']['gpu'])
     device = torch.device(dev if use_cuda else "cpu")
@@ -43,7 +62,7 @@ def main():
     logger = initialize_logger(cfg)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    shutil.copyfile(args.config, os.path.join(cfg['train']['out_dir'], 'config.yaml'))
+    shutil.copyfile(CONFIG_PATH, os.path.join(cfg['train']['out_dir'], 'config.yaml'))
 
     logger.info("using GPU: " + torch.cuda.get_device_name(0))
 
@@ -94,10 +113,53 @@ def main():
 
     n_parameter = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info('Number of parameters: %d'% n_parameter)
+    
+    # Initialize wandb (after model is created)
+    use_wandb = WANDB_AVAILABLE and not args.no_wandb
+    if use_wandb:
+        dataset_name = cfg['data'].get('dataset', 'skull')
+        wandb_name = args.wandb_name or f"{dataset_name}_ep{cfg['train']['total_epochs']}_bs{batch_size}_lr{cfg['train']['lr']}"
+        
+        # Create a flattened config dict for wandb
+        wandb_config = {
+            'dataset': dataset_name,
+            'batch_size': batch_size,
+            'lr': cfg['train']['lr'],
+            'total_epochs': cfg['train']['total_epochs'],
+            'seed': args.seed,
+            'model_selection_metric': model_selection_metric,
+            'grid_res': cfg['model']['grid_res'],
+            'psr_sigma': cfg['model']['psr_sigma'],
+            'c_dim': cfg['model']['c_dim'],
+            'encoder': cfg['model']['encoder'],
+            'decoder': cfg['model']['decoder'],
+            'pointcloud_n': cfg['data']['pointcloud_n'],
+            'pointcloud_noise': cfg['data']['pointcloud_noise'],
+            'n_parameters': n_parameter,
+        }
+        
+        wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=wandb_name,
+            config=wandb_config,
+            resume='allow'
+        )
+        wandb.watch(model, log='all', log_freq=cfg['train']['print_every'] * 10)
+        logger.info(f"Wandb logging enabled: {wandb.run.url}")
+    else:
+        if not WANDB_AVAILABLE:
+            logger.info("Wandb not available. Install with: pip install wandb")
+        else:
+            logger.info("Wandb logging disabled")
+    
     # load model
     try:
-        # load model
-        state_dict = torch.load(os.path.join(cfg['train']['out_dir'], 'model.pt'))
+        # load model (suppress warning about weights_only)
+        state_dict = torch.load(
+            os.path.join(cfg['train']['out_dir'], 'model.pt'),
+            weights_only=False
+        )
         load_model_manual(state_dict['state_dict'], model)
             
         out = "Load model from iteration %d" % state_dict.get('it', 0)
@@ -120,9 +182,39 @@ def main():
     runtime = {}
     runtime['all'] = AverageMeter()
     
+    # Training statistics
+    total_epochs = cfg['train']['total_epochs']
+    train_start_time = time.time()
+    epoch_times = []
+    
+    logger.info("=" * 80)
+    logger.info(f"{'TRAINING CONFIGURATION':^80}")
+    logger.info("=" * 80)
+    logger.info(f"  Dataset: {cfg['data'].get('dataset', 'SkullData')}")
+    logger.info(f"  Total epochs: {total_epochs}")
+    logger.info(f"  Starting epoch: {start_epoch + 1}")
+    logger.info(f"  Batch size: {batch_size}")
+    logger.info(f"  Learning rate: {LR}")
+    logger.info(f"  Samples per epoch: {len(train_dataset)}")
+    logger.info(f"  Iterations per epoch: {len(train_loader)}")
+    logger.info(f"  Validation every: {cfg['train']['validate_every']} epochs")
+    logger.info(f"  Checkpoint every: {cfg['train']['checkpoint_every']} epochs")
+    logger.info("=" * 80)
+    logger.info("")
+    
     # Training loop
-    for epoch in range(start_epoch+1, cfg['train']['total_epochs']+1):
-        for batch in train_loader:
+    for epoch in range(start_epoch+1, total_epochs+1):
+        epoch_start_time = time.time()
+        epoch_loss = AverageMeter()
+        epoch_loss_components = {}
+        
+        # Progress bar for batches
+        pbar = tqdm(train_loader, 
+                   desc=f"Epoch {epoch:03d}/{total_epochs:03d}",
+                   leave=True,
+                   dynamic_ncols=True)
+        
+        for batch_idx, batch in enumerate(pbar):
             it += 1
             
             start = time.time()
@@ -133,43 +225,128 @@ def main():
             # measure elapsed time
             end = time.time()
             runtime['all'].update(end - start)
+            
+            # Update epoch statistics
+            epoch_loss.update(loss)
+            if loss_each is not None:
+                for k, l in loss_each.items():
+                    if k not in epoch_loss_components:
+                        epoch_loss_components[k] = AverageMeter()
+                    epoch_loss_components[k].update(l.item())
 
-            # Print to logger
+            # Update progress bar
+            pbar_info = {
+                'loss': f'{loss:.4f}',
+                'avg_loss': f'{epoch_loss.avg:.4f}',
+            }
+            pbar.set_postfix(pbar_info)
+
+            # Log to tensorboard and wandb periodically
             if it % cfg['train']['print_every'] == 0:
-                log_text = ('[Epoch %02d] it=%d, loss=%.4f') %(epoch, it, loss)
                 writer.add_scalar('train/loss', loss, it)
+                
+                # Log to wandb
+                if use_wandb:
+                    wandb_metrics = {
+                        'train/loss': loss,
+                        'train/epoch': epoch,
+                        'train/iteration': it,
+                        'train/lr': optimizer.param_groups[0]['lr'],
+                    }
+                
                 if loss_each is not None:
                     for k, l in loss_each.items():
                         if l.item() != 0.:
-                            log_text += (' loss_%s=%.4f') % (k, l.item())
-                        writer.add_scalar('train/%s' % k, l, it)
+                            writer.add_scalar('train/%s' % k, l, it)
+                        
+                        # Log to wandb
+                        if use_wandb:
+                            wandb_metrics[f'train/{k}'] = l.item()
                 
-                log_text += (' time=%.3f / %.2f') % (runtime['all'].val, runtime['all'].sum)
-                logger.info(log_text)
+                if use_wandb:
+                    wandb.log(wandb_metrics, step=it)
 
             # Visualize some results
             if (it > 0) & (it % cfg['train']['visualize_every'] == 0):
+                pbar.write(f"  → Saving visualizations at iteration {it}")
                 for i, batch_vis in enumerate(vis_loader):
                     trainer.save(model, batch_vis, it, i)
                     if i >= 4:
                         break
-                logger.info('Saved mesh and pointcloud')
+        
+        # Close progress bar
+        pbar.close()
+        
+        # Epoch summary
+        epoch_time = time.time() - epoch_start_time
+        epoch_times.append(epoch_time)
+        avg_epoch_time = np.mean(epoch_times[-10:])  # Average of last 10 epochs
+        remaining_epochs = total_epochs - epoch
+        eta = avg_epoch_time * remaining_epochs
+        
+        # Format time strings
+        epoch_time_str = str(timedelta(seconds=int(epoch_time)))
+        eta_str = str(timedelta(seconds=int(eta)))
+        elapsed_str = str(timedelta(seconds=int(time.time() - train_start_time)))
+        
+        # Build summary log
+        summary = f"\n{'─' * 80}\n"
+        summary += f"Epoch {epoch:03d}/{total_epochs:03d} Summary:\n"
+        summary += f"  Loss: {epoch_loss.avg:.6f}"
+        if epoch_loss_components:
+            summary += " ("
+            summary += ", ".join([f"{k}={v.avg:.6f}" for k, v in epoch_loss_components.items()])
+            summary += ")"
+        summary += f"\n  Time: {epoch_time_str} | Elapsed: {elapsed_str} | ETA: {eta_str}\n"
+        summary += f"{'─' * 80}"
+        logger.info(summary)
 
         # Run validation
         if epoch > 0 and (epoch % cfg['train']['validate_every']) == 0:
+            logger.info(f"\n{'═' * 80}")
+            logger.info(f"{'VALIDATION':^80}")
+            logger.info(f"{'═' * 80}")
+            
             eval_dict = trainer.evaluate(val_loader, model)
             metric_val = eval_dict[model_selection_metric]
-            logger.info('Validation metric (%s): %.4f' % (model_selection_metric, metric_val))
+            
+            # Format validation results
+            val_summary = f"  Metric ({model_selection_metric}): {metric_val:.6f}\n"
+            for k, v in eval_dict.items():
+                if k != model_selection_metric:
+                    val_summary += f"  {k}: {v:.6f}\n"
+            logger.info(val_summary.rstrip())
 
             for k, v in eval_dict.items():
                 writer.add_scalar('val/%s' % k, v, it)
 
+            # Log validation metrics to wandb
+            if use_wandb:
+                wandb_val_metrics = {f'val/{k}': v for k, v in eval_dict.items()}
+                wandb_val_metrics['val/epoch'] = epoch
+                wandb.log(wandb_val_metrics, step=it)
+
             if -(metric_val - metric_val_best) >= 0:
                 metric_val_best = metric_val
-                logger.info('New best model (loss %.4f), epoch %d' % (metric_val_best, epoch))
+                improvement = "⭐ NEW BEST MODEL ⭐"
+                logger.info(f"\n  {improvement}")
+                logger.info(f"  Best {model_selection_metric}: {metric_val_best:.6f} (epoch {epoch})\n")
+                logger.info(f"{'═' * 80}\n")
+                
                 state = {'epoch': epoch, 'it': it, 'loss_val_best': metric_val_best}
                 state['state_dict'] = model.state_dict()
                 torch.save(state, os.path.join(cfg['train']['out_dir'], 'model_best.pt'))
+                
+                # Log best model to wandb
+                if use_wandb:
+                    wandb.log({'val/best_metric': metric_val_best}, step=it)
+                    # Save model as wandb artifact
+                    artifact = wandb.Artifact(f'model-best-{wandb.run.id}', type='model')
+                    artifact.add_file(os.path.join(cfg['train']['out_dir'], 'model_best.pt'))
+                    wandb.log_artifact(artifact)
+            else:
+                logger.info(f"  Best {model_selection_metric}: {metric_val_best:.6f}")
+                logger.info(f"{'═' * 80}\n")
 
         # Save checkpoint
         if (epoch > 0) & (epoch % cfg['train']['checkpoint_every'] == 0):
@@ -183,10 +360,26 @@ def main():
 
             if (it % cfg['train']['backup_every'] == 0):
                 torch.save(state, os.path.join(cfg['train']['dir_model'], '%d' % epoch + '.pt'))
-                logger.info("Backup model at epoch %d" % epoch)
-            logger.info("Save new model at epoch %d" % epoch)
+                logger.info(f"  💾 Backup checkpoint saved at epoch {epoch}")
+            logger.info(f"  💾 Checkpoint saved at epoch {epoch}\n")
 
-        done = time.time()
+    # Training complete
+    total_time = time.time() - train_start_time
+    total_time_str = str(timedelta(seconds=int(total_time)))
+    
+    logger.info("\n" + "=" * 80)
+    logger.info(f"{'TRAINING COMPLETE':^80}")
+    logger.info("=" * 80)
+    logger.info(f"  Total training time: {total_time_str}")
+    logger.info(f"  Total epochs: {total_epochs}")
+    logger.info(f"  Best {model_selection_metric}: {metric_val_best:.6f}")
+    logger.info(f"  Model saved to: {cfg['train']['out_dir']}")
+    logger.info("=" * 80 + "\n")
+
+    # Finish wandb run
+    if use_wandb:
+        wandb.finish()
+        logger.info("Wandb run finished")
 
 
 if __name__ == '__main__':

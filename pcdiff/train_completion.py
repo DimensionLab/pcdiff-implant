@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import logging
 import os
 import random
@@ -554,9 +555,17 @@ def get_dataloader(opt, train_dataset, test_dataset=None):
             train_dataset,
             num_replicas=world_size,
             rank=rank,
+            shuffle=True,
+            drop_last=True,  # Critical: ensures all ranks get same number of batches
         )
         test_sampler = (
-            torch.utils.data.distributed.DistributedSampler(test_dataset, num_replicas=world_size, rank=rank)
+            torch.utils.data.distributed.DistributedSampler(
+                test_dataset, 
+                num_replicas=world_size, 
+                rank=rank,
+                shuffle=False,
+                drop_last=False,  # Keep all test samples
+            )
             if test_dataset is not None else None
         )
     else:
@@ -607,7 +616,20 @@ def train(gpu, opt, output_dir, noises_init):
     is_distributed = world_size > 1
     if is_distributed:
         torch.cuda.set_device(local_rank)
-        dist.init_process_group(backend=opt.dist_backend)
+        
+        # Initialize with a shorter timeout during development to fail faster
+        # Default is 30 minutes; you can adjust via TORCH_DIST_TIMEOUT env var
+        timeout_minutes = int(os.environ.get("TORCH_DIST_TIMEOUT", "30"))
+        timeout = datetime.timedelta(minutes=timeout_minutes)
+        
+        dist.init_process_group(
+            backend=opt.dist_backend,
+            timeout=timeout
+        )
+        
+        if should_diag:
+            logger.info(f"Initialized distributed training: world_size={world_size}, "
+                       f"rank={rank}, local_rank={local_rank}, timeout={timeout_minutes}min")
 
     ''' Dataset and data loader '''
     train_dataset = get_dataset(opt.num_points, opt.num_nn, opt.path, opt.dataset, opt.augment)
@@ -665,6 +687,7 @@ def train(gpu, opt, output_dir, noises_init):
         if is_distributed and train_sampler is not None:
             train_sampler.set_epoch(epoch)
 
+        epoch_step_count = 0
         for i, data in enumerate(dataloader):
             pc_in = data['train_points'].transpose(1, 2)  # Input point cloud
             noises_batch = noises_init[data['idx']].transpose(1, 2)  # Noise (num_nn points)
@@ -680,6 +703,8 @@ def train(gpu, opt, output_dir, noises_init):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
+            epoch_step_count += 1
 
             # Print progress
             if i % opt.print_freq == 0 and should_diag:
@@ -693,76 +718,110 @@ def train(gpu, opt, output_dir, noises_init):
                         "train/epoch": epoch,
                         "train/lr": optimizer.param_groups[0]['lr']
                     }, step=epoch * len(dataloader) + i)
+        
+        # Validate that all ranks completed the same number of steps
+        if is_distributed:
+            step_count_tensor = torch.tensor([epoch_step_count], dtype=torch.long, device=torch.cuda.current_device())
+            gathered_counts = [torch.zeros_like(step_count_tensor) for _ in range(world_size)]
+            dist.all_gather(gathered_counts, step_count_tensor)
+            
+            # Check for divergence on rank 0
+            if should_diag:
+                counts = [t.item() for t in gathered_counts]
+                if len(set(counts)) > 1:
+                    logger.error(f"STEP COUNT DIVERGENCE at epoch {epoch}! Counts per rank: {counts}")
+                    logger.error("This indicates uneven data distribution. Check your dataset and sampler.")
+                    raise RuntimeError(f"Step count mismatch across ranks: {counts}")
+                else:
+                    if epoch % 100 == 0:  # Log periodically
+                        logger.info(f"Epoch {epoch}: All ranks completed {epoch_step_count} steps ✓")
+        
         lr_scheduler.step()
 
         # Evaluate
-        if (epoch + 1) % opt.diagIter == 0 and should_diag:
-            logger.info('Diagnosis:')
-
-            x_range = [pc_in.min().item(), pc_in.max().item()]
-            kl_stats = model.all_kl(pc_in)
-            logger.info('      [{:>3d}/{:>3d}]    '
-                        'x_range: [{:>10.4f}, {:>10.4f}],   '
-                        'total_bpd_b: {:>10.4f},    '
-                        'terms_bpd: {:>10.4f},  '
-                        'prior_bpd_b: {:>10.4f}    '
-                        'mse_bt: {:>10.4f}  '
-                        .format(epoch, opt.niter,
-                                *x_range,
-                                kl_stats['total_bpd_b'].item(),
-                                kl_stats['terms_bpd'].item(), kl_stats['prior_bpd_b'].item(),
-                                kl_stats['mse_bt'].item()))
+        if (epoch + 1) % opt.diagIter == 0:
+            # CRITICAL: All ranks must participate to avoid NCCL hangs
+            if is_distributed:
+                dist.barrier()  # Synchronize before diagnostics
             
-            # Log diagnostics to wandb
-            if use_wandb:
-                wandb.log({
-                    "diag/total_bpd": kl_stats['total_bpd_b'].item(),
-                    "diag/terms_bpd": kl_stats['terms_bpd'].item(),
-                    "diag/prior_bpd": kl_stats['prior_bpd_b'].item(),
-                    "diag/mse": kl_stats['mse_bt'].item(),
-                    "diag/x_min": x_range[0],
-                    "diag/x_max": x_range[1]
-                }, step=epoch * len(dataloader))
+            if should_diag:
+                logger.info('Diagnosis:')
 
-        # Visualize some samples
-        if (epoch + 1) % opt.vizIter == 0 and should_diag:
-            logger.info('Generation: eval')
-
-            model.eval()
-
-            with torch.no_grad():
-                x_gen_eval = model.gen_samples(pc_in[:, :, :(opt.num_points - opt.num_nn)],
-                                               pc_in[:, :, (opt.num_points - opt.num_nn):].shape,
-                                               pc_in.device, clip_denoised=False).detach().cpu()
-
-                gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
-                gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
-
-                logger.info('      [{:>3d}/{:>3d}]  '
-                            'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
-                            'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
-                            .format(epoch, opt.niter, *gen_eval_range, *gen_stats))
+                x_range = [pc_in.min().item(), pc_in.max().item()]
+                kl_stats = model.all_kl(pc_in)
+                logger.info('      [{:>3d}/{:>3d}]    '
+                            'x_range: [{:>10.4f}, {:>10.4f}],   '
+                            'total_bpd_b: {:>10.4f},    '
+                            'terms_bpd: {:>10.4f},  '
+                            'prior_bpd_b: {:>10.4f}    '
+                            'mse_bt: {:>10.4f}  '
+                            .format(epoch, opt.niter,
+                                    *x_range,
+                                    kl_stats['total_bpd_b'].item(),
+                                    kl_stats['terms_bpd'].item(), kl_stats['prior_bpd_b'].item(),
+                                    kl_stats['mse_bt'].item()))
                 
-                # Log generation stats to wandb
+                # Log diagnostics to wandb
                 if use_wandb:
                     wandb.log({
-                        "gen/mean": gen_stats[0].item(),
-                        "gen/std": gen_stats[1].item(),
-                        "gen/min": gen_eval_range[0],
-                        "gen/max": gen_eval_range[1]
+                        "diag/total_bpd": kl_stats['total_bpd_b'].item(),
+                        "diag/terms_bpd": kl_stats['terms_bpd'].item(),
+                        "diag/prior_bpd": kl_stats['prior_bpd_b'].item(),
+                        "diag/mse": kl_stats['mse_bt'].item(),
+                        "diag/x_min": x_range[0],
+                        "diag/x_max": x_range[1]
                     }, step=epoch * len(dataloader))
+            
+            if is_distributed:
+                dist.barrier()  # Synchronize after diagnostics
 
-            # Save samples and ground truth
-            export_to_pc_batch('%s/epoch_%03d_samples_eval' % (outf_syn, epoch),
-                               (x_gen_eval.transpose(1, 2)).numpy())
+        # Visualize some samples
+        if (epoch + 1) % opt.vizIter == 0:
+            # CRITICAL: All ranks must participate to avoid NCCL hangs
+            if is_distributed:
+                dist.barrier()  # Synchronize before visualization
+            
+            if should_diag:
+                logger.info('Generation: eval')
 
-            export_to_pc_batch('%s/epoch_%03d_ground_truth' % (outf_syn, epoch),
-                               (pc_in.transpose(1, 2).detach().cpu()).numpy())
+                model.eval()
 
-            export_to_pc_batch('%s/epoch_%03d_partial' % (outf_syn, epoch),
-                               (pc_in[:, :, :(opt.num_points - opt.num_nn)].transpose(1, 2).detach().cpu()).numpy())
+                with torch.no_grad():
+                    x_gen_eval = model.gen_samples(pc_in[:, :, :(opt.num_points - opt.num_nn)],
+                                                   pc_in[:, :, (opt.num_points - opt.num_nn):].shape,
+                                                   pc_in.device, clip_denoised=False).detach().cpu()
 
-            model.train()
+                    gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
+                    gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
+
+                    logger.info('      [{:>3d}/{:>3d}]  '
+                                'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
+                                'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
+                                .format(epoch, opt.niter, *gen_eval_range, *gen_stats))
+                    
+                    # Log generation stats to wandb
+                    if use_wandb:
+                        wandb.log({
+                            "gen/mean": gen_stats[0].item(),
+                            "gen/std": gen_stats[1].item(),
+                            "gen/min": gen_eval_range[0],
+                            "gen/max": gen_eval_range[1]
+                        }, step=epoch * len(dataloader))
+
+                # Save samples and ground truth
+                export_to_pc_batch('%s/epoch_%03d_samples_eval' % (outf_syn, epoch),
+                                   (x_gen_eval.transpose(1, 2)).numpy())
+
+                export_to_pc_batch('%s/epoch_%03d_ground_truth' % (outf_syn, epoch),
+                                   (pc_in.transpose(1, 2).detach().cpu()).numpy())
+
+                export_to_pc_batch('%s/epoch_%03d_partial' % (outf_syn, epoch),
+                                   (pc_in[:, :, :(opt.num_points - opt.num_nn)].transpose(1, 2).detach().cpu()).numpy())
+
+                model.train()
+            
+            if is_distributed:
+                dist.barrier()  # Synchronize after visualization
 
         if (epoch + 1) % opt.saveIter == 0:
             save_dict = {

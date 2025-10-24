@@ -99,6 +99,30 @@ torchrun --nproc_per_node=8 pcdiff/train_completion.py \
 - Scale learning rate linearly: `--lr` = `N × 2e-4` (e.g., 1.6e-3 for 8 GPUs)
 - See [distributed-training.md](./distributed-training.md) for detailed guidance
 
+### Debugging Distributed Training
+
+If you encounter NCCL timeouts or hangs, enable debug mode:
+
+```bash
+# Enable verbose NCCL and PyTorch distributed debugging
+export NCCL_DEBUG=INFO
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
+export NCCL_ASYNC_ERROR_HANDLING=1
+
+# Optionally reduce timeout for faster failure detection (default: 30 minutes)
+export TORCH_DIST_TIMEOUT=5  # timeout in minutes
+
+# Run training
+torchrun --nproc_per_node=8 pcdiff/train_completion.py [your args]
+```
+
+**Common issues:**
+- **NCCL timeout after ~10 minutes**: Usually caused by rank divergence (one rank not entering a collective operation). The training script now includes automatic step count validation and distributed barriers to prevent this.
+- **Out of memory**: Reduce per-GPU batch size or enable gradient checkpointing
+- **Network issues**: Check `nvidia-smi topo -m` for GPU topology; ensure GPUs are properly connected
+
+See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for detailed debugging steps.
+
 ### Background Training (Persistent Sessions)
 
 To keep training running even if SSH disconnects:
