@@ -11,6 +11,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
+from torch.cuda.amp import GradScaler, autocast
 from torch.distributions import Normal
 
 from datasets.skullbreak_data import SkullBreakDataset
@@ -88,14 +89,14 @@ def weights_init(m):
 '''
 
 
-def seed_everything(seed: int) -> None:
+def seed_everything(seed: int, deterministic: bool = True) -> None:
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = deterministic
+    torch.backends.cudnn.benchmark = not deterministic
 
 
 def get_distributed_context():
@@ -575,26 +576,42 @@ def get_dataloader(opt, train_dataset, test_dataset=None):
     global_batch = opt.bs
     per_device_batch = max(global_batch // world_size, 1)
     num_workers = max(opt.workers // world_size, 0)
+    persistent_workers = num_workers > 0
+    prefetch_factor = opt.prefetch_factor if opt.prefetch_factor > 0 and num_workers > 0 else None
 
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
+    train_loader_kwargs = dict(
         batch_size=per_device_batch,
         sampler=train_sampler,
         shuffle=train_sampler is None,
         num_workers=num_workers,
         drop_last=True,
         pin_memory=True,
+        persistent_workers=persistent_workers,
+    )
+    if prefetch_factor is not None:
+        train_loader_kwargs['prefetch_factor'] = prefetch_factor
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        **train_loader_kwargs,
     )
 
     if test_dataset is not None:
-        test_dataloader = torch.utils.data.DataLoader(
-            test_dataset,
+        test_loader_kwargs = dict(
             batch_size=per_device_batch,
             sampler=test_sampler,
             shuffle=False,
             num_workers=num_workers,
             drop_last=False,
             pin_memory=True,
+            persistent_workers=persistent_workers,
+        )
+        if prefetch_factor is not None:
+            test_loader_kwargs['prefetch_factor'] = prefetch_factor
+
+        test_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            **test_loader_kwargs,
         )
     else:
         test_dataloader = None
@@ -615,11 +632,16 @@ def train(gpu, opt, output_dir, noises_init):
         if not logger.handlers:
             logger.addHandler(logging.NullHandler())
 
+    cuda_available = torch.cuda.is_available()
+    amp_dtype = torch.bfloat16 if opt.amp_dtype == 'bfloat16' else torch.float16
+    use_amp = cuda_available and not opt.disable_amp
+    use_grad_scaler = use_amp and amp_dtype == torch.float16
+
     if should_diag:
         outf_syn, = setup_output_subdirs(output_dir, 'syn')
 
     is_distributed = world_size > 1
-    if is_distributed:
+    if is_distributed and cuda_available:
         torch.cuda.set_device(local_rank)
         
         # Initialize with a shorter timeout during development to fail faster
@@ -644,19 +666,49 @@ def train(gpu, opt, output_dir, noises_init):
     betas = get_betas(opt.schedule_type, opt.beta_start, opt.beta_end, opt.time_num)
     model = Model(opt, betas, opt.loss_type, opt.model_mean_type, opt.model_var_type, opt.width_mult, opt.vox_res_mult)
 
-    if is_distributed:
-        model = model.cuda(local_rank)
+    if cuda_available:
+        model = model.cuda()
 
+    if is_distributed:
         def _transform_(m):
-            return nn.parallel.DistributedDataParallel(m, device_ids=[local_rank], output_device=local_rank)
+            return nn.parallel.DistributedDataParallel(
+                m,
+                device_ids=[local_rank] if cuda_available else None,
+                output_device=local_rank if cuda_available else None,
+                gradient_as_bucket_view=True,
+                find_unused_parameters=False,
+                static_graph=opt.ddp_static_graph,
+            )
 
         model.multi_gpu_wrapper(_transform_)
-    else:
-        if torch.cuda.is_available():
-            model = model.cuda()
+
+    use_compile = (not opt.disable_compile) and hasattr(torch, "compile")
+    compile_applied = False
+    if use_compile:
+        compile_kwargs = {}
+        if opt.compile_backend:
+            compile_kwargs['backend'] = opt.compile_backend
+        if opt.compile_mode:
+            compile_kwargs['mode'] = opt.compile_mode
+        if opt.compile_fullgraph:
+            compile_kwargs['fullgraph'] = True
+
+        try:
+            model = torch.compile(model, **compile_kwargs)
+            compile_applied = True
+        except Exception as compile_err:
+            compile_applied = False
+            if should_diag:
+                logger.warning(f"torch.compile failed ({compile_err}); falling back to eager execution")
+
 
     if should_diag:
         logger.info(opt)
+        if compile_applied:
+            logger.info(f"torch.compile enabled with backend={opt.compile_backend}, "
+                        f"mode={opt.compile_mode or 'default'}, fullgraph={opt.compile_fullgraph}")
+        elif use_compile:
+            logger.info("torch.compile requested but running in eager mode")
 
     # Initialize wandb (only on main process)
     use_wandb = WANDB_AVAILABLE and not opt.no_wandb and should_diag
@@ -672,8 +724,34 @@ def train(gpu, opt, output_dir, noises_init):
         wandb.watch(model, log='all', log_freq=opt.print_freq * 10)
         logger.info(f"Wandb logging enabled: {wandb.run.url}")
 
-    optimizer = optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
+    optimizer_kwargs = dict(
+        lr=opt.lr,
+        weight_decay=opt.decay,
+        betas=(opt.beta1, 0.999),
+    )
+    fused_enabled = False
+    if cuda_available and not opt.no_fused_adam:
+        optimizer_kwargs['fused'] = True
+
+    try:
+        optimizer = optim.Adam(model.parameters(), **optimizer_kwargs)
+        fused_enabled = optimizer_kwargs.get('fused', False)
+    except TypeError:
+        optimizer_kwargs.pop('fused', None)
+        optimizer = optim.Adam(model.parameters(), **optimizer_kwargs)
+        fused_enabled = False
+
     lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
+    scaler = GradScaler(enabled=use_grad_scaler)
+
+    if should_diag:
+        logger.info(f"AMP: {'on' if use_amp else 'off'} "
+                    f"(dtype={opt.amp_dtype}, grad_scaler={'on' if use_grad_scaler else 'off'})")
+        if cuda_available:
+            if fused_enabled:
+                logger.info("Using fused Adam optimizer kernels")
+            elif not opt.no_fused_adam:
+                logger.info("Fused Adam kernels unavailable; using standard Adam")
 
     start_epoch = 0
     if opt.model:
@@ -694,36 +772,49 @@ def train(gpu, opt, output_dir, noises_init):
             pc_in = data['train_points'].transpose(1, 2)  # Input point cloud
             noises_batch = noises_init[data['idx']].transpose(1, 2)  # Noise (num_nn points)
 
-            if torch.cuda.is_available():
-                pc_in = pc_in.cuda()
-                noises_batch = noises_batch.cuda()
+            if cuda_available:
+                pc_in = pc_in.cuda(non_blocking=True)
+                noises_batch = noises_batch.cuda(non_blocking=True)
 
-            # Compute training loss
-            loss = model.get_loss_iter(pc_in, noises_batch).mean()
+            optimizer.zero_grad(set_to_none=True)
 
-            # Optimize network parameters
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            with autocast(enabled=use_amp, dtype=amp_dtype):
+                loss = model.get_loss_iter(pc_in, noises_batch).mean()
+
+            loss_value = float(loss.detach().item())
+
+            if use_grad_scaler:
+                scaler.scale(loss).backward()
+                if opt.grad_clip is not None:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                if opt.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                optimizer.step()
             
             epoch_step_count += 1
 
             # Print progress
             if i % opt.print_freq == 0 and should_diag:
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
-                            .format(epoch, opt.niter, i, len(dataloader), loss.item()))
+                            .format(epoch, opt.niter, i, len(dataloader), loss_value))
                 
                 # Log to wandb
                 if use_wandb:
                     wandb.log({
-                        "train/loss": loss.item(),
+                        "train/loss": loss_value,
                         "train/epoch": epoch,
                         "train/lr": optimizer.param_groups[0]['lr']
                     }, step=epoch * len(dataloader) + i)
         
         # Validate that all ranks completed the same number of steps
         if is_distributed:
-            step_count_tensor = torch.tensor([epoch_step_count], dtype=torch.long, device=torch.cuda.current_device())
+            step_device = torch.device('cuda', local_rank) if cuda_available else torch.device('cpu')
+            step_count_tensor = torch.tensor([epoch_step_count], dtype=torch.long, device=step_device)
             gathered_counts = [torch.zeros_like(step_count_tensor) for _ in range(world_size)]
             dist.all_gather(gathered_counts, step_count_tensor)
             
@@ -856,7 +947,11 @@ def main():
     if rank == 0:
         copy_source(__file__, output_dir)
     ''' Initialization '''
-    seed_everything(opt.manualSeed)
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision(opt.matmul_precision)
+        torch.backends.cuda.matmul.allow_tf32 = not opt.disable_tf32
+        torch.backends.cudnn.allow_tf32 = not opt.disable_tf32
+    seed_everything(opt.manualSeed, deterministic=not opt.nondeterministic)
     noises_init = torch.randn(570, opt.num_nn, 3)  # Init noise (num_nn random points)
 
     train(opt.gpu, opt, output_dir, noises_init)
@@ -870,6 +965,8 @@ def parse_args():
     # Data loader parameters
     parser.add_argument('--bs', type=int, default=8, help='input batch size')
     parser.add_argument('--workers', type=int, default=24, help='workers dataloader')
+    parser.add_argument('--prefetch-factor', type=int, default=4,
+                        help='prefetch batches per DataLoader worker (0 disables prefetching)')
     parser.add_argument('--niter', type=int, default=15000, help='number of epochs to train for')
 
     # Input point cloud
@@ -898,8 +995,32 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate for E, default=0.0002')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--decay', type=float, default=0, help='weight decay for EBM')
-    parser.add_argument('--grad_clip', type=float, default=None, help='weight decay for EBM')
+    parser.add_argument('--grad_clip', type=float, default=None,
+                        help='max gradient norm (None disables clipping)')
     parser.add_argument('--lr_gamma', type=float, default=1, help='lr decay for EBM')
+    parser.add_argument('--disable-compile', action='store_true',
+                        help='disable torch.compile even if it is available')
+    parser.add_argument('--compile-backend', type=str, default='inductor',
+                        help='backend to use for torch.compile')
+    parser.add_argument('--compile-mode', type=str, default=None,
+                        choices=['default', 'reduce-overhead', 'max-autotune'],
+                        help='preset for torch.compile() optimizations')
+    parser.add_argument('--compile-fullgraph', action='store_true',
+                        help='request fullgraph compilation for torch.compile')
+    parser.add_argument('--disable-amp', action='store_true',
+                        help='disable automatic mixed precision (AMP)')
+    parser.add_argument('--amp-dtype', type=str, default='float16', choices=['float16', 'bfloat16'],
+                        help='dtype to use for autocast when AMP is enabled')
+    parser.add_argument('--no-fused-adam', action='store_true',
+                        help='disable fused Adam optimizer kernel')
+    parser.add_argument('--ddp-static-graph', action='store_true',
+                        help='enable static_graph optimization for DistributedDataParallel')
+    parser.add_argument('--nondeterministic', action='store_true',
+                        help='allow faster but non-deterministic CUDA algorithms')
+    parser.add_argument('--disable-tf32', action='store_true',
+                        help='disable TF32 matmul/tensor core usage')
+    parser.add_argument('--matmul-precision', type=str, default='high', choices=['high', 'medium', 'low'],
+                        help='torch.set_float32_matmul_precision value')
 
     # Model path (for continuing the training of existing models)
     parser.add_argument('--model', default='', help="path to model (to continue training)")
