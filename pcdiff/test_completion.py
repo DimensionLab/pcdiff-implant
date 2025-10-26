@@ -185,8 +185,17 @@ class GaussianDiffusion:
         sample = torch.cat([data[:, :, :self.sv_points], sample], dim=-1)
         return sample
 
-    def p_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
-                      keep_running=False):
+    def p_sample_loop(
+        self,
+        partial_x,
+        denoise_fn,
+        shape,
+        device,
+        noise_fn=torch.randn,
+        clip_denoised=True,
+        keep_running=False,
+        sampling_steps=None,
+    ):
         """
         Generate samples
         keep_running: True if we run 2 x num_timesteps, False if we just run num_timesteps
@@ -197,7 +206,26 @@ class GaussianDiffusion:
 
         img_t = torch.cat([partial_x, noise], dim=-1)
 
-        for t in tqdm(reversed(range(0, self.num_timesteps if not keep_running else len(self.betas))), total=1000):
+        if sampling_steps is not None and sampling_steps > 0:
+            if keep_running:
+                max_steps = len(self.betas)
+            else:
+                max_steps = self.num_timesteps
+            sampling_steps = min(sampling_steps, max_steps)
+            timestep_range = np.linspace(
+                max_steps - 1,
+                0,
+                num=sampling_steps,
+                endpoint=True,
+            )
+            timestep_range = np.clip(np.round(timestep_range).astype(int), 0, max_steps - 1)
+            timestep_range = list(dict.fromkeys(timestep_range.tolist()))
+        else:
+            timestep_range = list(range(self.num_timesteps if not keep_running else len(self.betas)))
+
+        total_steps = len(timestep_range)
+
+        for t in tqdm(reversed(timestep_range), total=total_steps):
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                   clip_denoised=clip_denoised, return_pred_xstart=False)
@@ -456,8 +484,16 @@ class Model(nn.Module):
     def gen_samples(self, partial_x, shape, device, noise_fn=torch.randn, clip_denoised=True, keep_running=False,
                     sampling_method='ddpm', sampling_steps=1000):
         if sampling_method == 'ddpm':
-            return self.diffusion.p_sample_loop(partial_x, self._denoise, shape=shape, device=device, noise_fn=noise_fn,
-                                                clip_denoised=clip_denoised, keep_running=keep_running)
+            return self.diffusion.p_sample_loop(
+                partial_x,
+                self._denoise,
+                shape=shape,
+                device=device,
+                noise_fn=noise_fn,
+                clip_denoised=clip_denoised,
+                keep_running=keep_running,
+                sampling_steps=sampling_steps,
+            )
         if sampling_method == 'ddim':
             return self.diffusion.ddim_sample_loop(partial_x, self._denoise, shape=shape, device=device,
                                                    noise_fn=noise_fn, clip_denoised=clip_denoised,

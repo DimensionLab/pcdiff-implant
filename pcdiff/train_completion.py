@@ -11,7 +11,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.distributions import Normal
 
 from datasets.skullbreak_data import SkullBreakDataset
@@ -634,7 +634,11 @@ def train(gpu, opt, output_dir, noises_init):
 
     cuda_available = torch.cuda.is_available()
     amp_dtype = torch.bfloat16 if opt.amp_dtype == 'bfloat16' else torch.float16
-    use_amp = cuda_available and not opt.disable_amp
+    if hasattr(opt, "disable_amp"):
+        amp_enabled = not opt.disable_amp
+    else:
+        amp_enabled = getattr(opt, "amp", False)
+    use_amp = cuda_available and amp_enabled
     use_grad_scaler = use_amp and amp_dtype == torch.float16
 
     if should_diag:
@@ -669,6 +673,25 @@ def train(gpu, opt, output_dir, noises_init):
     if cuda_available:
         model = model.cuda()
 
+    use_compile = (not opt.disable_compile) and hasattr(torch, "compile")
+    compile_applied = False
+    if use_compile:
+        compile_kwargs = {}
+        if opt.compile_backend:
+            compile_kwargs['backend'] = opt.compile_backend
+        if opt.compile_mode:
+            compile_kwargs['mode'] = opt.compile_mode
+        if opt.compile_fullgraph:
+            compile_kwargs['fullgraph'] = True
+
+        try:
+            model.model = torch.compile(model.model, **compile_kwargs)
+            compile_applied = True
+        except Exception as compile_err:
+            compile_applied = False
+            if should_diag:
+                logger.warning(f"torch.compile failed ({compile_err}); falling back to eager execution")
+
     if is_distributed:
         def _transform_(m):
             return nn.parallel.DistributedDataParallel(
@@ -682,31 +705,13 @@ def train(gpu, opt, output_dir, noises_init):
 
         model.multi_gpu_wrapper(_transform_)
 
-    use_compile = (not opt.disable_compile) and hasattr(torch, "compile")
-    compile_applied = False
-    if use_compile:
-        compile_kwargs = {}
-        if opt.compile_backend:
-            compile_kwargs['backend'] = opt.compile_backend
-        if opt.compile_mode:
-            compile_kwargs['mode'] = opt.compile_mode
-        if opt.compile_fullgraph:
-            compile_kwargs['fullgraph'] = True
-
-        try:
-            model = torch.compile(model, **compile_kwargs)
-            compile_applied = True
-        except Exception as compile_err:
-            compile_applied = False
-            if should_diag:
-                logger.warning(f"torch.compile failed ({compile_err}); falling back to eager execution")
-
 
     if should_diag:
         logger.info(opt)
         if compile_applied:
-            logger.info(f"torch.compile enabled with backend={opt.compile_backend}, "
-                        f"mode={opt.compile_mode or 'default'}, fullgraph={opt.compile_fullgraph}")
+            logger.info(f"torch.compile enabled for PVCNN backbone "
+                        f"(backend={opt.compile_backend}, mode={opt.compile_mode or 'default'}, "
+                        f"fullgraph={opt.compile_fullgraph})")
         elif use_compile:
             logger.info("torch.compile requested but running in eager mode")
 
@@ -742,7 +747,7 @@ def train(gpu, opt, output_dir, noises_init):
         fused_enabled = False
 
     lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
-    scaler = GradScaler(enabled=use_grad_scaler)
+    scaler = GradScaler("cuda", enabled=use_grad_scaler)
 
     if should_diag:
         logger.info(f"AMP: {'on' if use_amp else 'off'} "
@@ -778,7 +783,7 @@ def train(gpu, opt, output_dir, noises_init):
 
             optimizer.zero_grad(set_to_none=True)
 
-            with autocast(enabled=use_amp, dtype=amp_dtype):
+            with autocast("cuda", enabled=use_amp, dtype=amp_dtype):
                 loss = model.get_loss_iter(pc_in, noises_batch).mean()
 
             loss_value = float(loss.detach().item())
@@ -1007,10 +1012,15 @@ def parse_args():
                         help='preset for torch.compile() optimizations')
     parser.add_argument('--compile-fullgraph', action='store_true',
                         help='request fullgraph compilation for torch.compile')
-    parser.add_argument('--disable-amp', action='store_true',
-                        help='disable automatic mixed precision (AMP)')
+    parser.add_argument('--amp', dest='amp', action='store_true',
+                        help='enable automatic mixed precision (requires AMP-compatible CUDA ops)')
+    parser.add_argument('--no-amp', dest='amp', action='store_false',
+                        help='disable AMP (default, recommended unless CUDA ops support low precision)')
+    parser.add_argument('--disable-amp', dest='amp', action='store_false',
+                        help=argparse.SUPPRESS)
     parser.add_argument('--amp-dtype', type=str, default='float16', choices=['float16', 'bfloat16'],
                         help='dtype to use for autocast when AMP is enabled')
+    parser.set_defaults(amp=False)
     parser.add_argument('--no-fused-adam', action='store_true',
                         help='disable fused Adam optimizer kernel')
     parser.add_argument('--ddp-static-graph', action='store_true',

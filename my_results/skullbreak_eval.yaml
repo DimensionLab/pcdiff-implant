@@ -1,0 +1,25 @@
+mean:
+  bdice: 0.0
+  dice: 0.0
+  hd95: 100.02010837240208
+samples:
+- bdice: 0.0
+  case_id: '110'
+  defect: frontoorbital
+  dice: 0.0
+  hd95: 96.77999792583213
+- bdice: 0.0
+  case_id: 029
+  defect: bilateral
+  dice: 0.0
+  hd95: 78.56553951402
+- bdice: 0.0
+  case_id: 028
+  defect: parietotemporal
+  dice: 0.0
+  hd95: 87.0802847939615
+- bdice: 0.0
+  case_id: '014'
+  defect: parietotemporal
+  dice: 0.0
+  hd95: 137.6546112557947

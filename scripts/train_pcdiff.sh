@@ -2,12 +2,32 @@
 set -e  # Exit on error
 
 # Configuration
-DATASET_PATH="pcdiff/datasets/SkullBreak"  # Path to dataset directory
+DATASET_PATH="pcdiff/datasets/SkullBreak/train.csv"  # Train split CSV from pre-processing
 DATASET_NAME="SkullBreak"
-CHECKPOINT="pcdiff/output/train_completion/2025-10-23-19-35-15/epoch_1999_remapped.pth"
-NUM_GPUS=7
-BATCH_SIZE=56
-LEARNING_RATE=0.00122
+CHECKPOINT="" #"pcdiff/output/train_completion/2025-10-23-19-35-15/epoch_1999_remapped.pth"
+NUM_GPUS=8                   # Using GPUs 0-6; switch to 8 for full run
+BATCH_SIZE=64                 # Global batch ⇒ ~1 sample per GPU (stress-test low-batch regime)
+LEARNING_RATE=0.0002         # Paper baseline LR for global batch 8 (no scaling)
+PREFETCH_FACTOR=4            # Matches paper-trained dataloader behaviour
+MATMUL_PRECISION="high"      # Paper uses FP32 training; keep TF32 enabled for speed
+AMP_FLAG="--no-amp"          # Paper baseline is full precision; remove flag to enable AMP later
+COMPILE_BACKEND="inductor"
+COMPILE_MODE="default"
+COMPILE_FULLGRAPH_FLAG=""    # Set to '--compile-fullgraph' only if custom ops support full graphs
+FUSED_ADAM_FLAG=""           # Leave empty to use fused Adam; set to '--no-fused-adam' for plain Adam
+
+COMPILE_FLAGS=( --compile-backend "${COMPILE_BACKEND}" --compile-mode "${COMPILE_MODE}" )
+EXTRA_FLAGS=( --matmul-precision "${MATMUL_PRECISION}" )
+# EXTRA_FLAGS+=( "${COMPILE_FLAGS[@]}" )
+[ -n "${COMPILE_FULLGRAPH_FLAG}" ] && EXTRA_FLAGS+=( "${COMPILE_FULLGRAPH_FLAG}" )
+[ -n "${AMP_FLAG}" ] && EXTRA_FLAGS+=( "${AMP_FLAG}" )
+[ -n "${FUSED_ADAM_FLAG}" ] && EXTRA_FLAGS+=( "${FUSED_ADAM_FLAG}" )
+
+PER_DEVICE_BATCH=$(( BATCH_SIZE / NUM_GPUS ))
+if [ ${PER_DEVICE_BATCH} -lt 1 ]; then
+  PER_DEVICE_BATCH=1
+fi
+EFFECTIVE_BATCH=$((PER_DEVICE_BATCH * NUM_GPUS))
 
 # Print configuration
 echo "================================================"
@@ -16,32 +36,33 @@ echo "================================================"
 echo "Dataset: ${DATASET_PATH}"
 echo "Checkpoint: ${CHECKPOINT}"
 echo "GPUs: ${NUM_GPUS} (0-6)"
-echo "Batch Size: ${BATCH_SIZE} per GPU (effective: $((BATCH_SIZE * NUM_GPUS)))"
+echo "Batch Size: ${PER_DEVICE_BATCH} per GPU (effective: ${EFFECTIVE_BATCH})"
 echo "Learning Rate: ${LEARNING_RATE}"
 echo "================================================"
 echo ""
 
 # Verify checkpoint exists
-if [ ! -f "${CHECKPOINT}" ]; then
+if [ -n "${CHECKPOINT}" ] && [ ! -f "${CHECKPOINT}" ]; then
     echo "ERROR: Checkpoint not found at ${CHECKPOINT}"
     exit 1
 fi
 
 # Start training
 # Using only GPUs 0-6 (7 total) for training
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 torchrun \
+# --model ${CHECKPOINT} \ for checkpoint resume training
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --nproc_per_node=${NUM_GPUS} \
     --master_port=29500 \
     pcdiff/train_completion.py \
     --path ${DATASET_PATH} \
     --dataset ${DATASET_NAME} \
-    --model ${CHECKPOINT} \
     --bs ${BATCH_SIZE} \
     --lr ${LEARNING_RATE} \
     --niter 15000 \
     --num_points 30720 \
     --num_nn 3072 \
     --workers 21 \
+    --prefetch-factor ${PREFETCH_FACTOR} \
     --nc 3 \
     --attention True \
     --dropout 0.1 \
@@ -61,9 +82,12 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 torchrun \
     --print_freq 10 \
     --manualSeed 1234 \
     --dist-backend nccl \
-    --augment False #\
+    --augment False \
+    --disable-compile \
+    "${EXTRA_FLAGS[@]}"
     #--wandb-project pcdiff
+    # Keep fused Adam enabled by default; set to --no-fused-adam to revert to paper baseline
+
 
 echo ""
 echo "PCDiff training completed or interrupted."
-

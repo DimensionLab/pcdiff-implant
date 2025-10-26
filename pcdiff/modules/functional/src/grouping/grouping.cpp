@@ -8,7 +8,11 @@ at::Tensor grouping_forward(at::Tensor features, at::Tensor indices) {
   CHECK_CUDA(indices);
   CHECK_CONTIGUOUS(features);
   CHECK_CONTIGUOUS(indices);
-  CHECK_IS_FLOAT(features);
+  auto dtype = features.scalar_type();
+  TORCH_CHECK(
+      dtype == at::ScalarType::Float || dtype == at::ScalarType::Half ||
+          dtype == at::ScalarType::BFloat16,
+      "features must be a float/half/bfloat16 tensor");
   CHECK_IS_INT(indices);
 
   int b = features.size(0);
@@ -16,10 +20,9 @@ at::Tensor grouping_forward(at::Tensor features, at::Tensor indices) {
   int n = features.size(2);
   int m = indices.size(1);
   int u = indices.size(2);
-  at::Tensor output = torch::zeros(
-      {b, c, m, u}, at::device(features.device()).dtype(at::ScalarType::Float));
-  grouping(b, c, n, m, u, features.data_ptr<float>(), indices.data_ptr<int>(),
-           output.data_ptr<float>());
+  at::Tensor output = torch::zeros({b, c, m, u}, features.options());
+  grouping_forward_launcher(b, c, n, m, u, dtype, features.data_ptr(),
+                            indices.data_ptr<int>(), output.data_ptr());
   return output;
 }
 
@@ -29,16 +32,19 @@ at::Tensor grouping_backward(at::Tensor grad_y, at::Tensor indices,
   CHECK_CUDA(indices);
   CHECK_CONTIGUOUS(grad_y);
   CHECK_CONTIGUOUS(indices);
-  CHECK_IS_FLOAT(grad_y);
+  auto dtype = grad_y.scalar_type();
+  TORCH_CHECK(
+      dtype == at::ScalarType::Float || dtype == at::ScalarType::Half ||
+          dtype == at::ScalarType::BFloat16,
+      "grad_y must be a float/half/bfloat16 tensor");
   CHECK_IS_INT(indices);
 
   int b = grad_y.size(0);
   int c = grad_y.size(1);
   int m = indices.size(1);
   int u = indices.size(2);
-  at::Tensor grad_x = torch::zeros(
-      {b, c, n}, at::device(grad_y.device()).dtype(at::ScalarType::Float));
-  grouping_grad(b, c, n, m, u, grad_y.data_ptr<float>(),
-                indices.data_ptr<int>(), grad_x.data_ptr<float>());
+  at::Tensor grad_x = torch::zeros({b, c, n}, grad_y.options());
+  grouping_backward_launcher(b, c, n, m, u, dtype, grad_y.data_ptr(),
+                             indices.data_ptr<int>(), grad_x.data_ptr());
   return grad_x;
 }
