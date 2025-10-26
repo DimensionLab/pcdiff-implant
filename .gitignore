@@ -48,6 +48,7 @@ cuda_*.run
 wandb/
 
 /inference*
+/screenshots*
 
 # Web Viewer
 /web_viewer/frontend/node_modules/

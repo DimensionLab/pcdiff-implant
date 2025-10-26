@@ -603,12 +603,17 @@ def get_dataloader(opt, train_dataset, test_dataset=None):
 
 
 def train(gpu, opt, output_dir, noises_init):
-    logger = setup_logging(output_dir)
-
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", gpu if gpu is not None else 0))
     should_diag = rank == 0
+
+    if should_diag:
+        logger = setup_logging(output_dir)
+    else:
+        logger = logging.getLogger(__name__)
+        if not logger.handlers:
+            logger.addHandler(logging.NullHandler())
 
     if should_diag:
         outf_syn, = setup_output_subdirs(output_dir, 'syn')
@@ -670,14 +675,11 @@ def train(gpu, opt, output_dir, noises_init):
     optimizer = optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
     lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
 
-    if opt.model != '':
-        ckpt = torch.load(opt.model)
-        model.load_state_dict(ckpt['model_state'])
-        optimizer.load_state_dict(ckpt['optimizer_state'])
-
     start_epoch = 0
     if opt.model:
         checkpoint = torch.load(opt.model, map_location="cpu")
+        model.load_state_dict(checkpoint['model_state'])
+        optimizer.load_state_dict(checkpoint['optimizer_state'])
         start_epoch = checkpoint.get('epoch', -1) + 1
         if start_epoch > 0 and should_diag:
             logger.info(f"Resuming from checkpoint {opt.model} at epoch {start_epoch}")
@@ -850,7 +852,9 @@ def main():
     exp_id = os.path.splitext(os.path.basename(__file__))[0]
     dir_id = os.path.dirname(__file__)
     output_dir = get_output_dir(dir_id, exp_id)
-    copy_source(__file__, output_dir)
+    rank = int(os.environ.get("RANK", "0"))
+    if rank == 0:
+        copy_source(__file__, output_dir)
     ''' Initialization '''
     seed_everything(opt.manualSeed)
     noises_init = torch.randn(570, opt.num_nn, 3)  # Init noise (num_nn random points)
