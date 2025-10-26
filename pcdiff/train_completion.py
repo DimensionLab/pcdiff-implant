@@ -824,13 +824,14 @@ def train(gpu, opt, output_dir, noises_init):
                 dist.barrier()  # Synchronize after visualization
 
         if (epoch + 1) % opt.saveIter == 0:
-            save_dict = {
-                'epoch': epoch,
-                'model_state': model.state_dict(),
-                'optimizer_state': optimizer.state_dict()
-            }
+            if should_diag:
+                save_dict = {
+                    'epoch': epoch,
+                    'model_state': model.state_dict(),
+                    'optimizer_state': optimizer.state_dict()
+                }
 
-            torch.save(save_dict, '%s/epoch_%d.pth' % (output_dir, epoch))
+                torch.save(save_dict, '%s/epoch_%d.pth' % (output_dir, epoch))
 
             if is_distributed:
                 dist.barrier()
