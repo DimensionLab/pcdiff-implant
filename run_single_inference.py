@@ -47,11 +47,11 @@ def parse_args():
                        help='Path to trained PCDiff model checkpoint')
     parser.add_argument('--num_ens', type=int, default=1,
                        help='Number of ensemble samples to generate')
-    parser.add_argument('--sampling_method', type=str, default='ddim',
+    parser.add_argument('--sampling_method', type=str, default='ddpm',
                        choices=['ddpm', 'ddim'],
                        help='Sampling method for diffusion')
-    parser.add_argument('--sampling_steps', type=int, default=50,
-                       help='Number of sampling steps')
+    parser.add_argument('--sampling_steps', type=int, default=1000,
+                       help='Number of sampling steps (full diffusion chain)')
     
     # Voxelization Model
     parser.add_argument('--vox_model', type=str, required=True,
@@ -127,6 +127,11 @@ def run_pcdiff_inference(args, input_points):
     print("\n" + "="*60)
     print("Step 1: PCDiff - Generating Implant Point Cloud")
     print("="*60)
+
+    if args.sampling_method.lower() != 'ddpm' or args.sampling_steps != 1000:
+        print("Forcing full-chain DDPM sampling (1000 steps) for implant generation.")
+    args.sampling_method = 'ddpm'
+    args.sampling_steps = 1000
     
     # Setup
     torch.cuda.set_device(args.gpu)
@@ -228,17 +233,17 @@ def run_pcdiff_inference(args, input_points):
             sampling_steps=args.sampling_steps
         )
         sample = sample.detach().cpu().numpy()
-    
-    # Denormalize
-    sample = sample.transpose(0, 2, 1)  # (num_ens, num_nn, 3)
-    sample_normalized = sample.copy()
-    sample = sample * scale + shift
-    print(f"✓ Generated implant point cloud: {sample.shape}")
 
-    return sample, input_points, shift, scale, sample_normalized
+    # Separate defective (conditioning) and implant points
+    completed_points = sample.transpose(0, 2, 1)  # (num_ens, num_points, 3)
+    implant_normalized = completed_points[:, sv_points:, :]
+    implant_world = implant_normalized * scale + shift
+    print(f"✓ Generated implant point cloud: {implant_world.shape}")
+
+    return implant_world, input_points, shift, scale, implant_normalized
 
 
-def run_voxelization(args, implant_points, defective_points, output_dir):
+def run_voxelization(args, implant_points, defective_points, output_dir, implant_points_normalized):
     """Run voxelization to convert point cloud to mesh."""
     print("\n" + "="*60)
     print("Step 2: Voxelization - Converting to Volumetric Mesh")
@@ -273,10 +278,12 @@ def run_voxelization(args, implant_points, defective_points, output_dir):
     
     # Combine defective skull + implant (take first ensemble sample)
     implant_pc = implant_points[0]  # (num_nn, 3)
-    
+    implant_pc_normalized = implant_points_normalized[0]
+
     # Normalize to [0, 1]
-    combined_points = np.concatenate([defective_points, implant_pc], axis=0)
-    combined_points = combined_points / 512.0  # Normalize
+    defective_normalized = (defective_points / 512.0).astype(np.float32)
+    implant_pc_normalized = implant_pc_normalized.astype(np.float32)
+    combined_points = np.concatenate([defective_normalized, implant_pc_normalized], axis=0).astype(np.float32)
     
     print(f"Combined point cloud: {combined_points.shape[0]} points")
     print(f"  - Defective skull: {defective_points.shape[0]} points")
@@ -292,16 +299,25 @@ def run_voxelization(args, implant_points, defective_points, output_dir):
     print(f"✓ Generated mesh:")
     print(f"  - Vertices: {len(vertices)}")
     print(f"  - Faces: {len(faces)}")
-    
     # Convert PSR grid to binary volume
     psr_grid_np = psr_grid.detach().cpu().numpy()[0, :, :, :]
-    volume_complete = np.zeros((512, 512, 512), dtype=np.float32)
+    volume_complete = np.zeros((512, 512, 512), dtype=np.uint8)
     volume_complete[psr_grid_np <= 0] = 1
+
+    # Generate volume for defective skull alone for boolean subtraction
+    defective_tensor = torch.from_numpy(defective_normalized).float().unsqueeze(0).to(device)
+    with torch.no_grad():
+        _, _, _, _, psr_defective = generator.generate_mesh(defective_tensor)
+    psr_defective_np = psr_defective.detach().cpu().numpy()[0, :, :, :]
+    volume_defective = np.zeros_like(volume_complete)
+    volume_defective[psr_defective_np <= 0] = 1
+
+    volume_implant = np.clip(volume_complete.astype(np.int16) - volume_defective.astype(np.int16), 0, 1).astype(np.uint8)
     
-    return vertices, faces, volume_complete, implant_pc
+    return vertices, faces, volume_complete, volume_implant, implant_pc
 
 
-def export_results(args, vertices, faces, volume_complete, implant_pc, 
+def export_results(args, vertices, faces, volume_complete, volume_implant, implant_pc, 
                    defective_points, shift, scale, output_dir,
                    implant_points_normalized):
     """Export all output formats."""
@@ -405,12 +421,18 @@ def export_results(args, vertices, faces, volume_complete, implant_pc,
         nrrd.write(str(nrrd_path), volume_complete.astype(np.float32))
         results.append(('NRRD (Complete)', nrrd_path, nrrd_path.stat().st_size))
         print(f"  ✓ {nrrd_path}")
+
+        implant_nrrd_path = output_dir / 'implant_volume.nrrd'
+        nrrd.write(str(implant_nrrd_path), volume_implant.astype(np.float32))
+        results.append(('NRRD (Implant)', implant_nrrd_path, implant_nrrd_path.stat().st_size))
+        print(f"  ✓ {implant_nrrd_path}")
     
     # 5. Save raw numpy arrays
     print("Saving numpy arrays...")
     
     np.save(output_dir / 'defective_skull.npy', defective_points)
     np.save(output_dir / 'implant.npy', implant_pc)
+    np.save(output_dir / 'implant_volume.npy', volume_implant)
     np.save(output_dir / 'shift.npy', shift)
     np.save(output_dir / 'scale.npy', scale)
     np.save(output_dir / 'implant_normalized.npy', implant_points_normalized)
@@ -452,13 +474,13 @@ def main():
         implant_points, defective_points, shift, scale, implant_points_normalized = run_pcdiff_inference(args, input_points)
         
         # Step 3: Run Voxelization
-        vertices, faces, volume_complete, implant_pc = run_voxelization(
-            args, implant_points, defective_points, output_dir
+        vertices, faces, volume_complete, volume_implant, implant_pc = run_voxelization(
+            args, implant_points, defective_points, output_dir, implant_points_normalized
         )
         
         # Step 4: Export Results
         results = export_results(
-            args, vertices, faces, volume_complete, implant_pc,
+            args, vertices, faces, volume_complete, volume_implant, implant_pc,
             defective_points, shift, scale, output_dir,
             implant_points_normalized
         )
@@ -497,4 +519,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-

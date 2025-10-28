@@ -223,6 +223,7 @@ class GaussianDiffusion:
         else:
             timestep_range = list(range(self.num_timesteps if not keep_running else len(self.betas)))
 
+        timestep_range = sorted(timestep_range)
         total_steps = len(timestep_range)
 
         for t in tqdm(reversed(timestep_range), total=total_steps):

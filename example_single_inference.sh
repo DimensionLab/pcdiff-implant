@@ -5,7 +5,7 @@
 
 # Configuration
 INPUT_SKULL="pcdiff/datasets/SkullBreak/defective_skull/random_2/077.npy"
-PCDIFF_MODEL="pcdiff/output/train_completion/2025-10-23-19-35-15/epoch_1999_remapped.pth"
+PCDIFF_MODEL="pcdiff/output/train_completion/2025-10-26-21-57-58/epoch_14999.pth"
 VOX_MODEL="voxelization/out/skullbreak/model_best.pt"
 OUTPUT_DIR="single_inference_demo"
 NAME="test_random2_077"
@@ -47,8 +47,8 @@ python3 run_single_inference.py \
     --output_dir "$OUTPUT_DIR" \
     --name "$NAME" \
     --num_ens 1 \
-    --sampling_method ddim \
-    --sampling_steps 50 \
+    --sampling_method ddpm \
+    --sampling_steps 1000 \
     --dataset SkullBreak \
     --gpu $GPU \
     --export_ply \

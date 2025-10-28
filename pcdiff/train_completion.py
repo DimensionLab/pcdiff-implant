@@ -729,14 +729,22 @@ def train(gpu, opt, output_dir, noises_init):
         wandb.watch(model, log='all', log_freq=opt.print_freq * 10)
         logger.info(f"Wandb logging enabled: {wandb.run.url}")
 
+    base_batch = max(opt.lr_base_batch, 1)
+    lr_scale = float(opt.bs) / float(base_batch)
+    scaled_lr = opt.lr * lr_scale
+
     optimizer_kwargs = dict(
-        lr=opt.lr,
+        lr=scaled_lr,
         weight_decay=opt.decay,
         betas=(opt.beta1, 0.999),
     )
     fused_enabled = False
     if cuda_available and not opt.no_fused_adam:
         optimizer_kwargs['fused'] = True
+
+    if should_diag:
+        logger.info(f"Effective LR scaled to {scaled_lr:.6e} using factor {lr_scale:.3f} "
+                    f"(baseline batch={base_batch}, current batch={opt.bs})")
 
     try:
         optimizer = optim.Adam(model.parameters(), **optimizer_kwargs)
@@ -746,7 +754,25 @@ def train(gpu, opt, output_dir, noises_init):
         optimizer = optim.Adam(model.parameters(), **optimizer_kwargs)
         fused_enabled = False
 
-    lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
+    warmup_epochs = max(opt.lr_warmup_epochs, 0)
+    if warmup_epochs > 0:
+        warmup_scheduler = optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=opt.lr_warmup_start_factor,
+            end_factor=1.0,
+            total_iters=warmup_epochs,
+        )
+        main_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
+        lr_scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, main_scheduler],
+            milestones=[warmup_epochs],
+        )
+        if should_diag:
+            logger.info(f"Applying LR warmup for {warmup_epochs} epochs "
+                        f"(start_factor={opt.lr_warmup_start_factor:.3f}) before ExponentialLR")
+    else:
+        lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
     scaler = GradScaler("cuda", enabled=use_grad_scaler)
 
     if should_diag:
@@ -998,6 +1024,12 @@ def parse_args():
     parser.add_argument('--width_mult', type=float, default=1.0)
 
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate for E, default=0.0002')
+    parser.add_argument('--lr-base-batch', type=int, default=8,
+                        help='baseline global batch size that opt.lr was tuned for (used for linear scaling)')
+    parser.add_argument('--lr-warmup-epochs', type=int, default=500,
+                        help='number of epochs for linear LR warmup (0 disables warmup)')
+    parser.add_argument('--lr-warmup-start-factor', type=float, default=0.01,
+                        help='initial LR factor relative to scaled LR during warmup')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--decay', type=float, default=0, help='weight decay for EBM')
     parser.add_argument('--grad_clip', type=float, default=None,

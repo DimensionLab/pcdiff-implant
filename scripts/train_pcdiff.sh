@@ -5,9 +5,12 @@ set -e  # Exit on error
 DATASET_PATH="pcdiff/datasets/SkullBreak/train.csv"  # Train split CSV from pre-processing
 DATASET_NAME="SkullBreak"
 CHECKPOINT="" #"pcdiff/output/train_completion/2025-10-23-19-35-15/epoch_1999_remapped.pth"
-NUM_GPUS=8                   # Using GPUs 0-6; switch to 8 for full run
-BATCH_SIZE=64                 # Global batch ⇒ ~1 sample per GPU (stress-test low-batch regime)
-LEARNING_RATE=0.0002         # Paper baseline LR for global batch 8 (no scaling)
+NUM_GPUS=8                   # Using GPUs 0-7 for full data-parallel run
+BATCH_SIZE=64                # Global batch ⇒ 8 samples per GPU when NUM_GPUS=8
+LEARNING_RATE=0.0002         # Baseline LR (scaled automatically inside training script)
+LR_BASE_BATCH=8              # Baseline global batch size for LR scaling
+LR_WARMUP_EPOCHS=1000        # Linear warmup steps before switching to exponential decay
+LR_WARMUP_START_FACTOR=0.01  # Warmup start factor (relative to scaled LR)
 PREFETCH_FACTOR=4            # Matches paper-trained dataloader behaviour
 MATMUL_PRECISION="high"      # Paper uses FP32 training; keep TF32 enabled for speed
 AMP_FLAG="--no-amp"          # Paper baseline is full precision; remove flag to enable AMP later
@@ -35,9 +38,10 @@ echo "Starting PCDiff Training (Resumed)"
 echo "================================================"
 echo "Dataset: ${DATASET_PATH}"
 echo "Checkpoint: ${CHECKPOINT}"
-echo "GPUs: ${NUM_GPUS} (0-6)"
+echo "GPUs: ${NUM_GPUS} (0-7)"
 echo "Batch Size: ${PER_DEVICE_BATCH} per GPU (effective: ${EFFECTIVE_BATCH})"
-echo "Learning Rate: ${LEARNING_RATE}"
+echo "Base Learning Rate: ${LEARNING_RATE} (scaled by factor ${BATCH_SIZE}/${LR_BASE_BATCH})"
+echo "Warmup: epochs=${LR_WARMUP_EPOCHS}, start_factor=${LR_WARMUP_START_FACTOR}"
 echo "================================================"
 echo ""
 
@@ -48,7 +52,7 @@ if [ -n "${CHECKPOINT}" ] && [ ! -f "${CHECKPOINT}" ]; then
 fi
 
 # Start training
-# Using only GPUs 0-6 (7 total) for training
+# Using GPUs 0-7 for training
 # --model ${CHECKPOINT} \ for checkpoint resume training
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --nproc_per_node=${NUM_GPUS} \
@@ -58,6 +62,9 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --dataset ${DATASET_NAME} \
     --bs ${BATCH_SIZE} \
     --lr ${LEARNING_RATE} \
+    --lr-base-batch ${LR_BASE_BATCH} \
+    --lr-warmup-epochs ${LR_WARMUP_EPOCHS} \
+    --lr-warmup-start-factor ${LR_WARMUP_START_FACTOR} \
     --niter 15000 \
     --num_points 30720 \
     --num_nn 3072 \
