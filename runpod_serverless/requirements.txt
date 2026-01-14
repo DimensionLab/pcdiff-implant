@@ -1,0 +1,43 @@
+# Runpod Serverless Requirements for PCDiff + Voxelization Inference
+#
+# Note: PyTorch, CUDA, and base dependencies come from the Runpod base image
+# This file contains additional dependencies needed for the inference pipeline
+
+# Runpod SDK
+runpod>=1.6.0
+
+# AWS S3 for result uploads
+boto3>=1.28.0
+
+# Point cloud and mesh processing
+trimesh>=4.0.0
+open3d>=0.18.0
+libigl>=2.4.0
+
+# Scientific computing
+numpy>=1.24.0,<2.0.0
+scipy>=1.11.0
+
+# Medical imaging
+pynrrd>=1.0.0
+PyMCubes>=0.1.4
+
+# Utilities
+tqdm>=4.65.0
+pyyaml>=6.0
+
+# Voxelization-specific
+plyfile>=1.0.0
+scikit-image>=0.21.0
+diplib>=3.4.0
+imageio>=2.31.0
+
+# PyTorch extensions (install after base image PyTorch)
+# These may need to be installed separately depending on CUDA version
+# pytorch3d - install from source or pre-built wheel
+# torch-scatter - install from PyG wheels
+
+# Note: Install pytorch3d and torch-scatter separately:
+# pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+# pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+
