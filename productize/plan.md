@@ -65,7 +65,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Run voxelization + metrics (DSC/bDSC/HD95) on the proxy outputs",
       "Log proxy metrics + settings as structured artifacts and append summary to `productize/activity.md`"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",

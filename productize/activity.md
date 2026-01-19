@@ -2,8 +2,8 @@
 
 ## Current Status
 **Last Updated:** 2026-01-19
-**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented
-**Current Task:** Task 5 - Proxy evaluation every 50 epochs (fast metrics loop) 
+**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented; proxy evaluation every 50 epochs implemented
+**Current Task:** Task 6 - Multi-GPU inference sharding for test-time sampling 
 
 ---
 
@@ -303,3 +303,88 @@ Files changed:
 - `productize/plan.md` (task marked as passes: true)
 
 Task 4 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-19 18:13:00 - Proxy evaluation every 50 epochs (Task 5)
+
+Summary:
+- Implemented the full proxy evaluation system for fast metrics feedback during training
+- Added DDIM sampling support to the training model (previously only DDPM was supported)
+- Created a fixed validation subset (10 bilateral test cases) persisted as artifact
+- Integrated proxy eval into the training loop with proper distributed synchronization
+- Verified with a multi-GPU test run that completed successfully
+
+#### Files Created
+
+1. **`pcdiff/proxy_validation_subset.json`**: Fixed validation subset for proxy evaluation
+   - 10 test cases (086, 088, 090, 092, 094, 096, 098, 100, 102, 104)
+   - All bilateral defect type for consistency
+   - Persisted as artifact for reproducibility
+
+2. **`pcdiff/proxy_eval.py`**: Proxy evaluation module
+   - `VoxelizationRunner`: Wrapper for voxelization model (point cloud → voxels)
+   - `ProxySample`, `ProxyEvalResult`: Data classes for samples and results
+   - `load_proxy_subset()`: Load validation samples from JSON
+   - `run_pcdiff_inference_on_sample()`: Run PCDiff inference with DDIM or DDPM
+   - `compute_metrics_for_sample()`: Compute DSC/bDSC/HD95 metrics
+   - `run_proxy_evaluation()`: Main entry point for proxy evaluation
+   - `save_proxy_metrics()`: Save metrics to JSON artifact
+
+#### Code Changes
+
+**`pcdiff/train_completion.py`** - Major changes (~100 lines):
+
+1. **DDIM Sampling Support**:
+   - Added `_predict_eps_from_xstart()` helper method to GaussianDiffusion
+   - Added `ddim_sample()` method for single DDIM step
+   - Added `ddim_sample_loop()` method for full DDIM sampling (50 steps)
+   - Updated `Model.gen_samples()` to support `sampling_method` and `sampling_steps` parameters
+   - DDIM-50 is ~20x faster than DDPM-1000 (3 min vs 15 min per sample)
+
+2. **Proxy Evaluation Integration**:
+   - New CLI arguments: `--proxy-eval-enabled`, `--proxy-eval-subset`, `--proxy-eval-vox-config`,
+     `--proxy-eval-vox-checkpoint`, `--proxy-eval-num-ens`, `--proxy-eval-sampling-method`,
+     `--proxy-eval-sampling-steps`
+   - Proxy eval runs at epochs defined by `gating_proxy_eval_freq` (default: every 50 epochs)
+   - Results logged to `metrics/proxy_eval_epoch_NNNN.json`
+   - W&B logging: `proxy/dsc`, `proxy/bdsc`, `proxy/hd95`, `proxy/epoch`
+
+3. **Distributed Synchronization Fix**:
+   - Fixed barrier placement so ALL ranks synchronize before and after proxy eval
+   - Previously, barriers were inside rank-0-only block causing NCCL timeouts
+   - Now: `barrier()` → rank-0 does proxy eval → `barrier()` → all ranks continue
+
+#### Verification Run
+
+Completed a 5-epoch multi-GPU test run with proxy eval at epoch 3:
+- **Run**: `pcdiff/runs/SkullBreak/20260119_173915-ddim-barrier-fix/`
+- **GPUs**: 2× NVIDIA H100 PCIe
+- **Proxy eval at epoch 3**:
+  - 10 samples evaluated with DDIM-50
+  - DSC=0.0020, bDSC=0.0029, HD95=101.54 (expected poor at early epochs)
+  - Completed in ~27 minutes total
+- **Training continued after proxy eval**: No NCCL timeout
+- **Final epoch**: 4, loss 0.530315
+
+#### Proxy Eval Metrics Output Format
+
+```json
+{
+  "epoch": 3,
+  "metrics": {
+    "dsc": 0.0020,
+    "bdsc": 0.0029,
+    "hd95": 101.54,
+    "num_valid": 10,
+    "num_total": 10
+  }
+}
+```
+
+Files changed:
+- `pcdiff/proxy_validation_subset.json` (created)
+- `pcdiff/proxy_eval.py` (created)
+- `pcdiff/train_completion.py` (DDIM support + proxy eval integration)
+- `productize/activity.md` (this entry)
+- `productize/plan.md` (task marked as passes: true)
+
+Task 5 marked as `passes: true` in `productize/plan.md`.

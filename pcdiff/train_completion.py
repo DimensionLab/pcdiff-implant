@@ -26,6 +26,14 @@ from utils.file_utils import copy_source, get_output_dir, setup_logging, setup_o
 from utils.visualize import export_to_pc_batch
 import glob
 import subprocess
+from pathlib import Path
+
+# Import proxy evaluation module (optional - may fail if dependencies not installed)
+try:
+    from proxy_eval import run_proxy_evaluation, save_proxy_metrics, VOXELIZATION_AVAILABLE
+    PROXY_EVAL_AVAILABLE = VOXELIZATION_AVAILABLE
+except ImportError:
+    PROXY_EVAL_AVAILABLE = False
 
 # Optional wandb integration for experiment tracking
 try:
@@ -806,6 +814,68 @@ class GaussianDiffusion:
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
 
+    '''
+    ----- DDIM Sampling -----
+    '''
+
+    def _predict_eps_from_xstart(self, x_t, t, pred_xstart):
+        """Predict epsilon from x_start and x_t."""
+        return (
+            self._extract(self.sqrt_recip_alphas_cumprod.to(x_t.device), t, x_t.shape) * x_t - pred_xstart
+        ) / self._extract(self.sqrt_recipm1_alphas_cumprod.to(x_t.device), t, x_t.shape)
+
+    def ddim_sample(self, denoise_fn, data, t, noise_fn, clip_denoised=True, return_pred_xstart=True, eta=0.0):
+        """
+        Sample x_{t-1} from the model using DDIM.
+        Same usage as p_sample().
+        """
+        model_mean, _, _, x_start = self.p_mean_variance(denoise_fn, data=data, t=t, clip_denoised=clip_denoised,
+                                                         return_pred_xstart=return_pred_xstart)
+
+        eps = self._predict_eps_from_xstart(data[:, :, self.sv_points:], t, x_start)
+
+        alpha_bar = self._extract(self.alphas_cumprod.to(data.device), t, data.shape)
+        alpha_bar_prev = self._extract(self.alphas_cumprod_prev.to(data.device), t, data.shape)
+        sigma = (eta * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar)) * torch.sqrt(1 - alpha_bar / alpha_bar_prev))
+
+        noise = noise_fn(size=model_mean.shape, dtype=model_mean.dtype, device=model_mean.device)
+        mean_pred = (x_start * torch.sqrt(alpha_bar_prev) + torch.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps)
+        nonzero_mask = ((t != 0).float().view(-1, *([1] * (len(data.shape) - 1))))  # no noise when t == 0
+        sample = mean_pred + nonzero_mask * sigma * noise
+        sample = torch.cat([data[:, :, :self.sv_points], sample], dim=-1)
+        return sample
+
+    def ddim_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
+                         sampling_steps=50):
+        """
+        Generate samples using DDIM (faster than DDPM).
+
+        Args:
+            partial_x: Partial point cloud (skull points)
+            denoise_fn: Denoising function
+            shape: Shape of noise to generate
+            device: CUDA device
+            noise_fn: Noise generation function
+            clip_denoised: Whether to clip denoised values
+            sampling_steps: Number of DDIM steps (default 50)
+        """
+        assert isinstance(shape, (tuple, list))
+        noise = noise_fn(size=shape, dtype=torch.float, device=device)
+
+        img_t = torch.cat([partial_x, noise], dim=-1)
+
+        # Create timestep schedule: linspace from 0 to 999 with sampling_steps
+        ts = np.linspace(0, 999, sampling_steps).round().astype('int')
+        ts = np.unique(ts)[::-1]  # Remove duplicates and reverse
+
+        for t in ts:
+            t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
+            img_t = self.ddim_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
+                                     clip_denoised=clip_denoised, return_pred_xstart=True)
+
+        assert img_t[:, :, self.sv_points:].shape == shape
+        return img_t
+
     def p_sample_loop_trajectory(self, denoise_fn, shape, device, freq, noise_fn=torch.randn, clip_denoised=True,
                                  keep_running=False):
         """
@@ -1004,9 +1074,37 @@ class Model(nn.Module):
         assert losses.shape == t.shape == torch.Size([B])
         return losses
 
-    def gen_samples(self, partial_x, shape, device, noise_fn=torch.randn, clip_denoised=True, keep_running=False):
-        return self.diffusion.p_sample_loop(partial_x, self._denoise, shape=shape, device=device, noise_fn=noise_fn,
-                                            clip_denoised=clip_denoised, keep_running=keep_running)
+    def gen_samples(self, partial_x, shape, device, noise_fn=torch.randn, clip_denoised=True, keep_running=False,
+                    sampling_method='ddpm', sampling_steps=1000):
+        """
+        Generate samples using DDPM or DDIM.
+
+        Args:
+            partial_x: Partial point cloud (skull points)
+            shape: Shape of noise to generate
+            device: CUDA device
+            noise_fn: Noise generation function
+            clip_denoised: Whether to clip denoised values
+            keep_running: Whether to run 2x num_timesteps (DDPM only)
+            sampling_method: 'ddpm' or 'ddim'
+            sampling_steps: Number of steps (DDIM only, DDPM always uses 1000)
+
+        Returns:
+            Generated samples with partial_x concatenated
+        """
+        if sampling_method == 'ddim':
+            return self.diffusion.ddim_sample_loop(
+                partial_x, self._denoise, shape=shape, device=device,
+                noise_fn=noise_fn, clip_denoised=clip_denoised,
+                sampling_steps=sampling_steps
+            )
+        elif sampling_method == 'ddpm':
+            return self.diffusion.p_sample_loop(
+                partial_x, self._denoise, shape=shape, device=device,
+                noise_fn=noise_fn, clip_denoised=clip_denoised, keep_running=keep_running
+            )
+        else:
+            raise ValueError(f"Unknown sampling method: {sampling_method}. Use 'ddpm' or 'ddim'.")
 
     def train(self):
         self.model.train()
@@ -1711,6 +1809,73 @@ def train(gpu, opt, output_dir, noises_init):
                     "gating/loss_p10_50ep": loss_summary.get("p10", 0),
                 }, step=epoch * len(dataloader))
 
+            # Proxy evaluation every proxy_eval_freq epochs (rank-0 only)
+            is_proxy_eval_epoch = gating_tracker.is_proxy_eval_epoch(epoch)
+            if is_proxy_eval_epoch and opt.proxy_eval_enabled:
+                # Barrier before proxy eval - ALL ranks must participate
+                if is_distributed:
+                    dist.barrier()
+
+                # Only rank 0 runs the actual proxy evaluation
+                if should_diag:
+                    if PROXY_EVAL_AVAILABLE:
+                        logger.info(f"=== PROXY EVALUATION at epoch {epoch} ===")
+                        proxy_device = torch.device(f'cuda:{local_rank}') if cuda_available else torch.device('cpu')
+
+                        # Run proxy evaluation
+                        proxy_metrics = run_proxy_evaluation(
+                            pcdiff_model=model,
+                            vox_config_path=Path(opt.proxy_eval_vox_config),
+                            vox_checkpoint_path=Path(opt.proxy_eval_vox_checkpoint),
+                            subset_path=Path(opt.proxy_eval_subset),
+                            device=proxy_device,
+                            num_points=opt.num_points,
+                            num_nn=opt.num_nn,
+                            num_ens=opt.proxy_eval_num_ens,
+                            sampling_method=opt.proxy_eval_sampling_method,
+                            sampling_steps=opt.proxy_eval_sampling_steps,
+                            base_dir=Path.cwd(),
+                            logger=logger,
+                        )
+
+                        # Record proxy metrics in gating tracker
+                        if "error" not in proxy_metrics:
+                            gating_tracker.record_proxy_metrics(ProxyMetrics(
+                                epoch=epoch,
+                                dsc=proxy_metrics["dsc"],
+                                bdsc=proxy_metrics["bdsc"],
+                                hd95=proxy_metrics["hd95"],
+                            ))
+
+                            # Save proxy metrics to file
+                            if output_dir:
+                                save_proxy_metrics(proxy_metrics, epoch, Path(output_dir), logger)
+
+                            # Log to wandb
+                            if use_wandb:
+                                wandb.log({
+                                    "proxy/dsc": proxy_metrics["dsc"],
+                                    "proxy/bdsc": proxy_metrics["bdsc"],
+                                    "proxy/hd95": proxy_metrics["hd95"],
+                                    "proxy/epoch": epoch,
+                                }, step=epoch * len(dataloader))
+
+                            logger.info(f"  DSC={proxy_metrics['dsc']:.4f}, bDSC={proxy_metrics['bdsc']:.4f}, "
+                                        f"HD95={proxy_metrics['hd95']:.2f}")
+                        else:
+                            logger.warning(f"  Proxy eval failed: {proxy_metrics.get('error', 'unknown')}")
+
+                        logger.info("=" * 50)
+
+                        # Ensure model is back in training mode
+                        model.train()
+                    else:
+                        logger.warning("Proxy evaluation skipped: voxelization dependencies not available")
+
+                # Barrier after proxy eval - ALL ranks must participate
+                if is_distributed:
+                    dist.barrier()
+
             # Gating decision at decision epochs
             if is_decision_epoch and gating_config.enabled:
                 stop_reason, stop_details = gating_tracker.evaluate_gating_decision(epoch)
@@ -2023,6 +2188,26 @@ def parse_args():
                         help='minimum proxy metric improvement to avoid plateau detection')
     parser.add_argument('--gating-plateau-variance', type=float, default=0.3,
                         help='loss variance threshold (90p-10p)/median for plateau detection')
+
+    # Proxy evaluation arguments
+    parser.add_argument('--proxy-eval-enabled', type=eval, default=True,
+                        help='enable proxy evaluation every N epochs (default: True)')
+    parser.add_argument('--proxy-eval-subset', type=str,
+                        default='pcdiff/proxy_validation_subset.json',
+                        help='path to proxy validation subset JSON file')
+    parser.add_argument('--proxy-eval-vox-config', type=str,
+                        default='voxelization/configs/gen_skullbreak.yaml',
+                        help='path to voxelization config YAML')
+    parser.add_argument('--proxy-eval-vox-checkpoint', type=str,
+                        default='voxelization/checkpoints/model_best.pt',
+                        help='path to voxelization model checkpoint')
+    parser.add_argument('--proxy-eval-num-ens', type=int, default=1,
+                        help='ensemble size for proxy eval (1 for speed, 5 for full eval)')
+    parser.add_argument('--proxy-eval-sampling-method', type=str, default='ddim',
+                        choices=['ddim', 'ddpm'],
+                        help='sampling method for proxy eval (ddim for speed)')
+    parser.add_argument('--proxy-eval-sampling-steps', type=int, default=50,
+                        help='sampling steps for proxy eval (50 for DDIM, 1000 for DDPM)')
 
     # Parse arguments
     opt = parser.parse_args()
