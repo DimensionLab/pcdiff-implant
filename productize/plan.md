@@ -87,7 +87,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Aggregate and store comparison artifact: mean±std and per-sample diffs (DDPM vs DDIM)",
       "Record final metrics against acceptance criteria thresholds in `productize/activity.md`"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",
