@@ -76,7 +76,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Verify GPU utilization across all devices during inference",
       "Verify a full test-set inference completes without missing outputs"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",

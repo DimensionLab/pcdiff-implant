@@ -2,8 +2,8 @@
 
 ## Current Status
 **Last Updated:** 2026-01-19
-**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented; proxy evaluation every 50 epochs implemented
-**Current Task:** Task 6 - Multi-GPU inference sharding for test-time sampling 
+**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented; proxy evaluation every 50 epochs implemented; multi-GPU inference sharding implemented
+**Current Task:** Task 7 - Full E2E evaluation harness (DDIM-50 vs DDPM-1000) 
 
 ---
 
@@ -388,3 +388,95 @@ Files changed:
 - `productize/plan.md` (task marked as passes: true)
 
 Task 5 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-19 19:15:00 - Multi-GPU inference sharding for test-time sampling (Task 6)
+
+Summary:
+- Implemented fully distributed multi-GPU inference for PCDiff using `torchrun`
+- Created `pcdiff/test_completion_distributed.py` with deterministic test set sharding
+- Added concurrency-safe output directory creation and per-sample metadata
+- Verified 100% GPU utilization across all available devices
+- Successfully ran full test-set inference (140 samples) with 0 failures
+
+#### Implementation Details
+
+**New File: `pcdiff/test_completion_distributed.py`**
+
+Key features:
+1. **Deterministic Sharding**: `shard_dataset_indices()` function divides test samples across ranks with no overlaps/gaps
+2. **Concurrency-Safe Outputs**: Each sample gets its own directory with atomic creation
+3. **Checkpoint Compatibility**: Handles DDP, torch.compile, and DDP+compile checkpoint formats
+4. **Progress Tracking**: Per-rank logging, inference summary JSON, and verification step
+5. **Resume Support**: Skips already-processed samples (unless `--overwrite` flag is set)
+
+**New File: `scripts/run_distributed_inference.sh`**
+
+Convenience wrapper script for running distributed inference:
+```bash
+./scripts/run_distributed_inference.sh <checkpoint> <output_dir> [ddim|ddpm] [steps] [num_ens]
+```
+
+#### Verification Run
+
+- **Test**: Full SkullBreak test set (140 samples = 28 skulls × 5 defect types)
+- **GPUs**: 2× NVIDIA H100 PCIe
+- **Sampling**: DDIM-50 with 1 ensemble sample
+- **Results**:
+  - Total samples processed: 140/140
+  - Failed samples: 0
+  - Wall clock time: 2733.1s (~45.5 minutes)
+  - Throughput: 0.05 samples/s (per-sample time ~39s with DDIM-50)
+  - GPU utilization: 98-100% on both devices throughout inference
+  - Verification: PASSED (all 140 sample directories with complete outputs)
+
+#### Output Structure
+
+```
+pcdiff/eval/<run_name>/
+├── inference.log              # Rank-0 canonical log
+├── inference_rank1.log        # Rank-1 log
+├── inference_summary.json     # Full run statistics
+└── syn/
+    ├── bilateral086_surf/
+    │   ├── input.npy          # Defective skull points
+    │   ├── sample.npy         # Generated implant (num_ens, 3072, 3)
+    │   ├── shift.npy          # Normalization shift
+    │   ├── scale.npy          # Normalization scale
+    │   └── metadata.json      # Processing metadata
+    ├── bilateral087_surf/
+    └── ... (140 sample directories)
+```
+
+#### Command Reference
+
+```bash
+# DDIM-50 inference (fast, ~39s/sample)
+torchrun --nproc_per_node=N pcdiff/test_completion_distributed.py \
+    --path datasets/SkullBreak/test.csv \
+    --dataset SkullBreak \
+    --model path/to/checkpoint.pth \
+    --eval_path path/to/output \
+    --sampling_method ddim \
+    --sampling_steps 50 \
+    --num_ens 5 \
+    --verify
+
+# DDPM-1000 inference (full quality, ~20x slower)
+torchrun --nproc_per_node=N pcdiff/test_completion_distributed.py \
+    --path datasets/SkullBreak/test.csv \
+    --dataset SkullBreak \
+    --model path/to/checkpoint.pth \
+    --eval_path path/to/output \
+    --sampling_method ddpm \
+    --sampling_steps 1000 \
+    --num_ens 5 \
+    --verify
+```
+
+Files changed:
+- `pcdiff/test_completion_distributed.py` (created)
+- `scripts/run_distributed_inference.sh` (created)
+- `productize/activity.md` (this entry)
+- `productize/plan.md` (task marked as passes: true)
+
+Task 6 marked as `passes: true` in `productize/plan.md`.
