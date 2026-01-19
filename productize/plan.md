@@ -54,7 +54,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Ensure checkpoints are saved at each decision epoch and are uniquely identifiable",
       "Verify that wandb is installed and logs and best model are stored there"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",

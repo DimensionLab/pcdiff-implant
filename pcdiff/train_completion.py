@@ -5,7 +5,10 @@ import json
 import logging
 import os
 import random
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional, Dict, Any, List, Tuple
 
 import numpy as np
 import torch
@@ -23,7 +26,6 @@ from utils.file_utils import copy_source, get_output_dir, setup_logging, setup_o
 from utils.visualize import export_to_pc_batch
 import glob
 import subprocess
-from typing import Optional, Dict, Any
 
 # Optional wandb integration for experiment tracking
 try:
@@ -31,6 +33,429 @@ try:
     WANDB_AVAILABLE = True
 except ImportError:
     WANDB_AVAILABLE = False
+
+
+class StopReason(Enum):
+    """Reasons for stopping training in the gating loop."""
+    CONTINUE = "continue"
+    MAX_EPOCHS = "max_epochs_reached"
+    NAN_INF = "nan_inf_detected"
+    EXPLODING_GRAD = "exploding_gradients"
+    LOSS_DIVERGENCE = "loss_divergence"
+    PLATEAU = "plateau_detected"
+    USER_STOP = "user_requested_stop"
+
+
+@dataclass
+class GatingConfig:
+    """Configuration for the 700-epoch gating loop."""
+    # Decision checkpoints
+    decision_epochs: List[int] = field(default_factory=lambda: [50, 100, 200, 500, 700])
+    max_epochs: int = 700
+
+    # Proxy eval frequency
+    proxy_eval_freq: int = 50
+
+    # Divergence detection thresholds
+    nan_check: bool = True
+    grad_norm_threshold: float = 1e6  # Exploding gradient threshold
+    loss_spike_threshold: float = 10.0  # Loss spike factor vs running median
+
+    # Plateau detection parameters
+    plateau_delta_threshold: float = 0.005  # Minimum improvement in proxy metrics
+    plateau_loss_variance_threshold: float = 0.3  # High variance threshold (90p - 10p) / median
+    plateau_consecutive_checks: int = 2  # Consecutive plateau checks before stopping
+
+    # Enable/disable gating (useful for debugging)
+    enabled: bool = True
+
+
+@dataclass
+class EpochStats:
+    """Statistics collected during an epoch."""
+    epoch: int
+    loss_values: List[float] = field(default_factory=list)
+    grad_norms: List[float] = field(default_factory=list)
+    lr: float = 0.0
+
+    @property
+    def loss_mean(self) -> float:
+        return np.mean(self.loss_values) if self.loss_values else float('nan')
+
+    @property
+    def loss_median(self) -> float:
+        return np.median(self.loss_values) if self.loss_values else float('nan')
+
+    @property
+    def loss_std(self) -> float:
+        return np.std(self.loss_values) if len(self.loss_values) > 1 else 0.0
+
+    @property
+    def grad_norm_mean(self) -> float:
+        return np.mean(self.grad_norms) if self.grad_norms else 0.0
+
+    @property
+    def grad_norm_max(self) -> float:
+        return np.max(self.grad_norms) if self.grad_norms else 0.0
+
+
+@dataclass
+class ProxyMetrics:
+    """Proxy evaluation metrics (placeholder for actual metrics from inference)."""
+    epoch: int
+    dsc: float = 0.0
+    bdsc: float = 0.0
+    hd95: float = float('inf')
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "epoch": self.epoch,
+            "dsc": self.dsc,
+            "bdsc": self.bdsc,
+            "hd95": self.hd95
+        }
+
+
+class GatingLoopTracker:
+    """
+    Tracks training statistics and makes continue/stop decisions at gating checkpoints.
+
+    Implements the 700-epoch gating loop with:
+    - Decision checkpoints at 50/100/200/500/700 epochs
+    - Stop-on-divergence: NaN/Inf, exploding gradients, loss spike
+    - Stop-on-plateau: No proxy metric improvement + high-variance loss
+    """
+
+    def __init__(self, config: GatingConfig, logger=None):
+        self.config = config
+        self.logger = logger or logging.getLogger(__name__)
+
+        # Epoch statistics history (keeps all epochs for analysis)
+        self.epoch_stats: List[EpochStats] = []
+
+        # Proxy metrics history
+        self.proxy_metrics: List[ProxyMetrics] = []
+
+        # Plateau tracking
+        self.consecutive_plateau_count = 0
+        self.last_decision_epoch = 0
+
+        # Stop state
+        self.should_stop = False
+        self.stop_reason = StopReason.CONTINUE
+        self.stop_details = ""
+
+    def record_epoch(self, stats: EpochStats) -> None:
+        """Record statistics for an epoch."""
+        self.epoch_stats.append(stats)
+
+    def record_proxy_metrics(self, metrics: ProxyMetrics) -> None:
+        """Record proxy evaluation metrics."""
+        self.proxy_metrics.append(metrics)
+
+    def check_nan_inf(self, loss: float, grad_norm: float) -> Tuple[bool, str]:
+        """Check for NaN/Inf in loss or gradients."""
+        if not self.config.nan_check:
+            return False, ""
+
+        if np.isnan(loss) or np.isinf(loss):
+            return True, f"NaN/Inf loss detected: {loss}"
+
+        if np.isnan(grad_norm) or np.isinf(grad_norm):
+            return True, f"NaN/Inf gradient norm detected: {grad_norm}"
+
+        return False, ""
+
+    def check_exploding_gradients(self, grad_norm: float) -> Tuple[bool, str]:
+        """Check for exploding gradients."""
+        if grad_norm > self.config.grad_norm_threshold:
+            return True, f"Exploding gradients: grad_norm={grad_norm:.2e} > threshold={self.config.grad_norm_threshold:.2e}"
+        return False, ""
+
+    def check_loss_spike(self, loss: float) -> Tuple[bool, str]:
+        """Check for catastrophic loss spike."""
+        if len(self.epoch_stats) < 10:
+            return False, ""
+
+        # Get running median of last 50 epochs
+        recent_losses = []
+        for stats in self.epoch_stats[-50:]:
+            recent_losses.extend(stats.loss_values)
+
+        if not recent_losses:
+            return False, ""
+
+        running_median = np.median(recent_losses)
+        if running_median > 0 and loss > running_median * self.config.loss_spike_threshold:
+            return True, f"Catastrophic loss spike: {loss:.4f} > {self.config.loss_spike_threshold}x median ({running_median:.4f})"
+
+        return False, ""
+
+    def get_loss_summary(self, last_n_epochs: int = 50) -> Dict[str, float]:
+        """Get loss summary statistics over the last N epochs."""
+        if not self.epoch_stats:
+            return {"median": float('nan'), "p10": float('nan'), "p90": float('nan'), "std": float('nan')}
+
+        recent_stats = self.epoch_stats[-last_n_epochs:]
+        all_losses = []
+        for stats in recent_stats:
+            all_losses.extend(stats.loss_values)
+
+        if not all_losses:
+            return {"median": float('nan'), "p10": float('nan'), "p90": float('nan'), "std": float('nan')}
+
+        return {
+            "median": float(np.median(all_losses)),
+            "p10": float(np.percentile(all_losses, 10)),
+            "p90": float(np.percentile(all_losses, 90)),
+            "std": float(np.std(all_losses)),
+            "mean": float(np.mean(all_losses)),
+        }
+
+    def check_plateau(self, current_epoch: int) -> Tuple[bool, str]:
+        """
+        Check for training plateau.
+
+        Plateau is detected when:
+        1. Proxy metrics improve by less than delta_threshold over the last 100 epochs AND
+        2. Loss is in a high-variance band without downward trend
+        """
+        # Need at least 2 proxy evals to compare
+        if len(self.proxy_metrics) < 2:
+            return False, ""
+
+        # Check proxy metric improvement over last 100 epochs
+        # Find metrics from ~100 epochs ago
+        current_proxy = self.proxy_metrics[-1]
+        old_proxy = None
+        for m in reversed(self.proxy_metrics[:-1]):
+            if current_proxy.epoch - m.epoch >= 100:
+                old_proxy = m
+                break
+
+        if old_proxy is None and len(self.proxy_metrics) >= 2:
+            old_proxy = self.proxy_metrics[-2]
+
+        if old_proxy is None:
+            return False, ""
+
+        # Calculate improvements
+        dsc_improvement = current_proxy.dsc - old_proxy.dsc
+        bdsc_improvement = current_proxy.bdsc - old_proxy.bdsc
+
+        # Check if improvements are below threshold
+        metrics_stagnant = (
+            dsc_improvement < self.config.plateau_delta_threshold and
+            bdsc_improvement < self.config.plateau_delta_threshold
+        )
+
+        if not metrics_stagnant:
+            self.consecutive_plateau_count = 0
+            return False, ""
+
+        # Check loss variance
+        loss_summary = self.get_loss_summary(50)
+        loss_median = loss_summary["median"]
+        loss_spread = loss_summary["p90"] - loss_summary["p10"]
+
+        if loss_median > 0:
+            relative_spread = loss_spread / loss_median
+            high_variance = relative_spread > self.config.plateau_loss_variance_threshold
+        else:
+            high_variance = False
+
+        if metrics_stagnant and high_variance:
+            self.consecutive_plateau_count += 1
+            if self.consecutive_plateau_count >= self.config.plateau_consecutive_checks:
+                return True, (
+                    f"Plateau detected: DSC improvement={dsc_improvement:.4f}, "
+                    f"bDSC improvement={bdsc_improvement:.4f} (threshold={self.config.plateau_delta_threshold}), "
+                    f"loss variance={(relative_spread*100):.1f}% (threshold={self.config.plateau_loss_variance_threshold*100}%), "
+                    f"consecutive checks={self.consecutive_plateau_count}"
+                )
+
+        return False, ""
+
+    def check_loss_divergence(self) -> Tuple[bool, str]:
+        """
+        Check for loss divergence: median increases for 2 consecutive checkpoints
+        AND 90-percentile spikes worsen.
+        """
+        if len(self.epoch_stats) < 100:
+            return False, ""
+
+        # Compare loss summaries at current vs 50 epochs ago vs 100 epochs ago
+        current_summary = self.get_loss_summary(25)
+        mid_summary = self._get_loss_summary_at_range(-75, -50)
+        old_summary = self._get_loss_summary_at_range(-100, -75)
+
+        if any(np.isnan(s.get("median", float('nan'))) for s in [current_summary, mid_summary, old_summary]):
+            return False, ""
+
+        # Check if median increased for 2 consecutive periods
+        median_increasing = (
+            current_summary["median"] > mid_summary["median"] > old_summary["median"]
+        )
+
+        # Check if 90th percentile spikes worsened
+        p90_worsening = (
+            current_summary["p90"] > mid_summary["p90"] > old_summary["p90"]
+        )
+
+        if median_increasing and p90_worsening:
+            return True, (
+                f"Loss divergence: median {old_summary['median']:.4f} -> {mid_summary['median']:.4f} -> {current_summary['median']:.4f}, "
+                f"p90 {old_summary['p90']:.4f} -> {mid_summary['p90']:.4f} -> {current_summary['p90']:.4f}"
+            )
+
+        return False, ""
+
+    def _get_loss_summary_at_range(self, start_offset: int, end_offset: int) -> Dict[str, float]:
+        """Get loss summary for a range of epochs relative to current."""
+        if not self.epoch_stats:
+            return {"median": float('nan'), "p10": float('nan'), "p90": float('nan')}
+
+        total = len(self.epoch_stats)
+        start_idx = max(0, total + start_offset)
+        end_idx = max(0, total + end_offset)
+
+        if start_idx >= end_idx:
+            return {"median": float('nan'), "p10": float('nan'), "p90": float('nan')}
+
+        all_losses = []
+        for stats in self.epoch_stats[start_idx:end_idx]:
+            all_losses.extend(stats.loss_values)
+
+        if not all_losses:
+            return {"median": float('nan'), "p10": float('nan'), "p90": float('nan')}
+
+        return {
+            "median": float(np.median(all_losses)),
+            "p10": float(np.percentile(all_losses, 10)),
+            "p90": float(np.percentile(all_losses, 90)),
+        }
+
+    def is_decision_epoch(self, epoch: int) -> bool:
+        """Check if current epoch is a decision checkpoint."""
+        return epoch in self.config.decision_epochs
+
+    def is_proxy_eval_epoch(self, epoch: int) -> bool:
+        """Check if current epoch should run proxy evaluation."""
+        return epoch > 0 and (epoch % self.config.proxy_eval_freq == 0)
+
+    def evaluate_gating_decision(self, epoch: int) -> Tuple[StopReason, str]:
+        """
+        Make a continue/stop decision at a gating checkpoint.
+
+        Returns:
+            (StopReason, details_string)
+        """
+        if not self.config.enabled:
+            return StopReason.CONTINUE, "Gating disabled"
+
+        # Check max epochs
+        if epoch >= self.config.max_epochs:
+            return StopReason.MAX_EPOCHS, f"Reached max epochs ({self.config.max_epochs})"
+
+        # Check loss divergence
+        is_diverging, details = self.check_loss_divergence()
+        if is_diverging:
+            return StopReason.LOSS_DIVERGENCE, details
+
+        # Check plateau (only if we have proxy metrics)
+        is_plateau, details = self.check_plateau(epoch)
+        if is_plateau:
+            return StopReason.PLATEAU, details
+
+        self.last_decision_epoch = epoch
+        return StopReason.CONTINUE, f"Continuing to next checkpoint"
+
+    def step_check(self, loss: float, grad_norm: float) -> Tuple[bool, StopReason, str]:
+        """
+        Per-step check for immediate stopping conditions (NaN, exploding gradients).
+
+        Returns:
+            (should_stop, reason, details)
+        """
+        if not self.config.enabled:
+            return False, StopReason.CONTINUE, ""
+
+        # Check NaN/Inf
+        is_nan, details = self.check_nan_inf(loss, grad_norm)
+        if is_nan:
+            self.should_stop = True
+            self.stop_reason = StopReason.NAN_INF
+            self.stop_details = details
+            return True, StopReason.NAN_INF, details
+
+        # Check exploding gradients
+        is_exploding, details = self.check_exploding_gradients(grad_norm)
+        if is_exploding:
+            self.should_stop = True
+            self.stop_reason = StopReason.EXPLODING_GRAD
+            self.stop_details = details
+            return True, StopReason.EXPLODING_GRAD, details
+
+        # Check loss spike
+        is_spike, details = self.check_loss_spike(loss)
+        if is_spike:
+            self.should_stop = True
+            self.stop_reason = StopReason.LOSS_DIVERGENCE
+            self.stop_details = details
+            return True, StopReason.LOSS_DIVERGENCE, details
+
+        return False, StopReason.CONTINUE, ""
+
+    def get_training_summary(self) -> Dict[str, Any]:
+        """Get a summary of training statistics."""
+        loss_summary = self.get_loss_summary(50)
+
+        summary = {
+            "total_epochs": len(self.epoch_stats),
+            "last_epoch": self.epoch_stats[-1].epoch if self.epoch_stats else 0,
+            "loss_summary_last_50": loss_summary,
+            "stop_reason": self.stop_reason.value,
+            "stop_details": self.stop_details,
+            "proxy_metrics_count": len(self.proxy_metrics),
+        }
+
+        if self.proxy_metrics:
+            latest = self.proxy_metrics[-1]
+            summary["latest_proxy_metrics"] = latest.to_dict()
+
+            # Best metrics
+            best_dsc = max(m.dsc for m in self.proxy_metrics)
+            best_bdsc = max(m.bdsc for m in self.proxy_metrics)
+            best_hd95 = min(m.hd95 for m in self.proxy_metrics)
+            summary["best_proxy_metrics"] = {
+                "best_dsc": best_dsc,
+                "best_bdsc": best_bdsc,
+                "best_hd95": best_hd95,
+            }
+
+        return summary
+
+    def save_state(self, path: str) -> None:
+        """Save tracker state to JSON file."""
+        state = {
+            "config": {
+                "decision_epochs": self.config.decision_epochs,
+                "max_epochs": self.config.max_epochs,
+                "proxy_eval_freq": self.config.proxy_eval_freq,
+                "enabled": self.config.enabled,
+            },
+            "epoch_count": len(self.epoch_stats),
+            "proxy_metrics": [m.to_dict() for m in self.proxy_metrics],
+            "consecutive_plateau_count": self.consecutive_plateau_count,
+            "should_stop": self.should_stop,
+            "stop_reason": self.stop_reason.value,
+            "stop_details": self.stop_details,
+            "training_summary": self.get_training_summary(),
+        }
+
+        with open(path, 'w') as f:
+            json.dump(state, f, indent=2)
+
 
 '''
 ----- Some utilities -----
@@ -1035,15 +1460,47 @@ def train(gpu, opt, output_dir, noises_init):
     best_ckpt_epoch_for_wandb = None
     best_ckpt_loss_for_wandb = None
 
+    # Initialize gating loop tracker
+    gating_config = GatingConfig(
+        decision_epochs=opt.gating_decision_epochs_list,
+        max_epochs=opt.gating_max_epochs,
+        proxy_eval_freq=opt.gating_proxy_eval_freq,
+        grad_norm_threshold=opt.gating_grad_norm_threshold,
+        loss_spike_threshold=opt.gating_loss_spike_threshold,
+        plateau_delta_threshold=opt.gating_plateau_delta,
+        plateau_loss_variance_threshold=opt.gating_plateau_variance,
+        enabled=opt.gating_enabled,
+    )
+    gating_tracker = GatingLoopTracker(gating_config, logger=logger if should_diag else None)
+
+    if should_diag:
+        logger.info(f"Gating loop: enabled={gating_config.enabled}, max_epochs={gating_config.max_epochs}, "
+                    f"decision_epochs={gating_config.decision_epochs}")
+
+    # Determine effective max epochs (respects both --niter and --gating-max-epochs)
+    if gating_config.enabled:
+        effective_max_epochs = min(opt.niter, gating_config.max_epochs)
+        if should_diag:
+            logger.info(f"Effective max epochs: {effective_max_epochs} (niter={opt.niter}, gating_max={gating_config.max_epochs})")
+    else:
+        effective_max_epochs = opt.niter
+
+    # Track stop reason for final summary
+    final_stop_reason = StopReason.MAX_EPOCHS
+    final_stop_details = ""
+
     try:
         # Training loop
-        for epoch in range(start_epoch, opt.niter):
+        for epoch in range(start_epoch, effective_max_epochs):
             if is_distributed and train_sampler is not None:
                 train_sampler.set_epoch(epoch)
 
             epoch_step_count = 0
             epoch_loss_sum = 0.0
             epoch_loss_count = 0
+            epoch_stats = EpochStats(epoch=epoch, lr=optimizer.param_groups[0]['lr'])
+            gating_stop_triggered = False
+
             for i, data in enumerate(dataloader):
                 pc_in = data['train_points'].transpose(1, 2)  # Input point cloud
                 noises_batch = noises_init[data['idx']].transpose(1, 2)  # Noise (num_nn points)
@@ -1060,34 +1517,59 @@ def train(gpu, opt, output_dir, noises_init):
                 loss_value = float(loss.detach().item())
                 epoch_loss_sum += loss_value
                 epoch_loss_count += 1
+                epoch_stats.loss_values.append(loss_value)
 
                 if use_grad_scaler:
                     scaler.scale(loss).backward()
                     if opt.grad_clip is not None:
                         scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                    else:
+                        scaler.unscale_(optimizer)
+                        grad_norm = torch.sqrt(sum(p.grad.pow(2).sum() for p in model.parameters() if p.grad is not None))
                     scaler.step(optimizer)
                     scaler.update()
                 else:
                     loss.backward()
                     if opt.grad_clip is not None:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                    else:
+                        grad_norm = torch.sqrt(sum(p.grad.pow(2).sum() for p in model.parameters() if p.grad is not None))
                     optimizer.step()
-                
+
+                grad_norm_value = float(grad_norm.item()) if torch.is_tensor(grad_norm) else float(grad_norm)
+                epoch_stats.grad_norms.append(grad_norm_value)
+
                 epoch_step_count += 1
+
+                # Gating loop: per-step check for NaN/Inf/exploding gradients
+                should_stop, stop_reason, stop_details = gating_tracker.step_check(loss_value, grad_norm_value)
+                if should_stop:
+                    if should_diag:
+                        logger.error(f"GATING STOP at epoch {epoch}, step {i}: {stop_reason.value}")
+                        logger.error(f"Details: {stop_details}")
+                    final_stop_reason = stop_reason
+                    final_stop_details = stop_details
+                    gating_stop_triggered = True
+                    break
 
                 # Print progress
                 if i % opt.print_freq == 0 and should_diag:
-                    logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
-                                .format(epoch, opt.niter, i, len(dataloader), loss_value))
-                    
+                    logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    grad_norm: {:>10.4f}'
+                                .format(epoch, effective_max_epochs, i, len(dataloader), loss_value, grad_norm_value))
+
                     # Log to wandb
                     if use_wandb:
                         wandb.log({
                             "train/loss": loss_value,
+                            "train/grad_norm": grad_norm_value,
                             "train/epoch": epoch,
                             "train/lr": optimizer.param_groups[0]['lr']
                         }, step=epoch * len(dataloader) + i)
+
+            # If gating stop was triggered during the epoch, break out of training loop
+            if gating_stop_triggered:
+                break
             
             # Validate that all ranks completed the same number of steps
             if is_distributed:
@@ -1197,17 +1679,95 @@ def train(gpu, opt, output_dir, noises_init):
             # Compute epoch average loss
             epoch_avg_loss = epoch_loss_sum / max(epoch_loss_count, 1)
 
+            # Record epoch statistics for gating loop
+            gating_tracker.record_epoch(epoch_stats)
+
+            # Determine if this is a decision epoch (save checkpoint regardless of periodic setting)
+            is_decision_epoch = gating_tracker.is_decision_epoch(epoch)
+
             # Save checkpoints using checkpoint manager
             if should_diag and ckpt_manager:
-                is_periodic = ((epoch + 1) % opt.checkpoint_freq == 0)
+                # Save at decision epochs (50, 100, 200, 500, 700) AND periodic intervals
+                is_periodic = ((epoch + 1) % opt.checkpoint_freq == 0) or is_decision_epoch
                 save_info = ckpt_manager.save(model, optimizer, epoch, epoch_avg_loss, is_periodic=is_periodic)
                 if save_info.get("saved_best"):
                     best_ckpt_path_for_wandb = save_info.get("best_path")
                     best_ckpt_epoch_for_wandb = epoch
                     best_ckpt_loss_for_wandb = epoch_avg_loss
 
+                if is_decision_epoch:
+                    logger.info(f"Decision checkpoint saved at epoch {epoch}")
+
+            # Log epoch summary to wandb
+            if use_wandb and should_diag:
+                loss_summary = gating_tracker.get_loss_summary(50)
+                wandb.log({
+                    "epoch/loss_mean": epoch_stats.loss_mean,
+                    "epoch/loss_median": epoch_stats.loss_median,
+                    "epoch/grad_norm_mean": epoch_stats.grad_norm_mean,
+                    "epoch/grad_norm_max": epoch_stats.grad_norm_max,
+                    "gating/loss_median_50ep": loss_summary.get("median", 0),
+                    "gating/loss_p90_50ep": loss_summary.get("p90", 0),
+                    "gating/loss_p10_50ep": loss_summary.get("p10", 0),
+                }, step=epoch * len(dataloader))
+
+            # Gating decision at decision epochs
+            if is_decision_epoch and gating_config.enabled:
+                stop_reason, stop_details = gating_tracker.evaluate_gating_decision(epoch)
+
+                if should_diag:
+                    loss_summary = gating_tracker.get_loss_summary(50)
+                    logger.info(f"=== GATING DECISION at epoch {epoch} ===")
+                    logger.info(f"  Loss (last 50 ep): median={loss_summary['median']:.4f}, "
+                                f"p10={loss_summary['p10']:.4f}, p90={loss_summary['p90']:.4f}")
+                    logger.info(f"  Decision: {stop_reason.value}")
+                    logger.info(f"  Details: {stop_details}")
+                    logger.info("=" * 50)
+
+                    # Log gating decision to wandb
+                    if use_wandb:
+                        wandb.log({
+                            "gating/decision_epoch": epoch,
+                            "gating/decision": stop_reason.value,
+                        }, step=epoch * len(dataloader))
+
+                if stop_reason != StopReason.CONTINUE:
+                    final_stop_reason = stop_reason
+                    final_stop_details = stop_details
+
+                    # Save gating state before breaking
+                    if should_diag and output_dir:
+                        gating_state_path = os.path.join(output_dir, "metrics", "gating_state.json")
+                        gating_tracker.save_state(gating_state_path)
+                        logger.info(f"Gating state saved to: {gating_state_path}")
+
+                    break
+
             if is_distributed:
                 dist.barrier()
+
+        # Training loop completed (either normally or via gating stop)
+        if should_diag:
+            training_summary = gating_tracker.get_training_summary()
+            logger.info(f"=== TRAINING COMPLETED ===")
+            logger.info(f"  Final epoch: {training_summary['last_epoch']}")
+            logger.info(f"  Stop reason: {final_stop_reason.value}")
+            logger.info(f"  Details: {final_stop_details}")
+            logger.info(f"  Loss summary (last 50 ep): {training_summary['loss_summary_last_50']}")
+
+            # Save final gating state
+            if output_dir:
+                gating_state_path = os.path.join(output_dir, "metrics", "gating_state.json")
+                gating_tracker.save_state(gating_state_path)
+                logger.info(f"Final gating state saved to: {gating_state_path}")
+
+            # Log final summary to wandb
+            if use_wandb:
+                wandb.log({
+                    "final/stop_reason": final_stop_reason.value,
+                    "final/total_epochs": training_summary['last_epoch'] + 1,
+                    "final/loss_median": training_summary['loss_summary_last_50'].get('median', 0),
+                })
 
     finally:
         # Upload best checkpoint as a W&B artifact (rank-0 only), so it can be downloaded later.
@@ -1446,8 +2006,29 @@ def parse_args():
     parser.add_argument('--experiment-tag', type=str, default=None,
                         help='optional tag appended to run directory name (e.g., "paper-parity", "sqrt-lr")')
 
+    # Gating loop configuration (700-epoch gating with decision checkpoints)
+    parser.add_argument('--gating-enabled', type=eval, default=True,
+                        help='enable the 700-epoch gating loop with early stopping')
+    parser.add_argument('--gating-max-epochs', type=int, default=700,
+                        help='maximum epochs for gating loop (hard cap)')
+    parser.add_argument('--gating-decision-epochs', type=str, default='50,100,200,500,700',
+                        help='comma-separated list of decision checkpoint epochs')
+    parser.add_argument('--gating-proxy-eval-freq', type=int, default=50,
+                        help='run proxy evaluation every N epochs')
+    parser.add_argument('--gating-grad-norm-threshold', type=float, default=1e6,
+                        help='gradient norm threshold for exploding gradient detection')
+    parser.add_argument('--gating-loss-spike-threshold', type=float, default=10.0,
+                        help='loss spike threshold as multiple of running median')
+    parser.add_argument('--gating-plateau-delta', type=float, default=0.005,
+                        help='minimum proxy metric improvement to avoid plateau detection')
+    parser.add_argument('--gating-plateau-variance', type=float, default=0.3,
+                        help='loss variance threshold (90p-10p)/median for plateau detection')
+
     # Parse arguments
     opt = parser.parse_args()
+
+    # Parse gating decision epochs from comma-separated string
+    opt.gating_decision_epochs_list = [int(x.strip()) for x in opt.gating_decision_epochs.split(',')]
 
     return opt
 

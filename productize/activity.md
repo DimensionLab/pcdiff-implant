@@ -2,8 +2,8 @@
 
 ## Current Status
 **Last Updated:** 2026-01-19
-**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified
-**Current Task:** Task 4 - Implement the 700-epoch gating loop with decision checkpoints 
+**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented
+**Current Task:** Task 5 - Proxy evaluation every 50 epochs (fast metrics loop) 
 
 ---
 
@@ -207,3 +207,99 @@ Files changed:
 - `productize/plan.md` (task marked as passes: true)
 
 Task 3 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-19 13:30:00 - Implement the 700-epoch gating loop with decision checkpoints (Task 4)
+
+Summary:
+- Implemented the full 700-epoch gating loop with continue/stop decision checkpoints at **50/100/200/500/700** epochs
+- Added stop-on-divergence rules (NaN/Inf loss, exploding gradients, catastrophic loss spikes)
+- Added plateau detection rules (no proxy metric improvement + high-variance loss band)
+- Checkpoints are now automatically saved at each decision epoch
+- Verified wandb is installed and properly integrated for logging
+
+#### Implementation Details
+
+**New Classes Added to `pcdiff/train_completion.py`**:
+
+1. **`StopReason` (Enum)**: Defines reasons for stopping training:
+   - `CONTINUE` - Training should continue
+   - `MAX_EPOCHS` - Reached maximum epoch limit (700)
+   - `NAN_INF` - NaN or Inf detected in loss/gradients
+   - `EXPLODING_GRAD` - Gradient norm exceeded threshold (default: 1e6)
+   - `LOSS_DIVERGENCE` - Loss median increased for 2 consecutive checkpoints with worsening p90 spikes
+   - `PLATEAU` - No proxy metric improvement + high-variance loss band
+
+2. **`GatingConfig` (dataclass)**: Configurable gating parameters:
+   - `decision_epochs`: [50, 100, 200, 500, 700]
+   - `max_epochs`: 700 (hard cap)
+   - `proxy_eval_freq`: 50 epochs
+   - `grad_norm_threshold`: 1e6
+   - `loss_spike_threshold`: 10.0x running median
+   - `plateau_delta_threshold`: 0.005 (min DSC/bDSC improvement)
+   - `plateau_loss_variance_threshold`: 0.3 (90p-10p)/median
+
+3. **`EpochStats` (dataclass)**: Per-epoch statistics tracking:
+   - Loss values (list) with mean/median/std properties
+   - Gradient norms (list) with mean/max properties
+   - Learning rate
+
+4. **`GatingLoopTracker` (class)**: Main tracking and decision logic:
+   - `step_check()`: Per-step NaN/Inf/exploding gradient detection
+   - `check_loss_spike()`: Catastrophic loss spike detection (>10x median)
+   - `check_loss_divergence()`: Multi-checkpoint divergence detection
+   - `check_plateau()`: Plateau detection based on proxy metrics + loss variance
+   - `evaluate_gating_decision()`: Make continue/stop decision at checkpoints
+   - `save_state()`: Persist tracker state to `metrics/gating_state.json`
+
+#### New CLI Arguments
+
+```
+--gating-enabled True/False      # Enable/disable gating (default: True)
+--gating-max-epochs N            # Hard cap (default: 700)
+--gating-decision-epochs "50,100,200,500,700"  # Checkpoint epochs
+--gating-proxy-eval-freq N       # Proxy eval frequency (default: 50)
+--gating-grad-norm-threshold F   # Exploding gradient threshold (default: 1e6)
+--gating-loss-spike-threshold F  # Loss spike factor (default: 10.0)
+--gating-plateau-delta F         # Min metric improvement (default: 0.005)
+--gating-plateau-variance F      # Loss variance threshold (default: 0.3)
+```
+
+#### Verification Run
+
+Ran a 15-epoch test with decision checkpoints at epochs 5, 10, 15:
+- **Run**: `pcdiff/runs/SkullBreak/20260119_131749-gating-test/`
+- **GPUs**: 2× NVIDIA H100 PCIe
+- **Gating decisions logged**:
+  ```
+  === GATING DECISION at epoch 5 ===
+    Loss (last 50 ep): median=0.6176, p10=0.4277, p90=0.9322
+    Decision: continue
+    Details: Continuing to next checkpoint
+  ==================================================
+  ```
+- **Decision checkpoints saved**: `model_epoch_5.pth` at decision epoch
+- **Gradient norms tracked**: All within normal range (2.5-40)
+- **No NaN/Inf detected**: Training progressed normally
+
+#### Training Loop Changes
+
+- Added per-step gradient norm calculation and NaN/Inf checking
+- Added epoch statistics recording for gating decisions
+- Checkpoints automatically saved at decision epochs (in addition to periodic)
+- Loss summary (median, p10, p90) computed and logged at decision points
+- Training stops early if gating decision returns non-CONTINUE reason
+- Final gating state saved to `metrics/gating_state.json`
+
+#### W&B Integration
+
+- Epoch-level metrics logged: `epoch/loss_mean`, `epoch/loss_median`, `epoch/grad_norm_mean`, `epoch/grad_norm_max`
+- Gating metrics logged: `gating/loss_median_50ep`, `gating/loss_p90_50ep`, `gating/loss_p10_50ep`
+- Decision events logged: `gating/decision_epoch`, `gating/decision`
+- Final summary logged: `final/stop_reason`, `final/total_epochs`, `final/loss_median`
+
+Files changed:
+- `pcdiff/train_completion.py` (major changes: ~400 lines added)
+- `productize/activity.md` (this entry)
+- `productize/plan.md` (task marked as passes: true)
+
+Task 4 marked as `passes: true` in `productize/plan.md`.
