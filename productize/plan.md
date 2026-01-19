@@ -31,7 +31,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Ensure rank-0 writes canonical logs while all ranks can write sharded inference outputs safely",
       "Document artifact locations in `productize/activity.md` after first run is created"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",

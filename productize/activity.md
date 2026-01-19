@@ -2,8 +2,8 @@
 
 ## Current Status
 **Last Updated:** 2026-01-19
-**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified
-**Current Task:** Task 2 - Standardize experiment artifact layout + reproducibility metadata 
+**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized
+**Current Task:** Task 3 - Implement/verify true multi-GPU training invocation (DDP) 
 
 ---
 
@@ -75,3 +75,76 @@ Files verified:
 - `productize/previous-training/run-20251023_193521-8jukhu0i/files/wandb-metadata.json`
 
 Task 1 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-19 12:00:00 - Standardize experiment artifact layout + reproducibility metadata (Task 2)
+
+Summary:
+- Verified and documented the standardized run directory schema already implemented in `pcdiff/train_completion.py`
+- Confirmed reproducibility metadata is recorded automatically on every run
+- Verified rank-0 canonical logging and multi-rank safety
+
+#### Run Directory Schema
+
+All training runs are stored under:
+```
+pcdiff/runs/<dataset>/<timestamp>[-<tag>]/
+```
+
+Example: `pcdiff/runs/SkullBreak/20260119_113023-sanity-test/`
+
+**Directory structure:**
+```
+pcdiff/runs/SkullBreak/20260119_113023-sanity-test/
+├── checkpoints/
+│   ├── model_best.pth        # Best model by loss
+│   ├── model_latest.pth      # Most recent checkpoint
+│   └── model_epoch_N.pth     # Periodic checkpoints (keeps last 3)
+├── logs/
+│   └── output.log            # Rank-0 canonical training log
+├── metrics/                  # Reserved for proxy/full eval metrics
+├── samples/                  # Generated samples for visualization
+├── run_metadata.json         # Reproducibility metadata
+└── train_completion.py       # Copy of training script
+```
+
+#### Reproducibility Metadata (`run_metadata.json`)
+
+Every run automatically records:
+- `timestamp`: ISO format run start time
+- `git_commit`: Full 40-char SHA
+- `git_commit_short`: Short 7-char SHA
+- `seed`: Random seed used
+- `cli_args`: Complete CLI arguments as dict
+- `dataset.name`: Dataset name (SkullBreak/SkullFix)
+- `dataset.csv_path`: Path to training CSV
+- `dataset.csv_hash`: SHA256 hash (first 16 chars) of training CSV
+- `gpu_info.device_count`: Number of GPUs
+- `gpu_info.devices`: List with name and memory per GPU
+- `environment.pytorch_version`: PyTorch version
+- `environment.cuda_version`: CUDA version
+- `environment.cudnn_version`: cuDNN version
+- `environment.world_size`: Number of distributed ranks
+
+#### Logging Safety
+
+- **Rank-0 only**: Training logs (`output.log`) are written by rank-0 only
+- **Broadcast sync**: Run directory path is broadcast from rank-0 to all ranks
+- **Per-sample outputs**: Inference outputs use per-sample directories to avoid clobbering
+- **Step count validation**: All ranks verify identical step counts per epoch
+
+#### First Run Verification
+
+Sanity test run completed successfully:
+- **Run**: `pcdiff/runs/SkullBreak/20260119_113023-sanity-test/`
+- **GPUs**: 2× NVIDIA H100 PCIe (79GB each)
+- **World size**: 2
+- **Epochs**: 5 (sanity check)
+- **Loss**: Decreased from 1.45 → 0.25 (healthy learning)
+- **All ranks synced**: "All ranks completed 26 steps ✓" confirmed
+
+Files verified:
+- `pcdiff/runs/SkullBreak/20260119_113023-sanity-test/run_metadata.json`
+- `pcdiff/runs/SkullBreak/20260119_113023-sanity-test/logs/output.log`
+- `pcdiff/runs/SkullBreak/20260119_113023-sanity-test/checkpoints/model_best.pth`
+
+Task 2 marked as `passes: true` in `productize/plan.md`.
