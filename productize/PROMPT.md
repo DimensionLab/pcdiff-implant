@@ -1,6 +1,6 @@
-@productize/plan.md @productize/activity.md
+@productize @productize/plan.md @productize/activity.md
 
-We are finding an optimal training setup for pcdiff model (just this one, voxelzation model is already trained) in this repo.
+We are finding an optimal PyTorch training setup for pcdiff model (just this one, voxelzation model is already trained) in this repo. We will be using `uv` for virtual environment + installing python packages (already in @.venv).
 
 First read @productize/activity.md to see what was recently accomplished.
 
