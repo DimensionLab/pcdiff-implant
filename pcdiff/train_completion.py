@@ -1,5 +1,7 @@
 import argparse
 import datetime
+import hashlib
+import json
 import logging
 import os
 import random
@@ -707,14 +709,129 @@ def _get_git_commit_short() -> Optional[str]:
         return None
 
 
+def _get_git_commit_full() -> Optional[str]:
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
+        return out.decode("utf-8").strip()
+    except Exception:
+        return None
+
+
+def _compute_file_hash(filepath: str) -> Optional[str]:
+    """Compute SHA256 hash of a file for reproducibility tracking."""
+    try:
+        sha256 = hashlib.sha256()
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+        return sha256.hexdigest()[:16]  # First 16 chars for brevity
+    except Exception:
+        return None
+
+
+def _get_gpu_info() -> Dict[str, Any]:
+    """Gather GPU information for reproducibility."""
+    info = {
+        "cuda_available": torch.cuda.is_available(),
+        "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        "devices": []
+    }
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            info["devices"].append({
+                "index": i,
+                "name": props.name,
+                "total_memory_gb": round(props.total_memory / (1024**3), 2),
+            })
+    return info
+
+
+def create_run_directory(base_dir: str, dataset: str, experiment_tag: Optional[str] = None) -> str:
+    """
+    Create a standardized run directory with the schema:
+
+    runs/<dataset>/<timestamp>[-<tag>]/
+        ├── checkpoints/      # Model checkpoints (best, latest, periodic)
+        ├── logs/             # Training logs
+        ├── metrics/          # Evaluation metrics (proxy, full)
+        ├── samples/          # Generated samples for visualization
+        └── run_metadata.json # Reproducibility metadata
+
+    Returns the path to the created run directory.
+    """
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    run_name = f"{timestamp}"
+    if experiment_tag:
+        run_name = f"{timestamp}-{experiment_tag}"
+
+    run_dir = os.path.join(base_dir, "runs", dataset, run_name)
+
+    # Create subdirectories
+    subdirs = ["checkpoints", "logs", "metrics", "samples"]
+    for subdir in subdirs:
+        os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
+
+    return run_dir
+
+
+def save_run_metadata(run_dir: str, opt: argparse.Namespace, extra_info: Optional[Dict] = None) -> str:
+    """
+    Save reproducibility metadata to run_metadata.json.
+
+    Includes:
+    - Git commit hash (full and short)
+    - All CLI arguments
+    - Dataset hash (CSV file hash)
+    - GPU count and device info
+    - Random seed
+    - Timestamp
+    - PyTorch and CUDA versions
+    """
+    metadata = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "git_commit": _get_git_commit_full(),
+        "git_commit_short": _get_git_commit_short(),
+        "seed": opt.manualSeed,
+        "cli_args": vars(opt),
+        "dataset": {
+            "name": opt.dataset,
+            "csv_path": opt.path,
+            "csv_hash": _compute_file_hash(opt.path),
+        },
+        "gpu_info": _get_gpu_info(),
+        "environment": {
+            "pytorch_version": torch.__version__,
+            "cuda_version": torch.version.cuda if torch.cuda.is_available() else None,
+            "cudnn_version": torch.backends.cudnn.version() if torch.cuda.is_available() else None,
+            "world_size": int(os.environ.get("WORLD_SIZE", "1")),
+        },
+        "run_directory": run_dir,
+    }
+
+    if extra_info:
+        metadata.update(extra_info)
+
+    metadata_path = os.path.join(run_dir, "run_metadata.json")
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2, default=str)
+
+    return metadata_path
+
+
 def train(gpu, opt, output_dir, noises_init):
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", gpu if gpu is not None else 0))
     should_diag = rank == 0
 
-    if should_diag:
-        logger = setup_logging(output_dir)
+    # Use logs/ subdirectory for logging within the run directory
+    log_dir = os.path.join(output_dir, "logs") if output_dir else None
+    if should_diag and log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        logger = setup_logging(log_dir)
+        logger.info(f"Run directory: {output_dir}")
+        logger.info(f"Checkpoints: {opt.checkpoint_dir}")
     else:
         logger = logging.getLogger(__name__)
         if not logger.handlers:
@@ -729,8 +846,14 @@ def train(gpu, opt, output_dir, noises_init):
     use_amp = cuda_available and amp_enabled
     use_grad_scaler = use_amp and amp_dtype == torch.float16
 
+    # Use samples/ subdirectory for generated samples
     if should_diag:
-        outf_syn, = setup_output_subdirs(output_dir, 'syn')
+        samples_dir = os.path.join(output_dir, "samples") if output_dir else None
+        if samples_dir:
+            os.makedirs(samples_dir, exist_ok=True)
+            outf_syn = samples_dir
+        else:
+            outf_syn, = setup_output_subdirs(output_dir, 'syn')
 
     is_distributed = world_size > 1
     if is_distributed and cuda_available:
@@ -753,6 +876,13 @@ def train(gpu, opt, output_dir, noises_init):
     ''' Dataset and data loader '''
     train_dataset = get_dataset(opt.num_points, opt.num_nn, opt.path, opt.dataset, opt.augment)
     dataloader, _, train_sampler, _ = get_dataloader(opt, train_dataset, None)
+
+    # Log batch size information (critical for multi-GPU training verification)
+    per_device_batch = dataloader.batch_size
+    effective_global_batch = per_device_batch * world_size
+    if should_diag:
+        logger.info(f"Batch size: {per_device_batch} per GPU × {world_size} GPUs = {effective_global_batch} effective global batch")
+        logger.info(f"Dataset: {len(train_dataset)} samples, {len(dataloader)} batches/epoch/rank")
 
     ''' Create networks '''
     betas = get_betas(opt.schedule_type, opt.beta_start, opt.beta_end, opt.time_num)
@@ -1119,12 +1249,61 @@ def train(gpu, opt, output_dir, noises_init):
 def main():
     opt = parse_args()
 
-    exp_id = os.path.splitext(os.path.basename(__file__))[0]
-    dir_id = os.path.dirname(__file__)
-    output_dir = get_output_dir(dir_id, exp_id)
     rank = int(os.environ.get("RANK", "0"))
+
+    # Create standardized run directory (rank-0 only creates, others wait)
     if rank == 0:
-        copy_source(__file__, output_dir)
+        # Use pcdiff/ as base directory for runs
+        base_dir = os.path.dirname(__file__)
+        run_dir = create_run_directory(base_dir, opt.dataset, opt.experiment_tag)
+
+        # Update checkpoint directory to be inside run directory
+        opt.checkpoint_dir = os.path.join(run_dir, "checkpoints")
+
+        # Save reproducibility metadata
+        save_run_metadata(run_dir, opt)
+
+        # Also create the legacy output_dir for backward compatibility (samples)
+        output_dir = run_dir
+
+        # Copy source file to run directory for reference
+        copy_source(__file__, run_dir)
+
+        print(f"[Rank 0] Created run directory: {run_dir}")
+    else:
+        # Non-rank-0 processes: use a placeholder that will be synced
+        output_dir = None
+        run_dir = None
+
+    # Synchronize run directory across all ranks via environment variable
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        import torch.distributed as dist
+        if torch.cuda.is_available():
+            torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
+        dist.init_process_group(backend=opt.dist_backend)
+
+        # Broadcast run_dir from rank 0 to all ranks
+        if rank == 0:
+            run_dir_bytes = run_dir.encode('utf-8')
+            run_dir_tensor = torch.tensor(list(run_dir_bytes), dtype=torch.uint8).cuda()
+            length_tensor = torch.tensor([len(run_dir_bytes)], dtype=torch.long).cuda()
+        else:
+            length_tensor = torch.tensor([0], dtype=torch.long).cuda()
+
+        dist.broadcast(length_tensor, src=0)
+
+        if rank != 0:
+            run_dir_tensor = torch.zeros(length_tensor.item(), dtype=torch.uint8).cuda()
+
+        dist.broadcast(run_dir_tensor, src=0)
+
+        if rank != 0:
+            run_dir = bytes(run_dir_tensor.cpu().tolist()).decode('utf-8')
+            output_dir = run_dir
+            opt.checkpoint_dir = os.path.join(run_dir, "checkpoints")
+
+        dist.destroy_process_group()  # Will be re-initialized in train()
+
     ''' Initialization '''
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision(opt.matmul_precision)
@@ -1243,6 +1422,10 @@ def parse_args():
     parser.add_argument('--wandb-entity', type=str, default=None, help='wandb entity/team name')
     parser.add_argument('--wandb-name', type=str, default=None, help='wandb run name (auto-generated if not set)')
     parser.add_argument('--no-wandb', action='store_true', help='disable wandb logging even if installed')
+
+    # Run directory and experiment tagging
+    parser.add_argument('--experiment-tag', type=str, default=None,
+                        help='optional tag appended to run directory name (e.g., "paper-parity", "sqrt-lr")')
 
     # Parse arguments
     opt = parser.parse_args()
