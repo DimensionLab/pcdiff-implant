@@ -1250,6 +1250,13 @@ def main():
     opt = parse_args()
 
     rank = int(os.environ.get("RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    is_distributed = world_size > 1
+
+    # Set CUDA device early for all ranks
+    if torch.cuda.is_available() and is_distributed:
+        torch.cuda.set_device(local_rank)
 
     # Create standardized run directory (rank-0 only creates, others wait)
     if rank == 0:
@@ -1275,34 +1282,37 @@ def main():
         output_dir = None
         run_dir = None
 
-    # Synchronize run directory across all ranks via environment variable
-    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
-        import torch.distributed as dist
-        if torch.cuda.is_available():
-            torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
-        dist.init_process_group(backend=opt.dist_backend)
+    # Synchronize run directory across all ranks using a file-based approach
+    # to avoid double process group initialization
+    if is_distributed:
+        # Use a simple file-based sync for run_dir instead of creating process group twice
+        # Rank 0 writes the path to a temp file, other ranks wait and read it
+        import tempfile
+        import time
 
-        # Broadcast run_dir from rank 0 to all ranks
+        # Use a predictable temp file path based on master port
+        master_port = os.environ.get("MASTER_PORT", "29500")
+        sync_file = f"/tmp/pcdiff_run_dir_sync_{master_port}.txt"
+
         if rank == 0:
-            run_dir_bytes = run_dir.encode('utf-8')
-            run_dir_tensor = torch.tensor(list(run_dir_bytes), dtype=torch.uint8).cuda()
-            length_tensor = torch.tensor([len(run_dir_bytes)], dtype=torch.long).cuda()
+            # Write run_dir to sync file
+            with open(sync_file, 'w') as f:
+                f.write(run_dir)
         else:
-            length_tensor = torch.tensor([0], dtype=torch.long).cuda()
+            # Wait for rank 0 to write the file
+            max_wait = 60  # seconds
+            waited = 0
+            while not os.path.exists(sync_file) and waited < max_wait:
+                time.sleep(0.1)
+                waited += 0.1
 
-        dist.broadcast(length_tensor, src=0)
-
-        if rank != 0:
-            run_dir_tensor = torch.zeros(length_tensor.item(), dtype=torch.uint8).cuda()
-
-        dist.broadcast(run_dir_tensor, src=0)
-
-        if rank != 0:
-            run_dir = bytes(run_dir_tensor.cpu().tolist()).decode('utf-8')
-            output_dir = run_dir
-            opt.checkpoint_dir = os.path.join(run_dir, "checkpoints")
-
-        dist.destroy_process_group()  # Will be re-initialized in train()
+            if os.path.exists(sync_file):
+                with open(sync_file, 'r') as f:
+                    run_dir = f.read().strip()
+                output_dir = run_dir
+                opt.checkpoint_dir = os.path.join(run_dir, "checkpoints")
+            else:
+                raise RuntimeError(f"Rank {rank}: Timed out waiting for run_dir sync file")
 
     ''' Initialization '''
     if torch.cuda.is_available():
@@ -1313,6 +1323,15 @@ def main():
     noises_init = torch.randn(570, opt.num_nn, 3)  # Init noise (num_nn random points)
 
     train(opt.gpu, opt, output_dir, noises_init)
+
+    # Cleanup sync file (rank 0 only)
+    if is_distributed and rank == 0:
+        master_port = os.environ.get("MASTER_PORT", "29500")
+        sync_file = f"/tmp/pcdiff_run_dir_sync_{master_port}.txt"
+        try:
+            os.remove(sync_file)
+        except OSError:
+            pass
 
 
 def parse_args():

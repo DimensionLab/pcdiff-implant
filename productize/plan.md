@@ -42,7 +42,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Verify per-rank batch size and effective global batch are logged",
       "Run a short sanity training (5–10 epochs) to confirm stable loss and no NaNs"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",

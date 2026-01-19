@@ -2,8 +2,8 @@
 
 ## Current Status
 **Last Updated:** 2026-01-19
-**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized
-**Current Task:** Task 3 - Implement/verify true multi-GPU training invocation (DDP) 
+**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified
+**Current Task:** Task 4 - Implement the 700-epoch gating loop with decision checkpoints 
 
 ---
 
@@ -148,3 +148,62 @@ Files verified:
 - `pcdiff/runs/SkullBreak/20260119_113023-sanity-test/checkpoints/model_best.pth`
 
 Task 2 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-19 12:56:00 - Implement/verify true multi-GPU training invocation (DDP) (Task 3)
+
+Summary:
+- Fixed double process group initialization issue that caused NCCL communication failures
+- Changed run directory synchronization from NCCL broadcast to file-based approach (simpler, avoids double init)
+- Verified DDP backend is NCCL and ranks initialize correctly
+- Verified per-rank batch size and effective global batch are logged
+- Ran 10-epoch sanity training (2× NVIDIA H100 PCIe GPUs) to confirm stable loss and no NaNs
+
+#### Code Changes
+
+**`pcdiff/train_completion.py`**:
+- Refactored `main()` to avoid double `dist.init_process_group()` / `dist.destroy_process_group()` calls
+- Replaced NCCL-based run directory broadcast with file-based synchronization (`/tmp/pcdiff_run_dir_sync_<port>.txt`)
+- This fixes NCCL timeout issues in some container environments with restricted networking
+
+#### DDP Verification
+
+Confirmed the following logs appear on successful multi-GPU runs:
+```
+Initialized distributed training: world_size=2, rank=0, local_rank=0, timeout=30min
+Batch size: 8 per GPU × 2 GPUs = 16 effective global batch
+```
+
+#### Sanity Training Run
+
+- **Run**: `pcdiff/runs/SkullBreak/20260119_122025-sanity-ddp-v2/`
+- **GPUs**: 2× NVIDIA H100 PCIe (79GB each)
+- **World size**: 2
+- **Epochs**: 10
+- **Loss progression**: 1.50 → 0.35 (healthy learning, no NaNs)
+- **Checkpoints saved**:
+  - `model_best.pth` (epoch 9, loss 0.355)
+  - `model_epoch_4.pth`, `model_epoch_9.pth` (periodic)
+  - `model_latest.pth`
+
+#### Training Script Entrypoint
+
+Existing script at `scripts/train_pcdiff.sh` uses `torchrun --nproc_per_node=<N>`:
+```bash
+CUDA_VISIBLE_DEVICES=0,1,... torchrun \
+    --nproc_per_node=${NUM_GPUS} \
+    --master_port=29500 \
+    pcdiff/train_completion.py \
+    --path datasets/SkullBreak/train.csv \
+    --dataset SkullBreak \
+    --bs ${BATCH_SIZE} \
+    --lr ${LEARNING_RATE} \
+    --dist-backend nccl \
+    ...
+```
+
+Files changed:
+- `pcdiff/train_completion.py`
+- `productize/activity.md` (this entry)
+- `productize/plan.md` (task marked as passes: true)
+
+Task 3 marked as `passes: true` in `productize/plan.md`.
