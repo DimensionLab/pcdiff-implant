@@ -184,9 +184,11 @@ def run_pcdiff_inference(args, input_points):
     checkpoint = torch.load(args.pcdiff_model, map_location=device)
     state_dict = checkpoint['model_state']
     
-    # Handle DDP checkpoints
+    # Handle DDP checkpoints and torch.compile checkpoints
     if list(state_dict.keys())[0].startswith('model.module.'):
         state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
+    elif list(state_dict.keys())[0].startswith('model._orig_mod.'):
+        state_dict = {k.replace('model._orig_mod.', 'model.'): v for k, v in state_dict.items()}
     
     model.load_state_dict(state_dict)
     print("✓ Model loaded successfully")

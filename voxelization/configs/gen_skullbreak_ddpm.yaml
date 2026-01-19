@@ -1,0 +1,17 @@
+inherit_from: voxelization/configs/train_skullbreak.yaml
+
+train:
+  gpu: 0
+
+data:
+  dset: SkullBreak
+  path: pcdiff/datasets/SkullBreak/results_ddpm/syn
+
+generation:
+  generation_dir: gen_skullbreak_ddpm
+  num_ensemble: 1
+  save_ensemble_implants: False
+  compute_eval_metrics: True
+
+test:
+  model_file: voxelization/checkpoints/model_best.pt

@@ -612,12 +612,16 @@ def main(opt):
 
         resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
         
-        # Handle DDP-saved checkpoints (remove 'module.' prefix if present)
+        # Handle DDP-saved checkpoints and torch.compile checkpoints
         state_dict = resumed_param['model_state']
         if list(state_dict.keys())[0].startswith('model.module.'):
             # Checkpoint was saved with DistributedDataParallel
             state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
             logger.info("Loaded checkpoint from distributed training (removed 'module.' prefix)")
+        elif list(state_dict.keys())[0].startswith('model._orig_mod.'):
+            # Checkpoint was saved with torch.compile
+            state_dict = {k.replace('model._orig_mod.', 'model.'): v for k, v in state_dict.items()}
+            logger.info("Loaded checkpoint from compiled training (removed '_orig_mod.' prefix)")
         
         model.load_state_dict(state_dict)
 

@@ -26,10 +26,12 @@ class SkullBreakDataset(th.utils.data.Dataset):
             for row in csv_reader:
                 for defect_id in range(5):
                     datapoint = dict()
-                    datapoint['defective_skull'] = row[0].split('complete')[0] + 'defective_skull/' + self.defects[defect_id] + \
-                                                   row[0].split('skull')[1].split('.')[0] + '_surf.npy'
-                    datapoint['implant'] = row[0].split('complete')[0] + 'implant/' + self.defects[defect_id] + \
-                                           row[0].split('skull')[1].split('.')[0] + '_surf.npy'
+                    # Extract base path and filename from complete_skull path
+                    # e.g., "datasets/SkullBreak/complete_skull/000_surf.npy"
+                    base_path = row[0].split('complete_skull')[0]  # "datasets/SkullBreak/"
+                    filename = row[0].split('/')[-1]  # "000_surf.npy"
+                    datapoint['defective_skull'] = base_path + 'defective_skull/' + self.defects[defect_id] + '/' + filename
+                    datapoint['implant'] = base_path + 'implant/' + self.defects[defect_id] + '/' + filename
                     self.database.append(datapoint)
 
     def __getitem__(self, file):

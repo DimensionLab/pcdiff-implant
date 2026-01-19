@@ -19,6 +19,9 @@ from datasets.skullfix_data import SkullFixDataset
 from model.pvcnn_completion import PVCNN2Base
 from utils.file_utils import copy_source, get_output_dir, setup_logging, setup_output_subdirs
 from utils.visualize import export_to_pc_batch
+import glob
+import subprocess
+from typing import Optional, Dict, Any
 
 # Optional wandb integration for experiment tracking
 try:
@@ -104,6 +107,83 @@ def get_distributed_context():
     rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
     local_rank = int(os.environ.get("LOCAL_RANK", rank))
     return world_size, rank, local_rank
+
+
+class CheckpointManager:
+    """Manages model checkpoints: keeps best model and last N periodic checkpoints."""
+
+    def __init__(self, checkpoint_dir: str, keep_last_n: int = 3, logger=None):
+        self.checkpoint_dir = checkpoint_dir
+        self.keep_last_n = keep_last_n
+        self.logger = logger
+        self.best_loss = float('inf')
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+    def save(self, model, optimizer, epoch: int, loss: float, is_periodic: bool = False) -> Dict[str, Any]:
+        """
+        Save checkpoint and manage old ones.
+        Returns a dict describing what was saved and where, so callers can attach external logging (e.g., W&B artifacts).
+        """
+        save_dict = {
+            'epoch': epoch,
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'loss': loss,
+        }
+
+        # Always save latest
+        latest_path = os.path.join(self.checkpoint_dir, 'model_latest.pth')
+        torch.save(save_dict, latest_path)
+        saved_best = False
+        best_path = None
+
+        # Save best model if this is the best loss
+        if loss < self.best_loss:
+            self.best_loss = loss
+            best_path = os.path.join(self.checkpoint_dir, 'model_best.pth')
+            torch.save(save_dict, best_path)
+            saved_best = True
+            if self.logger:
+                self.logger.info(f'New best model saved at epoch {epoch} with loss {loss:.6f}')
+
+        # Save periodic checkpoint
+        if is_periodic:
+            epoch_path = os.path.join(self.checkpoint_dir, f'model_epoch_{epoch}.pth')
+            torch.save(save_dict, epoch_path)
+            if self.logger:
+                self.logger.info(f'Periodic checkpoint saved: {epoch_path}')
+
+            # Clean up old periodic checkpoints
+            self._cleanup_old_checkpoints()
+        else:
+            epoch_path = None
+
+        return {
+            "latest_path": latest_path,
+            "best_path": best_path,
+            "saved_best": saved_best,
+            "periodic_path": epoch_path,
+            "saved_periodic": bool(epoch_path),
+        }
+
+    def _cleanup_old_checkpoints(self):
+        """Keep only the last N periodic checkpoints."""
+        pattern = os.path.join(self.checkpoint_dir, 'model_epoch_*.pth')
+        checkpoints = sorted(glob.glob(pattern), key=os.path.getmtime)
+
+        # Remove oldest checkpoints if we have more than keep_last_n
+        while len(checkpoints) > self.keep_last_n:
+            old_ckpt = checkpoints.pop(0)
+            os.remove(old_ckpt)
+            if self.logger:
+                self.logger.info(f'Removed old checkpoint: {old_ckpt}')
+
+    def load_best_loss(self, checkpoint_path: str):
+        """Load best loss from a checkpoint if resuming."""
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            ckpt = torch.load(checkpoint_path, map_location='cpu')
+            if 'loss' in ckpt:
+                self.best_loss = ckpt['loss']
 
 
 def normal_kl(mean1, logvar1, mean2, logvar2):
@@ -619,6 +699,14 @@ def get_dataloader(opt, train_dataset, test_dataset=None):
     return train_dataloader, test_dataloader, train_sampler, test_sampler
 
 
+def _get_git_commit_short() -> Optional[str]:
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL)
+        return out.decode("utf-8").strip()
+    except Exception:
+        return None
+
+
 def train(gpu, opt, output_dir, noises_init):
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -718,16 +806,21 @@ def train(gpu, opt, output_dir, noises_init):
     # Initialize wandb (only on main process)
     use_wandb = WANDB_AVAILABLE and not opt.no_wandb and should_diag
     if use_wandb:
+        logger.info("W&B enabled. If you're not logged in yet, run `wandb login` (or set `WANDB_API_KEY`) before training.")
         wandb_name = opt.wandb_name or f"{opt.dataset}_ep{opt.niter}_bs{opt.bs}_lr{opt.lr}"
-        wandb.init(
-            project=opt.wandb_project,
-            entity=opt.wandb_entity,
-            name=wandb_name,
-            config=vars(opt),
-            resume='allow'
-        )
-        wandb.watch(model, log='all', log_freq=opt.print_freq * 10)
-        logger.info(f"Wandb logging enabled: {wandb.run.url}")
+        try:
+            wandb.init(
+                project=opt.wandb_project,
+                entity=opt.wandb_entity,
+                name=wandb_name,
+                config=vars(opt),
+                resume='allow'
+            )
+            wandb.watch(model, log='all', log_freq=opt.print_freq * 10)
+            logger.info(f"Wandb logging enabled: {wandb.run.url}")
+        except Exception as wandb_err:
+            use_wandb = False
+            logger.warning(f"Wandb init failed; continuing without wandb. Error: {wandb_err}")
 
     base_batch = max(opt.lr_base_batch, 1)
     lr_scale = float(opt.bs) / float(base_batch)
@@ -784,6 +877,17 @@ def train(gpu, opt, output_dir, noises_init):
             elif not opt.no_fused_adam:
                 logger.info("Fused Adam kernels unavailable; using standard Adam")
 
+    # Initialize checkpoint manager
+    ckpt_manager = None
+    if should_diag:
+        ckpt_manager = CheckpointManager(
+            checkpoint_dir=opt.checkpoint_dir,
+            keep_last_n=opt.keep_last_n,
+            logger=logger
+        )
+        logger.info(f"Checkpoints will be saved to: {opt.checkpoint_dir}")
+        logger.info(f"Checkpoint frequency: every {opt.checkpoint_freq} epochs, keeping last {opt.keep_last_n}")
+
     start_epoch = 0
     if opt.model:
         checkpoint = torch.load(opt.model, map_location="cpu")
@@ -792,180 +896,224 @@ def train(gpu, opt, output_dir, noises_init):
         start_epoch = checkpoint.get('epoch', -1) + 1
         if start_epoch > 0 and should_diag:
             logger.info(f"Resuming from checkpoint {opt.model} at epoch {start_epoch}")
+        # Load best loss from checkpoint for proper best model tracking
+        if ckpt_manager:
+            ckpt_manager.load_best_loss(opt.model)
 
-    # Training loop
-    for epoch in range(start_epoch, opt.niter):
-        if is_distributed and train_sampler is not None:
-            train_sampler.set_epoch(epoch)
+    # Track best checkpoint path for W&B artifact upload at end (rank-0 only)
+    best_ckpt_path_for_wandb = None
+    best_ckpt_epoch_for_wandb = None
+    best_ckpt_loss_for_wandb = None
 
-        epoch_step_count = 0
-        for i, data in enumerate(dataloader):
-            pc_in = data['train_points'].transpose(1, 2)  # Input point cloud
-            noises_batch = noises_init[data['idx']].transpose(1, 2)  # Noise (num_nn points)
+    try:
+        # Training loop
+        for epoch in range(start_epoch, opt.niter):
+            if is_distributed and train_sampler is not None:
+                train_sampler.set_epoch(epoch)
 
-            if cuda_available:
-                pc_in = pc_in.cuda(non_blocking=True)
-                noises_batch = noises_batch.cuda(non_blocking=True)
+            epoch_step_count = 0
+            epoch_loss_sum = 0.0
+            epoch_loss_count = 0
+            for i, data in enumerate(dataloader):
+                pc_in = data['train_points'].transpose(1, 2)  # Input point cloud
+                noises_batch = noises_init[data['idx']].transpose(1, 2)  # Noise (num_nn points)
 
-            optimizer.zero_grad(set_to_none=True)
+                if cuda_available:
+                    pc_in = pc_in.cuda(non_blocking=True)
+                    noises_batch = noises_batch.cuda(non_blocking=True)
 
-            with autocast("cuda", enabled=use_amp, dtype=amp_dtype):
-                loss = model.get_loss_iter(pc_in, noises_batch).mean()
+                optimizer.zero_grad(set_to_none=True)
 
-            loss_value = float(loss.detach().item())
+                with autocast("cuda", enabled=use_amp, dtype=amp_dtype):
+                    loss = model.get_loss_iter(pc_in, noises_batch).mean()
 
-            if use_grad_scaler:
-                scaler.scale(loss).backward()
-                if opt.grad_clip is not None:
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                if opt.grad_clip is not None:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
-                optimizer.step()
-            
-            epoch_step_count += 1
+                loss_value = float(loss.detach().item())
+                epoch_loss_sum += loss_value
+                epoch_loss_count += 1
 
-            # Print progress
-            if i % opt.print_freq == 0 and should_diag:
-                logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
-                            .format(epoch, opt.niter, i, len(dataloader), loss_value))
-                
-                # Log to wandb
-                if use_wandb:
-                    wandb.log({
-                        "train/loss": loss_value,
-                        "train/epoch": epoch,
-                        "train/lr": optimizer.param_groups[0]['lr']
-                    }, step=epoch * len(dataloader) + i)
-        
-        # Validate that all ranks completed the same number of steps
-        if is_distributed:
-            step_device = torch.device('cuda', local_rank) if cuda_available else torch.device('cpu')
-            step_count_tensor = torch.tensor([epoch_step_count], dtype=torch.long, device=step_device)
-            gathered_counts = [torch.zeros_like(step_count_tensor) for _ in range(world_size)]
-            dist.all_gather(gathered_counts, step_count_tensor)
-            
-            # Check for divergence on rank 0
-            if should_diag:
-                counts = [t.item() for t in gathered_counts]
-                if len(set(counts)) > 1:
-                    logger.error(f"STEP COUNT DIVERGENCE at epoch {epoch}! Counts per rank: {counts}")
-                    logger.error("This indicates uneven data distribution. Check your dataset and sampler.")
-                    raise RuntimeError(f"Step count mismatch across ranks: {counts}")
+                if use_grad_scaler:
+                    scaler.scale(loss).backward()
+                    if opt.grad_clip is not None:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                    scaler.step(optimizer)
+                    scaler.update()
                 else:
-                    if epoch % 100 == 0:  # Log periodically
-                        logger.info(f"Epoch {epoch}: All ranks completed {epoch_step_count} steps ✓")
-        
-        lr_scheduler.step()
-
-        # Evaluate
-        if (epoch + 1) % opt.diagIter == 0:
-            # CRITICAL: All ranks must participate to avoid NCCL hangs
-            if is_distributed:
-                dist.barrier()  # Synchronize before diagnostics
-            
-            if should_diag:
-                logger.info('Diagnosis:')
-
-                x_range = [pc_in.min().item(), pc_in.max().item()]
-                kl_stats = model.all_kl(pc_in)
-                logger.info('      [{:>3d}/{:>3d}]    '
-                            'x_range: [{:>10.4f}, {:>10.4f}],   '
-                            'total_bpd_b: {:>10.4f},    '
-                            'terms_bpd: {:>10.4f},  '
-                            'prior_bpd_b: {:>10.4f}    '
-                            'mse_bt: {:>10.4f}  '
-                            .format(epoch, opt.niter,
-                                    *x_range,
-                                    kl_stats['total_bpd_b'].item(),
-                                    kl_stats['terms_bpd'].item(), kl_stats['prior_bpd_b'].item(),
-                                    kl_stats['mse_bt'].item()))
+                    loss.backward()
+                    if opt.grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+                    optimizer.step()
                 
-                # Log diagnostics to wandb
-                if use_wandb:
-                    wandb.log({
-                        "diag/total_bpd": kl_stats['total_bpd_b'].item(),
-                        "diag/terms_bpd": kl_stats['terms_bpd'].item(),
-                        "diag/prior_bpd": kl_stats['prior_bpd_b'].item(),
-                        "diag/mse": kl_stats['mse_bt'].item(),
-                        "diag/x_min": x_range[0],
-                        "diag/x_max": x_range[1]
-                    }, step=epoch * len(dataloader))
-            
-            if is_distributed:
-                dist.barrier()  # Synchronize after diagnostics
+                epoch_step_count += 1
 
-        # Visualize some samples
-        if (epoch + 1) % opt.vizIter == 0:
-            # CRITICAL: All ranks must participate to avoid NCCL hangs
-            if is_distributed:
-                dist.barrier()  # Synchronize before visualization
-            
-            if should_diag:
-                logger.info('Generation: eval')
-
-                model.eval()
-
-                with torch.no_grad():
-                    x_gen_eval = model.gen_samples(pc_in[:, :, :(opt.num_points - opt.num_nn)],
-                                                   pc_in[:, :, (opt.num_points - opt.num_nn):].shape,
-                                                   pc_in.device, clip_denoised=False).detach().cpu()
-
-                    gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
-                    gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
-
-                    logger.info('      [{:>3d}/{:>3d}]  '
-                                'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
-                                'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
-                                .format(epoch, opt.niter, *gen_eval_range, *gen_stats))
+                # Print progress
+                if i % opt.print_freq == 0 and should_diag:
+                    logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
+                                .format(epoch, opt.niter, i, len(dataloader), loss_value))
                     
-                    # Log generation stats to wandb
+                    # Log to wandb
                     if use_wandb:
                         wandb.log({
-                            "gen/mean": gen_stats[0].item(),
-                            "gen/std": gen_stats[1].item(),
-                            "gen/min": gen_eval_range[0],
-                            "gen/max": gen_eval_range[1]
-                        }, step=epoch * len(dataloader))
-
-                # Save samples and ground truth
-                export_to_pc_batch('%s/epoch_%03d_samples_eval' % (outf_syn, epoch),
-                                   (x_gen_eval.transpose(1, 2)).numpy())
-
-                export_to_pc_batch('%s/epoch_%03d_ground_truth' % (outf_syn, epoch),
-                                   (pc_in.transpose(1, 2).detach().cpu()).numpy())
-
-                export_to_pc_batch('%s/epoch_%03d_partial' % (outf_syn, epoch),
-                                   (pc_in[:, :, :(opt.num_points - opt.num_nn)].transpose(1, 2).detach().cpu()).numpy())
-
-                model.train()
+                            "train/loss": loss_value,
+                            "train/epoch": epoch,
+                            "train/lr": optimizer.param_groups[0]['lr']
+                        }, step=epoch * len(dataloader) + i)
             
+            # Validate that all ranks completed the same number of steps
             if is_distributed:
-                dist.barrier()  # Synchronize after visualization
+                step_device = torch.device('cuda', local_rank) if cuda_available else torch.device('cpu')
+                step_count_tensor = torch.tensor([epoch_step_count], dtype=torch.long, device=step_device)
+                gathered_counts = [torch.zeros_like(step_count_tensor) for _ in range(world_size)]
+                dist.all_gather(gathered_counts, step_count_tensor)
+                
+                # Check for divergence on rank 0
+                if should_diag:
+                    counts = [t.item() for t in gathered_counts]
+                    if len(set(counts)) > 1:
+                        logger.error(f"STEP COUNT DIVERGENCE at epoch {epoch}! Counts per rank: {counts}")
+                        logger.error("This indicates uneven data distribution. Check your dataset and sampler.")
+                        raise RuntimeError(f"Step count mismatch across ranks: {counts}")
+                    else:
+                        if epoch % 100 == 0:  # Log periodically
+                            logger.info(f"Epoch {epoch}: All ranks completed {epoch_step_count} steps ✓")
+            
+            lr_scheduler.step()
 
-        if (epoch + 1) % opt.saveIter == 0:
-            if should_diag:
-                save_dict = {
-                    'epoch': epoch,
-                    'model_state': model.state_dict(),
-                    'optimizer_state': optimizer.state_dict()
-                }
+            # Evaluate
+            if (epoch + 1) % opt.diagIter == 0:
+                # CRITICAL: All ranks must participate to avoid NCCL hangs
+                if is_distributed:
+                    dist.barrier()  # Synchronize before diagnostics
+                
+                if should_diag:
+                    logger.info('Diagnosis:')
 
-                torch.save(save_dict, '%s/epoch_%d.pth' % (output_dir, epoch))
+                    x_range = [pc_in.min().item(), pc_in.max().item()]
+                    kl_stats = model.all_kl(pc_in)
+                    logger.info('      [{:>3d}/{:>3d}]    '
+                                'x_range: [{:>10.4f}, {:>10.4f}],   '
+                                'total_bpd_b: {:>10.4f},    '
+                                'terms_bpd: {:>10.4f},  '
+                                'prior_bpd_b: {:>10.4f}    '
+                                'mse_bt: {:>10.4f}  '
+                                .format(epoch, opt.niter,
+                                        *x_range,
+                                        kl_stats['total_bpd_b'].item(),
+                                        kl_stats['terms_bpd'].item(), kl_stats['prior_bpd_b'].item(),
+                                        kl_stats['mse_bt'].item()))
+                    
+                    # Log diagnostics to wandb
+                    if use_wandb:
+                        wandb.log({
+                            "diag/total_bpd": kl_stats['total_bpd_b'].item(),
+                            "diag/terms_bpd": kl_stats['terms_bpd'].item(),
+                            "diag/prior_bpd": kl_stats['prior_bpd_b'].item(),
+                            "diag/mse": kl_stats['mse_bt'].item(),
+                            "diag/x_min": x_range[0],
+                            "diag/x_max": x_range[1]
+                        }, step=epoch * len(dataloader))
+                
+                if is_distributed:
+                    dist.barrier()  # Synchronize after diagnostics
+
+            # Visualize some samples
+            if (epoch + 1) % opt.vizIter == 0:
+                # CRITICAL: All ranks must participate to avoid NCCL hangs
+                if is_distributed:
+                    dist.barrier()  # Synchronize before visualization
+                
+                if should_diag:
+                    logger.info('Generation: eval')
+
+                    model.eval()
+
+                    with torch.no_grad():
+                        x_gen_eval = model.gen_samples(pc_in[:, :, :(opt.num_points - opt.num_nn)],
+                                                       pc_in[:, :, (opt.num_points - opt.num_nn):].shape,
+                                                       pc_in.device, clip_denoised=False).detach().cpu()
+
+                        gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
+                        gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
+
+                        logger.info('      [{:>3d}/{:>3d}]  '
+                                    'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
+                                    'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
+                                    .format(epoch, opt.niter, *gen_eval_range, *gen_stats))
+                        
+                        # Log generation stats to wandb
+                        if use_wandb:
+                            wandb.log({
+                                "gen/mean": gen_stats[0].item(),
+                                "gen/std": gen_stats[1].item(),
+                                "gen/min": gen_eval_range[0],
+                                "gen/max": gen_eval_range[1]
+                            }, step=epoch * len(dataloader))
+
+                    # Save samples and ground truth
+                    export_to_pc_batch('%s/epoch_%03d_samples_eval' % (outf_syn, epoch),
+                                       (x_gen_eval.transpose(1, 2)).numpy())
+
+                    export_to_pc_batch('%s/epoch_%03d_ground_truth' % (outf_syn, epoch),
+                                       (pc_in.transpose(1, 2).detach().cpu()).numpy())
+
+                    export_to_pc_batch('%s/epoch_%03d_partial' % (outf_syn, epoch),
+                                       (pc_in[:, :, :(opt.num_points - opt.num_nn)].transpose(1, 2).detach().cpu()).numpy())
+
+                    model.train()
+                
+                if is_distributed:
+                    dist.barrier()  # Synchronize after visualization
+
+            # Compute epoch average loss
+            epoch_avg_loss = epoch_loss_sum / max(epoch_loss_count, 1)
+
+            # Save checkpoints using checkpoint manager
+            if should_diag and ckpt_manager:
+                is_periodic = ((epoch + 1) % opt.checkpoint_freq == 0)
+                save_info = ckpt_manager.save(model, optimizer, epoch, epoch_avg_loss, is_periodic=is_periodic)
+                if save_info.get("saved_best"):
+                    best_ckpt_path_for_wandb = save_info.get("best_path")
+                    best_ckpt_epoch_for_wandb = epoch
+                    best_ckpt_loss_for_wandb = epoch_avg_loss
 
             if is_distributed:
                 dist.barrier()
 
-    # Finish wandb run
-    if use_wandb:
-        wandb.finish()
+    finally:
+        # Upload best checkpoint as a W&B artifact (rank-0 only), so it can be downloaded later.
+        if use_wandb and should_diag and best_ckpt_path_for_wandb and os.path.exists(best_ckpt_path_for_wandb):
+            try:
+                commit = _get_git_commit_short()
+                artifact_name = f"pcdiff-{opt.dataset}-best"
+                artifact = wandb.Artifact(
+                    name=artifact_name,
+                    type="model",
+                    metadata={
+                        "dataset": opt.dataset,
+                        "epoch": best_ckpt_epoch_for_wandb,
+                        "loss": best_ckpt_loss_for_wandb,
+                        "checkpoint_file": os.path.basename(best_ckpt_path_for_wandb),
+                        "git_commit": commit,
+                    },
+                )
+                artifact.add_file(best_ckpt_path_for_wandb)
+                wandb.log_artifact(artifact, aliases=["best", f"epoch_{best_ckpt_epoch_for_wandb}"])
+                logger.info(f"Logged W&B artifact '{artifact_name}' (aliases: best, epoch_{best_ckpt_epoch_for_wandb})")
+            except Exception as artifact_err:
+                logger.warning(f"Failed to log W&B artifact for best checkpoint: {artifact_err}")
 
-    if is_distributed:
-        dist.destroy_process_group()
+        # Finish wandb run
+        if use_wandb:
+            try:
+                wandb.finish()
+            except Exception:
+                pass
+
+        if is_distributed:
+            try:
+                dist.destroy_process_group()
+            except Exception:
+                pass
 
 
 def main():
@@ -1066,6 +1214,14 @@ def parse_args():
 
     # Model path (for continuing the training of existing models)
     parser.add_argument('--model', default='', help="path to model (to continue training)")
+
+    # Checkpoint management
+    parser.add_argument('--checkpoint_dir', type=str, default='pcdiff/checkpoints',
+                        help='directory to save checkpoints')
+    parser.add_argument('--checkpoint_freq', type=int, default=5,
+                        help='save checkpoint every N epochs')
+    parser.add_argument('--keep_last_n', type=int, default=3,
+                        help='number of periodic checkpoints to keep (excludes best model)')
 
     # Distributed training (torchrun handles world size / rank via environment variables)
     parser.add_argument('--gpu', default=None, type=int,

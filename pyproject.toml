@@ -44,6 +44,8 @@ dependencies = [
     # Point cloud diffusion specific
     "ninja>=1.11.1",
     "rich>=13.7.0",
+    # Experiment tracking (required for training runs)
+    "wandb>=0.16.0",
 ]
 
 [build-system]

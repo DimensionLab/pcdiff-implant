@@ -1,0 +1,30 @@
+{
+    "env": {
+      "XDG_CACHE_HOME": ".cache",
+      "npm_config_cache": ".cache/npm",
+      "PIP_CACHE_DIR": ".cache/pip"
+    },
+    "permissions": {
+      "allow": [
+        "WebFetch(domain:github.com)"
+      ],
+      "deny": [
+        "Bash(sudo *)",
+        "Bash(docker *)",
+        "Read(./.env)",
+        "Read(~/.ssh/**)",
+        "Read(~/.aws/**)"
+      ],
+      "ask": [
+      ],
+      "defaultMode": "acceptEdits"
+    },
+    "sandbox": {
+      "enabled": true,
+      "autoAllowBashIfSandboxed": true,
+      "allowUnsandboxedCommands": false,
+      "network": {
+        "allowLocalBinding": true
+      }
+    }
+  }
