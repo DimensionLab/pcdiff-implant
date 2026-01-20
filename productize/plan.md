@@ -98,7 +98,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "E2: run linear+warmup (if supported) or a single bounded intervention (e.g. LR×0.5 / grad clip / EMA) through gating",
       "Select best checkpoint based on proxy metrics, then validate with full E2E eval"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "testing",

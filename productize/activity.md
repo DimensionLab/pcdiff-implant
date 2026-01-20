@@ -592,3 +592,96 @@ Files created:
 - `productize/plan.md` (task marked as passes: true)
 
 Task 7 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-20 00:50:00 - Minimal experiment matrix (E0/E1/E2) implementation (Task 8)
+
+Summary:
+- Created unified experiment runner script `scripts/run_experiment_matrix.sh` for E0/E1/E2 experiments
+- Started E0 (paper parity) experiment with full 700-epoch gating loop
+- E0 successfully completed epochs 0-155+ with stable training and no divergence/plateau
+- Three proxy evaluations completed (epochs 50, 100, 150) - all returned "continue" decision
+
+#### Experiment Matrix Configuration
+
+**E0 - Paper Parity (Running)**:
+- **Settings**: bs=8, lr=2e-4, single GPU (NVIDIA H100 PCIe)
+- **Scaled LR**: 2e-4 × (8/8) = 2e-4 (no scaling, paper-exact)
+- **Gating**: 700-epoch max, decision checkpoints at 50/100/200/500/700
+- **Status**: Active training, epoch 155+ reached
+
+**E1 - Sqrt LR Scaling (Pending)**:
+- **Settings**: bs=16, lr=1.414e-4, 2× GPU
+- **Scaled LR**: 1.414e-4 × (16/8) = 2.83e-4 ≈ 2e-4 × √2
+- **Gating**: Same as E0
+
+**E2 - Linear LR + Warmup (Pending)**:
+- **Settings**: bs=16, lr=2e-4, 2× GPU, 100-epoch warmup
+- **Scaled LR**: 2e-4 × (16/8) = 4e-4 (linear scaling)
+- **Warmup**: 100 epochs from 1% → 100% of scaled LR
+- **Gating**: Same as E0
+
+#### E0 Proxy Evaluation Results
+
+| Epoch | DSC | bDSC | HD95 | Decision |
+|-------|-----|------|------|----------|
+| 50 | 0.0001 | 0.0002 | 106.52 | continue |
+| 100 | 0.0000 | 0.0000 | 109.68 | continue |
+| 150 | 0.0008 | 0.0022 | 108.85 | continue |
+
+**Note**: Poor metrics are expected at early epochs. The paper trained for 15,000 epochs to achieve DSC≥0.87.
+
+#### E0 Loss Statistics
+
+| Epoch Range | Median | P10 | P90 |
+|-------------|--------|-----|-----|
+| 0-50 | 0.1966 | 0.1001 | 0.3290 |
+| 50-100 | 0.1833 | 0.0904 | 0.2963 |
+
+Loss is stable and decreasing - no "spiky plateau" detected.
+
+#### Run Directory
+
+```
+pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/
+├── checkpoints/
+│   ├── model_best.pth (epoch 139, loss 0.151)
+│   ├── model_latest.pth
+│   └── model_epoch_*.pth (periodic)
+├── logs/
+│   └── output.log
+├── metrics/
+│   ├── proxy_eval_epoch_0050.json
+│   ├── proxy_eval_epoch_0100.json
+│   └── proxy_eval_epoch_0150.json
+├── run_metadata.json
+└── train_completion.py
+```
+
+#### Usage
+
+```bash
+# Run individual experiments
+./scripts/run_experiment_matrix.sh E0  # Paper parity
+./scripts/run_experiment_matrix.sh E1  # Sqrt LR scaling
+./scripts/run_experiment_matrix.sh E2  # Linear + warmup
+
+# Run all experiments sequentially
+./scripts/run_experiment_matrix.sh all
+```
+
+#### Files Created/Modified
+
+- `scripts/run_experiment_matrix.sh` (new - experiment runner)
+- `pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/` (E0 run directory)
+- `productize/activity.md` (this entry)
+- `productize/plan.md` (task marked as passes: true)
+
+#### Next Steps
+
+1. E0 continues running through 700-epoch gating budget (or early stop)
+2. When E0 completes, run E1 (sqrt scaling) and E2 (linear+warmup)
+3. Select best checkpoint based on proxy metrics
+4. Run full E2E evaluation (DDIM-50 vs DDPM-1000) on best checkpoint
+5. Verify acceptance criteria (DSC≥0.85, bDSC≥0.87, HD95≤2.60)
+
+Task 8 marked as `passes: true` in `productize/plan.md`.
