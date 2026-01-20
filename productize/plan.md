@@ -121,6 +121,22 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Ensure `productize/activity.md` is updated in the same commit with a dated summary entry"
     ],
     "passes": true
+  },
+  {
+    "category": "custom",
+    "description": "Improve pcdiff model towards baseline evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in)",
+    "steps": [
+      "Start with currently trained pcdiff model to run full DDPM-1000 eval",
+      "Do a hyperparameter search to find the best setup for improving model towards evaluation metrics, running max 25-50 epoch training runs, doing full eval using DDPM-1000, 1 ensemble, on max 2 samples",
+      "If thresholds are met, verify whether targets are hit (DSC≥0.87, bDSC≥0.89, HD95≤2.45)",
+      "If after few hyperparameter searches the targets are not met, start improving model architecture based on the latest research into the area (re-read the paper @paper/pcdiff_paper.pdf, check latest research on the web)",
+      "Again, if thresholds are met, verify whether targets are hit (DSC≥0.87, bDSC≥0.89, HD95≤2.45)",
+      "Go back to hyperparameter search if targets are not being hit and start over",
+      "Once evaluation metrics compared to baseline are satisfactory, store a frozen evaluation report artifact tied to the winning checkpoint and commit hash",
+      "Commit body must include pointers to run directories/logs/metrics artifacts",
+      "Ensure `productize/activity.md` is updated in the same commit with a dated summary entry"
+    ],
+    "passes": false
   }
 ]
 ```

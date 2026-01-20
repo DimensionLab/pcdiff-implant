@@ -1,0 +1,31 @@
+{
+  "checkpoint": "/workspace/pcdiff-implant/pcdiff/runs/SkullBreak/20260120_005859-E0-paper-parity-resume-20260120_005814/checkpoints/model_best.pth",
+  "sampling_method": "ddpm",
+  "sampling_steps": 1000,
+  "num_ens": 1,
+  "num_samples": 2,
+  "num_valid": 2,
+  "total_time_s": 1799.2162780761719,
+  "mean_dsc": 0.006377018370914588,
+  "mean_bdsc": 0.017923686870037352,
+  "mean_hd95": 101.1650466018774,
+  "per_sample": [
+    {
+      "case_id": "086",
+      "dsc": 0.008889603807142033,
+      "bdsc": 0.02641669961113007,
+      "hd95": 121.39456330495202,
+      "time_s": 898.7469787597656,
+      "error": null
+    },
+    {
+      "case_id": "088",
+      "dsc": 0.0038644329346871433,
+      "bdsc": 0.009430674128944638,
+      "hd95": 80.9355298988028,
+      "time_s": 900.4692993164062,
+      "error": null
+    }
+  ],
+  "timestamp": "2026-01-20T09:14:23.762074"
+}

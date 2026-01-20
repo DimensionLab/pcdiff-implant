@@ -2,8 +2,8 @@
 
 ## Current Status
 **Last Updated:** 2026-01-20
-**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented; proxy evaluation every 50 epochs implemented; multi-GPU inference sharding implemented; E2E evaluation harness (DDIM-50 vs DDPM-1000) implemented; experiment matrix runner implemented; acceptance criteria verification infrastructure implemented
-**Current Task:** Task 10 - Commit discipline for evaluation runs 
+**Tasks Completed:** PRD drafted; plan harness created; prior-run forensics captured; baseline assets verified; artifact layout standardized; multi-GPU DDP training verified; 700-epoch gating loop implemented; proxy evaluation every 50 epochs implemented; multi-GPU inference sharding implemented; E2E evaluation harness (DDIM-50 vs DDPM-1000) implemented; experiment matrix runner implemented; acceptance criteria verification infrastructure implemented; commit discipline established
+**Current Task:** Task 11 - Improve pcdiff model towards baseline evaluation metrics using DDPM-1000 
 
 ---
 
@@ -882,3 +882,71 @@ Files changed:
 - `productize/plan.md` (task marked as passes: true)
 
 Task 10 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-20 10:46:00 - Hyperparameter Search and DDPM-1000 Evaluation (Task 11)
+
+Summary:
+- Stopped E0 training run at ~405 epochs (proxy metrics showed DSC≈0, indicating model not converging meaningfully)
+- Created `pcdiff/quick_eval_ddpm.py` for quick DDPM-1000 evaluation on small sample sets
+- Established baseline with previous E0 checkpoint: DSC=0.0064, bDSC=0.0179, HD95=101.17
+- Ran hyperparameter search training with higher LR (1e-3 vs paper's 2e-4), 50 epochs, 2 GPUs
+- Evaluated best checkpoint (epoch 35, loss=0.18) with DDPM-1000 on 2 samples
+
+#### Hyperparameter Search Run
+
+**Run Directory**: `pcdiff/runs/SkullBreak/20260120_091549-hyperparam-search-lr1e3-50ep/`
+
+**Configuration**:
+- Learning rate: 1e-3 (5× paper rate)
+- Batch size: 8 (4 per GPU × 2 GPUs)
+- Epochs: 50 (with gating at 25, 50)
+- GPUs: 2× NVIDIA H100 PCIe
+- Gating: enabled, max 50 epochs
+- W&B: https://wandb.ai/michaltakac/pcdiff-implant/runs/qxcs68xu
+
+**Training Summary**:
+- Loss progression: 0.82 (epoch 0) → 0.18 (epoch 35, best) → 0.23 (epoch 49)
+- Gating decision at epoch 25: continue
+- Best model saved at epoch 35 with loss 0.182653
+
+#### DDPM-1000 Evaluation Results
+
+**Checkpoint**: `pcdiff/runs/SkullBreak/20260120_091549-hyperparam-search-lr1e3-50ep/checkpoints/model_best.pth`
+
+**Metrics (num_ens=1, 2 samples)**:
+
+| Case | DSC | bDSC | HD95 |
+|------|-----|------|------|
+| 086 | 0.0000 | 0.0000 | 105.27 |
+| 088 | 0.0000 | 0.0000 | 246.21 |
+| **Mean** | **0.0000** | **0.0000** | **175.74** |
+
+**Acceptance Criteria**: FAIL
+- Minimum thresholds: DSC≥0.85, bDSC≥0.87, HD95≤2.45
+- Current results are far from minimum thresholds
+
+#### Key Findings
+
+1. **50 epochs is vastly insufficient**: The paper requires 15,000 epochs. At 50 epochs (0.33% of target), the model cannot learn meaningful implant generation.
+
+2. **Higher LR didn't help short runs**: While lr=1e-3 showed faster loss reduction in early epochs, the model still produces zero-valued outputs because the diffusion model hasn't learned the data distribution.
+
+3. **DDPM-1000 vs DDIM-50**: Both sampling methods produce similarly poor results at this early stage, confirming the issue is training duration, not sampling method.
+
+4. **Next steps for Task 11**:
+   - Need to run training for significantly more epochs (hundreds to thousands)
+   - Consider resuming from E0 checkpoint with lr adjustments
+   - Alternative: try architectural improvements per paper recommendations
+
+**Artifacts**:
+- Evaluation results: `pcdiff/eval/hyperparam_lr1e3_50ep_ddpm1000.json`
+- Quick eval script: `pcdiff/quick_eval_ddpm.py`
+- Training log: `pcdiff/runs/SkullBreak/20260120_091549-hyperparam-search-lr1e3-50ep/logs/output.log`
+- Run metadata: `pcdiff/runs/SkullBreak/20260120_091549-hyperparam-search-lr1e3-50ep/run_metadata.json`
+- Best checkpoint: `pcdiff/runs/SkullBreak/20260120_091549-hyperparam-search-lr1e3-50ep/checkpoints/model_best.pth`
+
+Files created:
+- `pcdiff/quick_eval_ddpm.py` (DDPM-1000 evaluation script)
+- `pcdiff/eval/hyperparam_lr1e3_50ep_ddpm1000.json` (evaluation results)
+
+Task 11 status: **IN PROGRESS** - Initial hyperparameter search run completed but target metrics not met. Further training iterations required.
