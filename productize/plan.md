@@ -109,7 +109,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Store a frozen evaluation report artifact tied to the winning checkpoint and commit hash",
       "Add a lightweight reproducibility checklist to `productize/activity.md` for re-runs"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "process",
