@@ -120,7 +120,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Commit body must include pointers to run directories/logs/metrics artifacts",
       "Ensure `productize/activity.md` is updated in the same commit with a dated summary entry"
     ],
-    "passes": false
+    "passes": true
   }
 ]
 ```

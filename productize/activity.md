@@ -794,3 +794,91 @@ Files created:
 - `productize/plan.md` (task marked as passes: true)
 
 Task 9 marked as `passes: true` in `productize/plan.md`.
+
+### 2026-01-20 02:00:00 - Commit discipline for evaluation runs (Task 10)
+
+Summary:
+- Established commit discipline for proxy and full evaluation runs
+- Created commit for E0 proxy evaluation results (epochs 50, 100, 150)
+- All future evaluation runs will follow this commit protocol
+
+#### E0 Paper Parity Run - Proxy Evaluation Results
+
+**Run Directory**: `pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/`
+
+**Checkpoint Source**: git commit `f9337d9` (Task 7: E2E evaluation harness)
+
+**Configuration**:
+- Experiment: E0 (paper parity)
+- Learning rate: 2e-4 (paper-exact)
+- Batch size: 8 (paper-exact)
+- GPUs: 1× NVIDIA H100 PCIe (79GB)
+- Gating: enabled, max 700 epochs
+
+**Proxy Evaluations (DDIM-50, num_ens=1)**:
+
+| Epoch | DSC | bDSC | HD95 | Decision |
+|-------|-----|------|------|----------|
+| 50 | 0.0001 | 0.0002 | 106.52 | continue |
+| 100 | 0.0000 | 0.0000 | 109.68 | continue |
+| 150 | 0.0008 | 0.0022 | 108.85 | continue |
+
+**Note**: Metrics are very poor at these early epochs, which is expected. The paper trained for 15,000 epochs to achieve DSC≥0.87. The gating loop continues because:
+1. No divergence detected (no NaN/Inf, no exploding gradients)
+2. No plateau detected yet (loss still trending down)
+3. Training is within the 700-epoch budget
+
+**Artifacts**:
+- Proxy eval metrics: `pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/metrics/proxy_eval_epoch_*.json`
+- Training log: `pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/logs/output.log`
+- Run metadata: `pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/run_metadata.json`
+- Best checkpoint: `pcdiff/runs/SkullBreak/20260119_201037-E0-paper-parity-20260119_200949/checkpoints/model_best.pth` (epoch 139, loss 0.151)
+- W&B: https://wandb.ai/michaltakac/pcdiff-implant (E0-paper-parity run)
+
+#### Commit Discipline Protocol
+
+Going forward, all evaluation runs must follow this protocol:
+
+1. **After each proxy eval** (every 50 epochs):
+   - Add entry to `productize/activity.md` with:
+     - Epoch number
+     - DSC/bDSC/HD95 metrics
+     - Gating decision (continue/stop)
+     - Link to metrics JSON artifact
+   - Create git commit with message format:
+     ```
+     eval: E{N} proxy eval at epoch {EPOCH}
+
+     Checkpoint: {run_dir}/checkpoints/model_epoch_{EPOCH}.pth
+     Metrics (DDIM-50): DSC={X}, bDSC={Y}, HD95={Z}
+     Decision: {continue|stop}
+
+     Artifacts:
+     - Metrics: {run_dir}/metrics/proxy_eval_epoch_{EPOCH}.json
+     - Log: {run_dir}/logs/output.log
+     ```
+
+2. **After each full eval** (at gating decision points or end of training):
+   - Add entry to `productize/activity.md` with:
+     - Both DDIM-50 and DDPM-1000 metrics
+     - Acceptance criteria verification (minimum/target)
+     - Per-sample comparison summary
+   - Create git commit with message format:
+     ```
+     eval: E{N} full eval (DDIM-50 vs DDPM-1000)
+
+     Checkpoint: {path_to_checkpoint}
+     DDIM-50: DSC={X}±{s}, bDSC={Y}±{s}, HD95={Z}±{s}
+     DDPM-1000: DSC={X}±{s}, bDSC={Y}±{s}, HD95={Z}±{s}
+     Acceptance: {PASS|FAIL} (minimum: DSC≥0.85, bDSC≥0.87, HD95≤2.60)
+
+     Artifacts:
+     - Comparison: {eval_dir}/comparison_summary.json
+     - Per-sample: {eval_dir}/per_sample_comparison.csv
+     ```
+
+Files changed:
+- `productize/activity.md` (this entry + commit protocol)
+- `productize/plan.md` (task marked as passes: true)
+
+Task 10 marked as `passes: true` in `productize/plan.md`.
