@@ -124,7 +124,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
   },
   {
     "category": "custom",
-    "description": "Improve pcdiff model towards baseline evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in)",
+    "description": "You now have 8x H100 GPU. Improve pcdiff model towards baseline evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in)",
     "steps": [
       "Start with currently trained pcdiff model to run full DDPM-1000 eval",
       "Do a hyperparameter search to find the best setup for improving model towards evaluation metrics, running max 25-50 epoch training runs, doing full eval using DDPM-1000, 1 ensemble, on max 2 samples",
@@ -133,6 +133,19 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
       "Again, if thresholds are met, verify whether targets are hit (DSC≥0.87, bDSC≥0.89, HD95≤2.45)",
       "Go back to hyperparameter search if targets are not being hit and start over",
       "Once evaluation metrics compared to baseline are satisfactory, store a frozen evaluation report artifact tied to the winning checkpoint and commit hash",
+      "Commit body must include pointers to run directories/logs/metrics artifacts",
+      "Ensure `productize/activity.md` is updated in the same commit with a dated summary entry"
+    ],
+    "passes": true
+  },
+  {
+    "category": "custom",
+    "description": "Run a full training run for pcdiff model on 8x H100 GPU, evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in). We have only limited budget of 1000€, current server costs 19.12€/hour!",
+    "steps": [
+      "Only continue if you re-read the paper @paper/pcdiff_paper.pdf",
+      "Set up correct hyperparameters for multi-GPU training of pcdiff and inference runs",
+      "Evaluate agains target baselines (DSC≥0.87, bDSC≥0.89, HD95≤2.45)",
+      "Store an evaluation report, winning checkpoint and commit hash",
       "Commit body must include pointers to run directories/logs/metrics artifacts",
       "Ensure `productize/activity.md` is updated in the same commit with a dated summary entry"
     ],
