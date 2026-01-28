@@ -4,20 +4,24 @@ set -e  # Exit on error
 # Configuration
 DATASET_PATH="pcdiff/datasets/SkullBreak/train.csv"  # Train split CSV from pre-processing
 DATASET_NAME="SkullBreak"
-CHECKPOINT="" #"pcdiff/output/train_completion/2025-10-23-19-35-15/epoch_1999_remapped.pth"
-NUM_GPUS=8                   # Using GPUs 0-7 for full data-parallel run
-BATCH_SIZE=64                # Global batch ⇒ 8 samples per GPU when NUM_GPUS=8
-LEARNING_RATE=0.0002         # Baseline LR (scaled automatically inside training script)
-LR_BASE_BATCH=8              # Baseline global batch size for LR scaling
-LR_WARMUP_EPOCHS=1000        # Linear warmup steps before switching to exponential decay
+CHECKPOINT=""                # Path to checkpoint for resume training (leave empty for fresh start)
+NUM_GPUS=1                   # Single A100 GPU (matches paper setup)
+BATCH_SIZE=8                 # Paper uses batch size 8
+LEARNING_RATE=0.0002         # Paper LR: 2×10⁻⁴
+LR_BASE_BATCH=8              # Baseline global batch size for LR scaling (no scaling with bs=8)
+LR_WARMUP_EPOCHS=500         # Linear warmup epochs
 LR_WARMUP_START_FACTOR=0.01  # Warmup start factor (relative to scaled LR)
-PREFETCH_FACTOR=4            # Matches paper-trained dataloader behaviour
+NUM_EPOCHS=15000             # Paper trains for 15,000 epochs
+CHECKPOINT_FREQ=500          # Save checkpoint every 500 epochs
+KEEP_LAST_N=3                # Keep latest 3 checkpoints + best model
+PREFETCH_FACTOR=4            # Dataloader prefetch factor
 MATMUL_PRECISION="high"      # Paper uses FP32 training; keep TF32 enabled for speed
 AMP_FLAG="--no-amp"          # Paper baseline is full precision; remove flag to enable AMP later
 COMPILE_BACKEND="inductor"
 COMPILE_MODE="default"
 COMPILE_FULLGRAPH_FLAG=""    # Set to '--compile-fullgraph' only if custom ops support full graphs
 FUSED_ADAM_FLAG=""           # Leave empty to use fused Adam; set to '--no-fused-adam' for plain Adam
+WANDB_PROJECT="pcdiff"       # Weights & Biases project name
 
 COMPILE_FLAGS=( --compile-backend "${COMPILE_BACKEND}" --compile-mode "${COMPILE_MODE}" )
 EXTRA_FLAGS=( --matmul-precision "${MATMUL_PRECISION}" )
@@ -34,14 +38,18 @@ EFFECTIVE_BATCH=$((PER_DEVICE_BATCH * NUM_GPUS))
 
 # Print configuration
 echo "================================================"
-echo "Starting PCDiff Training (Resumed)"
+echo "PCDiff Training - Paper Parity Configuration"
 echo "================================================"
 echo "Dataset: ${DATASET_PATH}"
-echo "Checkpoint: ${CHECKPOINT}"
-echo "GPUs: ${NUM_GPUS} (0-7)"
-echo "Batch Size: ${PER_DEVICE_BATCH} per GPU (effective: ${EFFECTIVE_BATCH})"
-echo "Base Learning Rate: ${LEARNING_RATE} (scaled by factor ${BATCH_SIZE}/${LR_BASE_BATCH})"
+echo "Checkpoint: ${CHECKPOINT:-'None (fresh start)'}"
+echo "GPUs: ${NUM_GPUS}"
+echo "Batch Size: ${BATCH_SIZE} (paper: 8)"
+echo "Learning Rate: ${LEARNING_RATE} (paper: 2e-4)"
+echo "Epochs: ${NUM_EPOCHS} (paper: 15000)"
+echo "Checkpoint Frequency: every ${CHECKPOINT_FREQ} epochs"
+echo "Keep Last N Checkpoints: ${KEEP_LAST_N}"
 echo "Warmup: epochs=${LR_WARMUP_EPOCHS}, start_factor=${LR_WARMUP_START_FACTOR}"
+echo "W&B Project: ${WANDB_PROJECT}"
 echo "================================================"
 echo ""
 
@@ -51,10 +59,15 @@ if [ -n "${CHECKPOINT}" ] && [ ! -f "${CHECKPOINT}" ]; then
     exit 1
 fi
 
+# Build checkpoint argument if provided
+CHECKPOINT_ARG=""
+if [ -n "${CHECKPOINT}" ]; then
+    CHECKPOINT_ARG="--model ${CHECKPOINT}"
+fi
+
 # Start training
-# Using GPUs 0-7 for training
-# --model ${CHECKPOINT} \ for checkpoint resume training
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
+# Single GPU training (paper configuration)
+CUDA_VISIBLE_DEVICES=0 torchrun \
     --nproc_per_node=${NUM_GPUS} \
     --master_port=29500 \
     pcdiff/train_completion.py \
@@ -65,10 +78,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --lr-base-batch ${LR_BASE_BATCH} \
     --lr-warmup-epochs ${LR_WARMUP_EPOCHS} \
     --lr-warmup-start-factor ${LR_WARMUP_START_FACTOR} \
-    --niter 15000 \
+    --niter ${NUM_EPOCHS} \
     --num_points 30720 \
     --num_nn 3072 \
-    --workers 21 \
+    --workers 8 \
     --prefetch-factor ${PREFETCH_FACTOR} \
     --nc 3 \
     --attention True \
@@ -83,17 +96,22 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --model_var_type fixedsmall \
     --vox_res_mult 1.0 \
     --width_mult 1.0 \
-    --saveIter 1000 \
-    --diagIter 2000 \
-    --vizIter 2000 \
+    --checkpoint_dir pcdiff/checkpoints \
+    --checkpoint_freq ${CHECKPOINT_FREQ} \
+    --keep_last_n ${KEEP_LAST_N} \
+    --saveIter ${CHECKPOINT_FREQ} \
+    --diagIter 1000 \
+    --vizIter 1000 \
     --print_freq 10 \
     --manualSeed 1234 \
     --dist-backend nccl \
     --augment False \
+    --gating-enabled False \
+    --proxy-eval-enabled False \
     --disable-compile \
+    --wandb-project ${WANDB_PROJECT} \
+    ${CHECKPOINT_ARG} \
     "${EXTRA_FLAGS[@]}"
-    #--wandb-project pcdiff
-    # Keep fused Adam enabled by default; set to --no-fused-adam to revert to paper baseline
 
 
 echo ""

@@ -124,7 +124,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
   },
   {
     "category": "custom",
-    "description": "You now have 8x H100 GPU. Improve pcdiff model towards baseline evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in)",
+    "description": "You now have 6x H100 GPU. Improve pcdiff model towards baseline evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in)",
     "steps": [
       "Start with currently trained pcdiff model to run full DDPM-1000 eval",
       "Do a hyperparameter search to find the best setup for improving model towards evaluation metrics, running max 25-50 epoch training runs, doing full eval using DDPM-1000, 1 ensemble, on max 2 samples",
@@ -140,7 +140,7 @@ Build a **repeatable, multi‑GPU** training + inference + evaluation harness fo
   },
   {
     "category": "custom",
-    "description": "Run a full training run for pcdiff model on 8x H100 GPU, evaluation metrics using DDPM-1000, using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs (already logged in). We have only limited budget of 1000€, current server costs 19.12€/hour!",
+    "description": "Run a full multi-GPU training run for pcdiff model on 6x H100 GPU, evaluation metrics using DDPM-1000 (1 ensemble, on max 2 samples), using uv's .venv (`source .venv/bin/activate`) and wandb for storing run logs / model checkpoints (already logged in). We have only limited budget of 1000€, current server costs 15€/hour!",
     "steps": [
       "Only continue if you re-read the paper @paper/pcdiff_paper.pdf",
       "Set up correct hyperparameters for multi-GPU training of pcdiff and inference runs",
