@@ -128,6 +128,12 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Spinner animation for LoadingSpinner component */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Responsive layout */
 @media (max-width: 1400px) {
   .app-layout {
@@ -140,7 +146,7 @@ button:disabled {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr auto;
   }
-  
+
   .sidebar {
     max-height: 200px;
   }

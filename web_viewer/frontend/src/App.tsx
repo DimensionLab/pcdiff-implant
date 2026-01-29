@@ -1,113 +1,127 @@
-import { useState, useEffect } from 'react';
-import Viewer3D from './components/Viewer3D';
-import ResultsList from './components/ResultsList';
-import ControlPanel from './components/ControlPanel';
-import FileDownload from './components/FileDownload';
-import { useResults, useResult } from './hooks/useResults';
-import { usePointCloud } from './hooks/usePointCloud';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { DataViewerPage } from './pages/DataViewerPage';
+import { ImplantCheckerPage } from './pages/ImplantCheckerPage';
 import './App.css';
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 30_000,
+    },
+  },
+});
+
 function App() {
-  const { results, loading: resultsLoading } = useResults();
-  const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
-  const { result } = useResult(selectedResultId);
-  
-  const [showInput, setShowInput] = useState(true);
-  const [showSample, setShowSample] = useState(true);
-  const [currentSampleIndex, setCurrentSampleIndex] = useState(0);
-
-  // Load point clouds
-  const { geometry: inputGeometry } = usePointCloud(selectedResultId, 'input', 0);
-  const { geometry: sampleGeometry } = usePointCloud(selectedResultId, 'sample', currentSampleIndex);
-
-  // Get point counts
-  const inputPoints = inputGeometry?.attributes.position?.count || 0;
-  const samplePoints = sampleGeometry?.attributes.position?.count || 0;
-
-  // Auto-select first result if none selected
-  useEffect(() => {
-    if (!selectedResultId && results.length > 0) {
-      setSelectedResultId(results[0].id);
-    }
-  }, [results, selectedResultId]);
-
-  // Reset sample index when result changes
-  useEffect(() => {
-    setCurrentSampleIndex(0);
-  }, [selectedResultId]);
-
-  const handleToggleInput = () => setShowInput(!showInput);
-  const handleToggleSample = () => setShowSample(!showSample);
-  const handleShowBoth = () => {
-    setShowInput(true);
-    setShowSample(true);
-  };
-  const handleResetCamera = () => {
-    // Camera reset is handled by OrbitControls in Viewer3D
-    console.log('Reset camera');
-  };
-
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>PCDiff Web Viewer</h1>
-        <p>Interactive 3D visualization of skull implant generation results</p>
-      </header>
-
-      <div className="app-layout">
-        {/* Left Sidebar - Results List */}
-        <aside className="sidebar sidebar-left">
-          <ResultsList
-            results={results}
-            selectedResultId={selectedResultId}
-            onSelect={setSelectedResultId}
-            loading={resultsLoading}
-          />
-        </aside>
-
-        {/* Main Content - 3D Viewer */}
-        <main className="main-content">
-          {selectedResultId ? (
-            <Viewer3D
-              inputGeometry={inputGeometry}
-              sampleGeometry={sampleGeometry}
-              showInput={showInput}
-              showSample={showSample}
-              onCameraReset={handleResetCamera}
-            />
-          ) : (
-            <div className="empty-state">
-              <h2>No Result Selected</h2>
-              <p>Select an inference result from the left panel to view</p>
-            </div>
-          )}
-        </main>
-
-        {/* Right Sidebar - Controls & Downloads */}
-        <aside className="sidebar sidebar-right">
-          <div className="sidebar-section">
-            <ControlPanel
-              showInput={showInput}
-              showSample={showSample}
-              onToggleInput={handleToggleInput}
-              onToggleSample={handleToggleSample}
-              onShowBoth={handleShowBoth}
-              onResetCamera={handleResetCamera}
-              numSamples={result?.num_samples || 1}
-              currentSampleIndex={currentSampleIndex}
-              onSampleChange={setCurrentSampleIndex}
-              inputPoints={inputPoints}
-              samplePoints={samplePoints}
-            />
+    <QueryClientProvider client={queryClient}>
+      <ErrorBoundary>
+        <div style={rootStyles.app}>
+          <NavHeader />
+          <div style={rootStyles.pageContent}>
+            <Routes>
+              <Route path="/" element={<DataViewerPage />} />
+              <Route path="/checker" element={<ImplantCheckerPage />} />
+            </Routes>
           </div>
-          <div className="sidebar-section">
-            <FileDownload resultId={selectedResultId} />
-          </div>
-        </aside>
-      </div>
-    </div>
+        </div>
+      </ErrorBoundary>
+    </QueryClientProvider>
   );
 }
 
-export default App;
+function NavHeader() {
+  const location = useLocation();
+  const isChecker = location.pathname === '/checker';
 
+  return (
+    <header style={headerStyles.header}>
+      <div style={headerStyles.left}>
+        <span style={headerStyles.title}>DimensionLab CrAInial</span>
+        <nav style={headerStyles.nav}>
+          <Link
+            to="/"
+            style={{
+              ...headerStyles.navLink,
+              ...(isChecker ? {} : headerStyles.navLinkActive),
+            }}
+          >
+            Data Viewer
+          </Link>
+          <Link
+            to="/checker"
+            style={{
+              ...headerStyles.navLink,
+              ...(isChecker ? headerStyles.navLinkActive : {}),
+            }}
+          >
+            Implant Checker
+          </Link>
+        </nav>
+      </div>
+      <span style={headerStyles.version}>v2.0.0</span>
+    </header>
+  );
+}
+
+const rootStyles: Record<string, React.CSSProperties> = {
+  app: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100vh',
+    overflow: 'hidden',
+    background: '#0a0a1a',
+    color: '#eee',
+  },
+  pageContent: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+};
+
+const headerStyles: Record<string, React.CSSProperties> = {
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 16px',
+    background: '#111128',
+    borderBottom: '1px solid #222',
+    minHeight: '40px',
+    flexShrink: 0,
+  },
+  left: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+  },
+  title: {
+    fontSize: '15px',
+    fontWeight: 700,
+    color: '#fff',
+  },
+  nav: {
+    display: 'flex',
+    gap: '4px',
+  },
+  navLink: {
+    padding: '4px 10px',
+    fontSize: '12px',
+    color: '#888',
+    textDecoration: 'none',
+    borderRadius: '4px',
+    transition: 'color 0.15s, background 0.15s',
+  },
+  navLinkActive: {
+    color: '#fff',
+    background: 'rgba(255,255,255,0.1)',
+  },
+  version: {
+    fontSize: '10px',
+    color: '#555',
+  },
+};
+
+export default App;

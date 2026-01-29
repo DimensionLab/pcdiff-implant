@@ -10,6 +10,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        timeout: 180_000,       // 3 min — STL generation can take a while
       },
     },
   },
