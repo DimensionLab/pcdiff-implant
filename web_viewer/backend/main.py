@@ -19,6 +19,17 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    web_viewer_dir = Path(__file__).parent.parent
+    env_file = web_viewer_dir / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"Loaded environment from {env_file}")
+except ImportError:
+    pass  # python-dotenv not installed, skip
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -30,6 +41,7 @@ from web_viewer.backend.middleware.audit_middleware import AuditMiddleware
 from web_viewer.backend.routers import (
     audit,
     color_profiles,
+    filesystem,
     fit_metrics,
     generation_jobs,
     legacy,
@@ -97,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router.router)
     app.include_router(viewer.router)
     app.include_router(audit.router)
+    app.include_router(filesystem.router)
 
     # Legacy endpoints (backward compatibility)
     app.include_router(legacy.router)

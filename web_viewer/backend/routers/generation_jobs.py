@@ -11,6 +11,7 @@ from web_viewer.backend.schemas.generation_job import (
 )
 from web_viewer.backend.services.audit_service import AuditService
 from web_viewer.backend.services.generation_service import GenerationService
+from web_viewer.backend.services.settings_service import SettingsService
 
 router = APIRouter(prefix="/api/v1/generation-jobs", tags=["generation-jobs"])
 
@@ -20,16 +21,24 @@ def _get_service(db: Session = Depends(get_db)) -> GenerationService:
     return GenerationService(db, audit)
 
 
+def _get_settings_service(db: Session = Depends(get_db)) -> SettingsService:
+    return SettingsService(db)
+
+
 @router.post("/", response_model=GenerationJobRead, status_code=201)
 def create_job(
     body: GenerationJobCreate,
     background_tasks: BackgroundTasks,
     service: GenerationService = Depends(_get_service),
+    settings_service: SettingsService = Depends(_get_settings_service),
 ):
     """Create a new generation job and queue it for execution.
 
     The job will be executed in the background. Poll the job status
     endpoint to track progress.
+    
+    If cloud_generation_enabled is true in settings and use_cloud is not
+    explicitly set to false, the job will run on Runpod cloud GPU.
     """
     try:
         job = service.create_job(
@@ -42,8 +51,21 @@ def create_job(
             description=body.description,
         )
 
-        # Queue background execution
-        background_tasks.add_task(service.execute_generation, job.id)
+        # Determine whether to use cloud or local execution
+        cloud_enabled = settings_service.get_value("cloud_generation_enabled", "false").lower() == "true"
+        use_cloud = body.use_cloud if body.use_cloud is not None else cloud_enabled
+
+        if use_cloud:
+            # Verify cloud is configured
+            endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
+            api_key = settings_service.get_value("runpod_api_key", "")
+            if not endpoint_id or not api_key:
+                raise ValueError("Cloud generation enabled but not configured. Set Runpod endpoint ID and API key in settings.")
+            # Queue cloud execution
+            background_tasks.add_task(service.execute_cloud_generation, job.id)
+        else:
+            # Queue local execution
+            background_tasks.add_task(service.execute_generation, job.id)
 
         return job
     except ValueError as e:

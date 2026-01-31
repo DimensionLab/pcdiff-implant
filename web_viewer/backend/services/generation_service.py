@@ -10,6 +10,7 @@ This service orchestrates the end-to-end inference pipeline:
 
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -544,6 +545,315 @@ class GenerationService:
 
         return job
 
+    def execute_cloud_generation(
+        self,
+        job_id: str,
+        progress_callback: Callable[[int, str], None] | None = None,
+    ) -> GenerationJob:
+        """
+        Execute generation using Runpod cloud GPU.
+
+        This method:
+        1. Submits the job to Runpod serverless endpoint
+        2. Polls for completion
+        3. Downloads results from S3
+        4. Saves results to local storage and database
+
+        Args:
+            job_id: The generation job ID
+            progress_callback: Optional callback(percent, step_text)
+
+        Returns:
+            Updated GenerationJob with results
+        """
+        from web_viewer.backend.services.runpod_service import (
+            RunpodService,
+            RunpodError,
+            download_from_s3_url,
+            parse_runpod_results,
+        )
+        from web_viewer.backend.services.settings_service import SettingsService
+
+        job = self.get_job(job_id)
+        if not job:
+            raise ValueError(f"Job not found: {job_id}")
+
+        t0 = time.time()
+
+        try:
+            # Get cloud settings
+            settings_service = SettingsService(self.db)
+            endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
+            api_key = settings_service.get_value("runpod_api_key", "")
+            s3_bucket = settings_service.get_value("aws_s3_bucket", "")
+            s3_region = settings_service.get_value("aws_s3_region", "us-east-1")
+
+            if not endpoint_id or not api_key:
+                raise ValueError("Cloud generation not configured. Set Runpod endpoint ID and API key in settings.")
+
+            # Mark as running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            job.current_step = "Connecting to cloud GPU"
+            self.db.commit()
+
+            self._create_notification(
+                type="generation_started",
+                title="Cloud Generation Started",
+                message=f"Implant generation '{job.name}' started on cloud GPU.",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            def update_progress(percent: int, step: str):
+                job.progress_percent = percent
+                job.current_step = step
+                self.db.commit()
+                if progress_callback:
+                    progress_callback(percent, step)
+
+            update_progress(5, "Loading input point cloud")
+
+            # Load input point cloud
+            input_pc = self.db.query(PointCloud).filter(PointCloud.id == job.input_pc_id).first()
+            if not input_pc:
+                raise ValueError(f"Input point cloud not found: {job.input_pc_id}")
+
+            input_path = Path(input_pc.file_path)
+            if not input_path.exists():
+                raise ValueError(f"Input file not found: {input_pc.file_path}")
+
+            # Load points
+            input_points = np.load(str(input_path))
+            if input_points.ndim == 3:
+                input_points = input_points[0]
+            input_points = input_points.astype(np.float32)
+
+            update_progress(10, "Submitting to cloud GPU")
+
+            # Create Runpod service
+            runpod = RunpodService(
+                endpoint_id=endpoint_id,
+                api_key=api_key,
+                s3_bucket=s3_bucket,
+                s3_region=s3_region,
+            )
+
+            # Submit job to Runpod
+            runpod_job_id = runpod.submit_job_sync(
+                defective_skull_points=input_points,
+                num_ensemble=job.num_ensemble,
+                sampling_steps=job.sampling_steps,
+                output_prefix=job.id,
+            )
+
+            logger.info(f"Submitted Runpod job: {runpod_job_id}")
+            update_progress(15, f"Job queued (ID: {runpod_job_id[:8]}...)")
+
+            # Poll for completion with progress updates
+            def runpod_progress_callback(status: str, progress: int):
+                # Map Runpod progress to overall progress (15-80%)
+                mapped_progress = 15 + int(progress * 0.65)
+                status_messages = {
+                    "IN_QUEUE": "Waiting for GPU worker...",
+                    "IN_PROGRESS": "Running inference on cloud GPU...",
+                    "COMPLETED": "Inference complete, downloading results...",
+                }
+                step_text = status_messages.get(status, f"Status: {status}")
+                update_progress(mapped_progress, step_text)
+
+            result = runpod.wait_for_completion_sync(
+                job_id=runpod_job_id,
+                progress_callback=runpod_progress_callback,
+                poll_interval=3.0,
+                timeout=1800.0,  # 30 minute timeout (DDPM with 1000 steps can take 15-20 min)
+            )
+
+            update_progress(80, "Downloading results from S3")
+
+            # Parse results
+            output = result.get("output", {})
+            if output.get("status") == "error":
+                raise RunpodError(f"Cloud inference failed: {output.get('error', 'Unknown error')}")
+
+            s3_results = output.get("results", {})
+            metadata = output.get("metadata", {})
+
+            logger.info(f"Cloud inference completed in {metadata.get('processing_time_seconds', 0):.1f}s")
+
+            # Download and save results
+            output_dir = input_path.parent
+            output_pc_ids = []
+            output_stl_ids = []
+
+            # Download implant point cloud(s)
+            for i in range(job.num_ensemble):
+                update_progress(80 + int((i / job.num_ensemble) * 15), f"Downloading ensemble {i+1}/{job.num_ensemble}")
+
+                # Download implant NPY
+                implant_npy_url = s3_results.get("implant_npy")
+                if implant_npy_url:
+                    local_npy_path = output_dir / f"{job.id}_implant_ens{i}.npy"
+                    try:
+                        # Use AWS credentials from environment for authenticated S3 download
+                        download_from_s3_url(
+                            implant_npy_url, 
+                            local_npy_path,
+                            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+                            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                        )
+                        implant_pc = np.load(str(local_npy_path))
+
+                        # Register as PointCloud
+                        pc = PointCloud(
+                            name=f"{job.name} - Implant #{i+1} (Cloud)",
+                            description=f"Generated implant (cloud GPU) from {input_pc.name}",
+                            file_path=str(local_npy_path),
+                            file_format="npy",
+                            file_size_bytes=get_file_size(local_npy_path),
+                            num_points=len(implant_pc),
+                            point_dims=3,
+                            scan_category="generated_implant",
+                            defect_type=input_pc.defect_type,
+                            skull_id=input_pc.skull_id,
+                            project_id=job.project_id,
+                            metadata_json=json.dumps({
+                                "generation_job_id": job.id,
+                                "ensemble_index": i,
+                                "cloud_generated": True,
+                                "runpod_job_id": runpod_job_id,
+                                "s3_url": implant_npy_url,
+                                "processing_time_seconds": metadata.get("processing_time_seconds"),
+                            }),
+                        )
+                        self.db.add(pc)
+                        self.db.commit()
+                        self.db.refresh(pc)
+                        output_pc_ids.append(pc.id)
+                    except Exception as e:
+                        logger.warning(f"Failed to download implant NPY: {e}")
+
+                # Download implant STL
+                implant_stl_url = s3_results.get("implant_only_stl")
+                if implant_stl_url:
+                    local_stl_path = output_dir / f"{job.id}_implant_ens{i}.stl"
+                    try:
+                        # Use AWS credentials from environment for authenticated S3 download
+                        download_from_s3_url(
+                            implant_stl_url, 
+                            local_stl_path,
+                            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+                            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                        )
+
+                        # Register as PointCloud record (STL mesh)
+                        stl_pc = PointCloud(
+                            name=f"{job.name} - Implant #{i+1} (STL, Cloud)",
+                            description=f"Generated implant mesh (cloud GPU)",
+                            file_path=str(local_stl_path),
+                            file_format="stl",
+                            file_size_bytes=get_file_size(local_stl_path),
+                            num_points=0,  # Mesh, not point cloud
+                            point_dims=3,
+                            scan_category="generated_implant_mesh",
+                            defect_type=input_pc.defect_type,
+                            skull_id=input_pc.skull_id,
+                            project_id=job.project_id,
+                            metadata_json=json.dumps({
+                                "generation_job_id": job.id,
+                                "ensemble_index": i,
+                                "cloud_generated": True,
+                                "s3_url": implant_stl_url,
+                            }),
+                        )
+                        self.db.add(stl_pc)
+                        self.db.commit()
+                        self.db.refresh(stl_pc)
+                        output_stl_ids.append(stl_pc.id)
+                    except Exception as e:
+                        logger.warning(f"Failed to download implant STL: {e}")
+
+            update_progress(95, "Finalizing")
+
+            # Update job with results
+            elapsed_ms = int((time.time() - t0) * 1000)
+            job.status = "completed"
+            job.progress_percent = 100
+            job.current_step = "Completed (Cloud GPU)"
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            job.output_pc_ids_json = json.dumps(output_pc_ids)
+            job.output_stl_ids_json = json.dumps(output_stl_ids)
+
+            # Store cloud metadata
+            job.metrics_json = json.dumps({
+                "cloud_generated": True,
+                "runpod_job_id": runpod_job_id,
+                "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                "model_source": metadata.get("model_source"),
+                "s3_results": s3_results,
+            })
+
+            # Auto-select first output if only one
+            if len(output_pc_ids) == 1:
+                job.selected_output_id = output_pc_ids[0]
+
+            self.db.commit()
+            self.db.refresh(job)
+
+            self._create_notification(
+                type="generation_completed",
+                title="Cloud Generation Complete",
+                message=f"Implant generation '{job.name}' completed on cloud GPU in {elapsed_ms/1000:.1f}s.",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            self.audit.log(
+                action="generation_job.complete_cloud",
+                entity_type="generation_job",
+                entity_id=job.id,
+                details={
+                    "generation_time_ms": elapsed_ms,
+                    "num_outputs": len(output_pc_ids),
+                    "runpod_job_id": runpod_job_id,
+                    "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                },
+            )
+
+            logger.info(
+                "Cloud generation job completed: %s (%d outputs, %dms)",
+                job.id, len(output_pc_ids), elapsed_ms,
+            )
+
+        except Exception as e:
+            logger.exception("Cloud generation job failed: %s", job.id)
+            elapsed_ms = int((time.time() - t0) * 1000)
+
+            job.status = "failed"
+            job.error_message = str(e)
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            self.db.commit()
+            self.db.refresh(job)
+
+            self._create_notification(
+                type="generation_failed",
+                title="Cloud Generation Failed",
+                message=f"Implant generation '{job.name}' failed: {str(e)[:100]}",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            self.audit.log(
+                action="generation_job.fail_cloud",
+                entity_type="generation_job",
+                entity_id=job.id,
+                details={"error": str(e)},
+            )
+
+        return job
+
     # ------------------------------------------------------------------
     # PCDiff Inference
     # ------------------------------------------------------------------
@@ -676,6 +986,9 @@ class GenerationService:
             from pcdiff.test_completion import Model
 
             # Model arguments
+            # IMPORTANT: Always use 'ddpm' for initialization to keep betas unmodified.
+            # The sampling_method passed to gen_samples() controls actual sampling.
+            # Using 'ddim' here corrupts the betas array and causes output explosion.
             class ModelArgs:
                 def __init__(self):
                     self.nc = 3
@@ -684,8 +997,8 @@ class GenerationService:
                     self.attention = True
                     self.dropout = 0.1
                     self.embed_dim = 64
-                    self.sampling_method = sampling_method
-                    self.sampling_steps = sampling_steps
+                    self.sampling_method = 'ddpm'  # Always use ddpm init!
+                    self.sampling_steps = 1000
 
             model_args = ModelArgs()
 

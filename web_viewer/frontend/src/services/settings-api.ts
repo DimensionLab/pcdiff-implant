@@ -3,7 +3,8 @@
  */
 import type { AppSettings, SettingsUpdate, SystemInfo } from '../types/settings';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+// Use the same base URL as the main API (goes through Vite proxy in dev)
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {

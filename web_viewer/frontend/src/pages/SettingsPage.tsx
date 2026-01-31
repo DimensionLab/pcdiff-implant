@@ -5,6 +5,7 @@
  * - Inference device (CUDA, MPS, CPU)
  * - Default generation parameters
  * - Model paths
+ * - Cloud generation (Runpod serverless GPU)
  */
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useSettings, useSystemInfo, useUpdateSettings } from '../hooks/useSettings';
@@ -18,6 +19,7 @@ export function SettingsPage() {
   // Local form state
   const [localSettings, setLocalSettings] = useState<SettingsUpdate>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   // Sync local state when settings load
   useEffect(() => {
@@ -29,6 +31,12 @@ export function SettingsPage() {
         default_ensemble_count: settings.default_ensemble_count,
         pcdiff_model_path: settings.pcdiff_model_path,
         voxelization_model_path: settings.voxelization_model_path,
+        // Cloud settings
+        cloud_generation_enabled: settings.cloud_generation_enabled,
+        runpod_endpoint_id: settings.runpod_endpoint_id,
+        aws_s3_bucket: settings.aws_s3_bucket,
+        aws_s3_region: settings.aws_s3_region,
+        // Don't load API key - it's not returned from server
       });
       setHasChanges(false);
     }
@@ -43,6 +51,8 @@ export function SettingsPage() {
     updateSettings.mutate(localSettings, {
       onSuccess: () => {
         setHasChanges(false);
+        // Clear API key from local state after save
+        setLocalSettings((prev) => ({ ...prev, runpod_api_key: undefined }));
       },
     });
   };
@@ -56,6 +66,11 @@ export function SettingsPage() {
         default_ensemble_count: settings.default_ensemble_count,
         pcdiff_model_path: settings.pcdiff_model_path,
         voxelization_model_path: settings.voxelization_model_path,
+        // Cloud settings
+        cloud_generation_enabled: settings.cloud_generation_enabled,
+        runpod_endpoint_id: settings.runpod_endpoint_id,
+        aws_s3_bucket: settings.aws_s3_bucket,
+        aws_s3_region: settings.aws_s3_region,
       });
       setHasChanges(false);
     }
@@ -243,6 +258,106 @@ export function SettingsPage() {
               <p style={styles.hint}>
                 Generate multiple implants to compare and select the best result.
               </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Cloud Generation Settings */}
+        <section style={styles.section}>
+          <h2 style={styles.sectionTitle}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ☁️ Cloud Generation (Runpod GPU)
+              {systemInfo?.cloud_configured && (
+                <span style={styles.configuredBadge}>Configured</span>
+              )}
+            </span>
+          </h2>
+          <div style={styles.card}>
+            <div style={styles.formGroup}>
+              <label style={styles.toggleLabel}>
+                <input
+                  type="checkbox"
+                  checked={localSettings.cloud_generation_enabled ?? false}
+                  onChange={(e) => handleChange('cloud_generation_enabled', e.target.checked)}
+                  style={styles.checkbox}
+                />
+                <span>Enable Cloud Generation</span>
+              </label>
+              <p style={styles.hint}>
+                Use Runpod serverless GPU for faster inference (~10x faster than local CPU).
+                Requires a Runpod account and deployed endpoint.
+              </p>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Runpod Endpoint ID</label>
+              <input
+                type="text"
+                style={styles.input}
+                value={localSettings.runpod_endpoint_id ?? ''}
+                onChange={(e) => handleChange('runpod_endpoint_id', e.target.value)}
+                placeholder="e.g., 6on3tc0nzlyt42"
+              />
+              <p style={styles.hint}>
+                Your Runpod serverless endpoint ID. Find it in the Runpod console.
+              </p>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Runpod API Key
+                {settings?.runpod_api_key_set && !localSettings.runpod_api_key && (
+                  <span style={styles.keySetBadge}>✓ Set</span>
+                )}
+              </label>
+              <div style={styles.apiKeyRow}>
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  style={{ ...styles.input, flex: 1 }}
+                  value={localSettings.runpod_api_key ?? ''}
+                  onChange={(e) => handleChange('runpod_api_key', e.target.value)}
+                  placeholder={settings?.runpod_api_key_set ? '••••••••••••••••' : 'Enter API key'}
+                />
+                <button
+                  type="button"
+                  style={styles.showButton}
+                  onClick={() => setShowApiKey(!showApiKey)}
+                >
+                  {showApiKey ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              <p style={styles.hint}>
+                Your Runpod API key. Can also be set via RUNPOD_API_KEY environment variable.
+              </p>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>AWS S3 Bucket (Optional)</label>
+              <input
+                type="text"
+                style={styles.input}
+                value={localSettings.aws_s3_bucket ?? ''}
+                onChange={(e) => handleChange('aws_s3_bucket', e.target.value)}
+                placeholder="my-bucket-name"
+              />
+              <p style={styles.hint}>
+                S3 bucket for storing cloud generation results. Leave empty to use Runpod's default.
+              </p>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>AWS S3 Region</label>
+              <select
+                style={styles.select}
+                value={localSettings.aws_s3_region ?? 'us-east-1'}
+                onChange={(e) => handleChange('aws_s3_region', e.target.value)}
+              >
+                <option value="us-east-1">US East (N. Virginia)</option>
+                <option value="us-west-2">US West (Oregon)</option>
+                <option value="eu-west-1">EU (Ireland)</option>
+                <option value="eu-central-1">EU (Frankfurt)</option>
+                <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+              </select>
             </div>
           </div>
         </section>
@@ -462,5 +577,48 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '6px',
     color: '#ef4444',
     fontSize: '13px',
+  },
+  toggleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '14px',
+    color: '#fff',
+    cursor: 'pointer',
+  },
+  checkbox: {
+    width: '18px',
+    height: '18px',
+    accentColor: '#2563eb',
+  },
+  configuredBadge: {
+    padding: '2px 8px',
+    background: 'rgba(16, 185, 129, 0.2)',
+    border: '1px solid rgba(16, 185, 129, 0.4)',
+    borderRadius: '4px',
+    fontSize: '11px',
+    color: '#10b981',
+    fontWeight: 500,
+  },
+  keySetBadge: {
+    marginLeft: '8px',
+    padding: '2px 6px',
+    background: 'rgba(16, 185, 129, 0.2)',
+    borderRadius: '4px',
+    fontSize: '11px',
+    color: '#10b981',
+  },
+  apiKeyRow: {
+    display: 'flex',
+    gap: '8px',
+  },
+  showButton: {
+    padding: '10px 16px',
+    background: '#333',
+    color: '#ccc',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
   },
 };

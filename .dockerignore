@@ -1,0 +1,51 @@
+# Ignore large dataset files - not needed in Docker image
+datasets/
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+
+# Ignore training outputs
+output_*/
+logs/
+wandb/
+mlruns/
+
+# Ignore Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# Ignore IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore web viewer (not needed for serverless worker)
+web_viewer/
+
+# Ignore test files
+tests/
+*_test.py
+test_*.py
+
+# Ignore documentation
+*.md
+docs/
+
+# Keep only what's needed:
+# - pcdiff/ (model code)
+# - voxelization/ (model code)
+# - runpod_serverless/ (handler)
+# - pcdiff/checkpoints/ (model weights)
+# - voxelization/checkpoints/ (model weights)

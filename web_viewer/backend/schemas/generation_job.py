@@ -16,6 +16,7 @@ class GenerationJobCreate(BaseModel):
     num_ensemble: int = 5  # Default ensemble count
     name: str | None = None
     description: str | None = None
+    use_cloud: bool | None = None  # None = use default from settings, True = force cloud, False = force local
 
 
 class GenerationJobUpdate(BaseModel):

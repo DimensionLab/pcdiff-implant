@@ -1,8 +1,19 @@
 """
 Service for managing application settings.
+
+Settings can be configured via:
+1. Database (through the UI settings page)
+2. Environment variables (as fallback, especially for secrets)
+
+Environment variable mapping:
+- RUNPOD_API_KEY: Runpod API key for cloud generation
+- RUNPOD_ENDPOINT_ID: Runpod endpoint ID
+- AWS_S3_BUCKET: S3 bucket for cloud results
+- AWS_S3_REGION: S3 region
 """
 import json
 import logging
+import os
 import platform
 import sys
 
@@ -12,6 +23,14 @@ from sqlalchemy.orm import Session
 from web_viewer.backend.models.settings import Setting, DEFAULT_SETTINGS
 
 logger = logging.getLogger(__name__)
+
+# Environment variable mapping for settings
+ENV_VAR_MAPPING = {
+    "runpod_api_key": "RUNPOD_API_KEY",
+    "runpod_endpoint_id": "RUNPOD_ENDPOINT_ID",
+    "aws_s3_bucket": "AWS_S3_BUCKET",
+    "aws_s3_region": "AWS_S3_REGION",
+}
 
 
 class SettingsService:
@@ -39,10 +58,27 @@ class SettingsService:
         return self.db.query(Setting).filter(Setting.key == key).first()
 
     def get_value(self, key: str, default: str | None = None) -> str | None:
-        """Get just the value of a setting."""
+        """
+        Get just the value of a setting.
+        
+        Priority:
+        1. Database setting (if set and non-empty)
+        2. Environment variable (if mapped and set)
+        3. Default value
+        """
+        # First check database
         setting = self.get(key)
-        if setting:
+        if setting and setting.value:
             return setting.value
+        
+        # Check environment variable fallback
+        env_var = ENV_VAR_MAPPING.get(key)
+        if env_var:
+            env_value = os.environ.get(env_var)
+            if env_value:
+                logger.debug(f"Using environment variable {env_var} for setting {key}")
+                return env_value
+        
         return default
 
     def get_all(self) -> list[Setting]:

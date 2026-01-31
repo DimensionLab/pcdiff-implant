@@ -42,6 +42,12 @@ class AllSettingsRead(BaseModel):
     default_ensemble_count: int = 5
     pcdiff_model_path: str = "pcdiff/checkpoints/pcdiff_model_best.pth"
     voxelization_model_path: str = "voxelization/checkpoints/model_best.pt"
+    # Cloud generation settings
+    cloud_generation_enabled: bool = False
+    runpod_endpoint_id: str = ""
+    runpod_api_key_set: bool = False  # Indicates if API key is configured (don't expose actual key)
+    aws_s3_bucket: str = ""
+    aws_s3_region: str = "us-east-1"
 
 
 class AllSettingsUpdate(BaseModel):
@@ -53,6 +59,12 @@ class AllSettingsUpdate(BaseModel):
     default_ensemble_count: int | None = Field(None, ge=1, le=10)
     pcdiff_model_path: str | None = None
     voxelization_model_path: str | None = None
+    # Cloud generation settings
+    cloud_generation_enabled: bool | None = None
+    runpod_endpoint_id: str | None = None
+    runpod_api_key: str | None = None
+    aws_s3_bucket: str | None = None
+    aws_s3_region: str | None = None
 
 
 class SystemInfoRead(BaseModel):
@@ -65,3 +77,6 @@ class SystemInfoRead(BaseModel):
     backend_type: str  # 'cuda' or 'cpu'
     python_version: str
     platform: str
+    # Cloud status
+    cloud_configured: bool = False
+    runpod_endpoint_id: str | None = None

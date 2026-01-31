@@ -15,8 +15,9 @@ open3d>=0.18.0
 libigl>=2.4.0
 
 # Scientific computing
+# Pin numpy and scipy to compatible versions to avoid ufunc errors
 numpy>=1.24.0,<2.0.0
-scipy>=1.11.0
+scipy>=1.11.0,<1.15.0
 
 # Medical imaging
 pynrrd>=1.0.0
@@ -25,6 +26,7 @@ PyMCubes>=0.1.4
 # Utilities
 tqdm>=4.65.0
 pyyaml>=6.0
+ipdb>=0.13.0
 
 # Voxelization-specific
 plyfile>=1.0.0

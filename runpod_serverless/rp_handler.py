@@ -9,11 +9,19 @@ This handler processes skull implant generation requests:
 4. Uploads results to AWS S3
 5. Returns URLs to the generated files
 
+Model Loading Priority:
+1. Network Volume (/runpod-volume/models/) - Best for frequent model updates
+2. Embedded in Docker image (/app/models/) - Default fallback
+
 Environment Variables Required:
 - AWS_ACCESS_KEY_ID: AWS access key for S3 uploads
 - AWS_SECRET_ACCESS_KEY: AWS secret key for S3 uploads
 - AWS_S3_BUCKET: S3 bucket name for results
 - AWS_S3_REGION: AWS region (default: us-east-1)
+
+Optional Environment Variables:
+- PCDIFF_MODEL_PATH: Override path to PCDiff model
+- VOXELIZATION_MODEL_PATH: Override path to voxelization model
 """
 
 import os
@@ -38,9 +46,47 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "pcdiff"))
 sys.path.insert(0, str(PROJECT_ROOT / "voxelization"))
 
-# Model paths (embedded in Docker image)
-PCDIFF_MODEL_PATH = "/app/models/pcdiff_best.pth"
-VOXELIZATION_MODEL_PATH = "/app/models/voxelization_best.pt"
+# Network volume path (Runpod mounts network volumes here)
+NETWORK_VOLUME_PATH = Path("/runpod-volume")
+
+# Model paths with priority: Network Volume > Environment Variable > Embedded
+def get_model_paths():
+    """
+    Determine model paths with priority:
+    1. Network Volume (/runpod-volume/models/) - for easy updates
+    2. Environment variable override
+    3. Embedded in Docker image (/app/models/)
+    """
+    # Network volume paths
+    nv_pcdiff = NETWORK_VOLUME_PATH / "models" / "pcdiff_best.pth"
+    nv_vox = NETWORK_VOLUME_PATH / "models" / "voxelization_best.pt"
+    
+    # Embedded paths (fallback)
+    embedded_pcdiff = Path("/app/models/pcdiff_best.pth")
+    embedded_vox = Path("/app/models/voxelization_best.pt")
+    
+    # Determine PCDiff model path
+    if os.environ.get('PCDIFF_MODEL_PATH'):
+        pcdiff_path = Path(os.environ['PCDIFF_MODEL_PATH'])
+    elif nv_pcdiff.exists():
+        pcdiff_path = nv_pcdiff
+        print(f"✓ Using PCDiff model from network volume: {nv_pcdiff}")
+    else:
+        pcdiff_path = embedded_pcdiff
+        print(f"✓ Using embedded PCDiff model: {embedded_pcdiff}")
+    
+    # Determine Voxelization model path
+    if os.environ.get('VOXELIZATION_MODEL_PATH'):
+        vox_path = Path(os.environ['VOXELIZATION_MODEL_PATH'])
+    elif nv_vox.exists():
+        vox_path = nv_vox
+        print(f"✓ Using Voxelization model from network volume: {nv_vox}")
+    else:
+        vox_path = embedded_vox
+        print(f"✓ Using embedded Voxelization model: {embedded_vox}")
+    
+    return str(pcdiff_path), str(vox_path)
+
 VOXELIZATION_CONFIG_PATH = "/app/voxelization/configs/gen_skullbreak.yaml"
 
 # Global model instances (loaded once at startup)
@@ -48,6 +94,7 @@ pcdiff_model = None
 voxelization_model = None
 voxelization_generator = None
 device = None
+current_model_paths = None  # Track which models are loaded
 
 
 def get_s3_client():
@@ -95,33 +142,46 @@ def download_from_s3(s3_url, local_path):
 
 def load_models():
     """Load PCDiff and Voxelization models into GPU memory."""
-    global pcdiff_model, voxelization_model, voxelization_generator, device
+    global pcdiff_model, voxelization_model, voxelization_generator, device, current_model_paths
     
+    print("=" * 60)
     print("Loading models...")
+    print("=" * 60)
+    
+    # Get model paths (with network volume priority)
+    pcdiff_path, vox_path = get_model_paths()
+    current_model_paths = (pcdiff_path, vox_path)
     
     # Setup device
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+        print(f"✓ Using GPU: {torch.cuda.get_device_name(0)}")
+        print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     else:
         device = torch.device('cpu')
-        print("Warning: CUDA not available, using CPU")
+        print("⚠ Warning: CUDA not available, using CPU (this will be slow)")
     
     # Load PCDiff model
-    print(f"Loading PCDiff model from: {PCDIFF_MODEL_PATH}")
-    pcdiff_model = load_pcdiff_model(PCDIFF_MODEL_PATH, device)
-    print("✓ PCDiff model loaded")
+    print(f"\nLoading PCDiff model from: {pcdiff_path}")
+    if not Path(pcdiff_path).exists():
+        raise FileNotFoundError(f"PCDiff model not found: {pcdiff_path}")
+    pcdiff_model = load_pcdiff_model(pcdiff_path, device)
+    print("✓ PCDiff model loaded successfully")
     
     # Load Voxelization model
-    print(f"Loading Voxelization model from: {VOXELIZATION_MODEL_PATH}")
+    print(f"\nLoading Voxelization model from: {vox_path}")
+    if not Path(vox_path).exists():
+        raise FileNotFoundError(f"Voxelization model not found: {vox_path}")
     voxelization_model, voxelization_generator = load_voxelization_model(
-        VOXELIZATION_MODEL_PATH, 
+        vox_path, 
         VOXELIZATION_CONFIG_PATH,
         device
     )
-    print("✓ Voxelization model loaded")
+    print("✓ Voxelization model loaded successfully")
     
+    print("\n" + "=" * 60)
     print("All models loaded successfully!")
+    print("=" * 60)
 
 
 def load_pcdiff_model(model_path, device):
@@ -381,11 +441,12 @@ def handler(event):
         "metadata": {
             "processing_time_seconds": 123.45,
             "num_implant_points": 3072,
-            "num_ensemble": 1
+            "num_ensemble": 1,
+            "model_source": "network_volume" | "embedded"
         }
     }
     """
-    global pcdiff_model, voxelization_model
+    global pcdiff_model, voxelization_model, current_model_paths
     
     print(f"Handler started with event: {json.dumps(event, default=str)[:500]}...")
     
@@ -457,12 +518,21 @@ def handler(event):
                 implant_pc, defective_points, shift, scale, implant_normalized
             )
             
-            # Step 4: Upload to S3
+            # Step 4: Upload to S3 (only the files needed by frontend)
             print("Uploading to S3...")
             s3_results = {}
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
+            # Only upload the files that the frontend expects:
+            # - implant_npy: Generated implant point cloud
+            # - implant_only_stl: Generated implant mesh
+            required_outputs = ['implant_npy', 'implant_only_stl']
+            
             for key, local_path in local_results.items():
+                if key not in required_outputs:
+                    print(f"  Skipping {key} (not required by frontend)")
+                    continue
+                    
                 s3_key = f"inference_results/{output_prefix}/{timestamp}/{local_path.name}"
                 try:
                     url = upload_to_s3(local_path, s3_key)
@@ -474,6 +544,9 @@ def handler(event):
             # Calculate processing time
             processing_time = (datetime.now() - start_time).total_seconds()
             
+            # Determine model source
+            model_source = "network_volume" if current_model_paths and "runpod-volume" in current_model_paths[0] else "embedded"
+            
             return {
                 "status": "success",
                 "results": s3_results,
@@ -483,7 +556,10 @@ def handler(event):
                     "num_ensemble": num_ensemble,
                     "sampling_steps": sampling_steps,
                     "mesh_vertices": len(vertices),
-                    "mesh_faces": len(faces)
+                    "mesh_faces": len(faces),
+                    "model_source": model_source,
+                    "pcdiff_model": current_model_paths[0] if current_model_paths else "unknown",
+                    "voxelization_model": current_model_paths[1] if current_model_paths else "unknown"
                 }
             }
     
@@ -497,14 +573,34 @@ def handler(event):
 
 
 # Load models at startup (cold start optimization)
-print("Initializing Runpod Serverless Worker...")
+print("=" * 60)
+print("  PCDiff + Voxelization Serverless Worker")
+print("=" * 60)
+
+# CUDA diagnostics
+print("=" * 60)
+print("CUDA Environment Diagnostics:")
+print(f"  CUDA_HOME: {os.environ.get('CUDA_HOME', 'NOT SET')}")
+print(f"  CUDA_PATH: {os.environ.get('CUDA_PATH', 'NOT SET')}")
+print(f"  CUDA_VERSION: {os.environ.get('CUDA_VERSION', 'NOT SET')}")
+print(f"  torch.cuda.is_available(): {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"  torch.version.cuda: {torch.version.cuda}")
+    print(f"  torch.cuda.device_count(): {torch.cuda.device_count()}")
+    print(f"  torch.cuda.get_device_name(0): {torch.cuda.get_device_name(0)}")
+print("=" * 60)
+
+print(f"Network volume path: {NETWORK_VOLUME_PATH}")
+print(f"Network volume exists: {NETWORK_VOLUME_PATH.exists()}")
+if NETWORK_VOLUME_PATH.exists():
+    print(f"Network volume contents: {list(NETWORK_VOLUME_PATH.iterdir()) if NETWORK_VOLUME_PATH.exists() else 'N/A'}")
+
 try:
     load_models()
 except Exception as e:
-    print(f"Warning: Could not pre-load models: {e}")
+    print(f"⚠ Warning: Could not pre-load models: {e}")
     print("Models will be loaded on first request")
 
 # Start the serverless worker
 if __name__ == '__main__':
     runpod.serverless.start({'handler': handler})
-

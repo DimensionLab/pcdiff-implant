@@ -36,4 +36,5 @@ export interface GenerationJobCreate {
   num_ensemble?: number;
   name?: string;
   description?: string;
+  use_cloud?: boolean;  // null = use default from settings, true = force cloud, false = force local
 }

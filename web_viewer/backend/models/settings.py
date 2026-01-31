@@ -54,4 +54,25 @@ DEFAULT_SETTINGS = {
         "value": "voxelization/checkpoints/model_best.pt",
         "description": "Path to voxelization model checkpoint (relative to project root)"
     },
+    # Cloud generation settings
+    "cloud_generation_enabled": {
+        "value": "false",
+        "description": "Enable cloud-based generation using Runpod serverless GPU"
+    },
+    "runpod_endpoint_id": {
+        "value": "",
+        "description": "Runpod serverless endpoint ID (e.g., '6on3tc0nzlyt42')"
+    },
+    "runpod_api_key": {
+        "value": "",
+        "description": "Runpod API key for authentication (stored securely)"
+    },
+    "aws_s3_bucket": {
+        "value": "",
+        "description": "AWS S3 bucket name for storing cloud generation results"
+    },
+    "aws_s3_region": {
+        "value": "us-east-1",
+        "description": "AWS S3 region for the results bucket"
+    },
 }

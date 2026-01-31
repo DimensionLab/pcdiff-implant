@@ -21,6 +21,7 @@ import {
   useDeleteUnselectedOutputs,
 } from '../hooks/useGeneration';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
+import { useSettings } from '../hooks/useSettings';
 import { pointCloudApi } from '../services/point-cloud-api';
 import type { GenerationJob } from '../types/generation';
 
@@ -39,10 +40,14 @@ export function ImplantGeneratorPage() {
   const [samplingSteps, setSamplingSteps] = useState(50);
   const [numEnsemble, setNumEnsemble] = useState(5);
   const [jobName, setJobName] = useState('');
+  const [useCloud, setUseCloud] = useState<boolean | null>(null); // null = use default from settings
 
   // Project creation
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+
+  // Settings for cloud generation
+  const { data: appSettings } = useSettings();
 
   // Queries
   const { data: projects = [] } = useProjects();
@@ -96,6 +101,7 @@ export function ImplantGeneratorPage() {
         sampling_steps: samplingSteps,
         num_ensemble: numEnsemble,
         name: jobName.trim() || undefined,
+        use_cloud: useCloud ?? undefined, // null means use default from settings
       },
       {
         onSuccess: (job) => {
@@ -111,9 +117,14 @@ export function ImplantGeneratorPage() {
     samplingSteps,
     numEnsemble,
     jobName,
+    useCloud,
     createJob,
     setSearchParams,
   ]);
+
+  // Determine if cloud will be used (for display purposes)
+  const willUseCloud = useCloud ?? appSettings?.cloud_generation_enabled ?? false;
+  const cloudConfigured = appSettings?.runpod_api_key_set && appSettings?.runpod_endpoint_id;
 
   const handleCancelJob = useCallback(() => {
     if (!selectedJobId) return;
@@ -139,14 +150,16 @@ export function ImplantGeneratorPage() {
 
   // Estimate generation time
   const estimatedTime = useMemo(() => {
+    // Cloud GPU is ~10x faster than local CPU
+    const cloudMultiplier = willUseCloud ? 0.1 : 1;
     // Rough estimates based on method and steps
-    const baseTime = samplingMethod === 'ddim' ? 30 : 120; // seconds
+    const baseTime = (samplingMethod === 'ddim' ? 30 : 120) * cloudMultiplier; // seconds
     const stepFactor = samplingSteps / (samplingMethod === 'ddim' ? 50 : 1000);
     const ensembleFactor = numEnsemble;
     const total = baseTime * stepFactor * ensembleFactor;
     if (total < 60) return `~${Math.round(total)}s`;
     return `~${Math.round(total / 60)}min`;
-  }, [samplingMethod, samplingSteps, numEnsemble]);
+  }, [samplingMethod, samplingSteps, numEnsemble, willUseCloud]);
 
   // Render helpers
   const renderJobStatus = (job: GenerationJob) => {
@@ -374,17 +387,43 @@ export function ImplantGeneratorPage() {
                   </p>
                 </div>
 
+                {/* Cloud Generation Toggle */}
+                <div style={styles.cloudToggle}>
+                  <label style={styles.cloudToggleLabel}>
+                    <input
+                      type="checkbox"
+                      checked={willUseCloud}
+                      onChange={(e) => setUseCloud(e.target.checked)}
+                      disabled={!cloudConfigured}
+                      style={styles.checkbox}
+                    />
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      ☁️ Use Cloud GPU
+                      {willUseCloud && <span style={styles.cloudBadge}>~10x faster</span>}
+                    </span>
+                  </label>
+                  {!cloudConfigured && (
+                    <p style={styles.cloudHint}>
+                      Configure Runpod in Settings to enable cloud generation.
+                    </p>
+                  )}
+                </div>
+
                 <div style={styles.estimate}>
                   <span>Estimated time: </span>
                   <strong>{estimatedTime}</strong>
+                  {willUseCloud && <span style={styles.cloudIndicator}> (Cloud GPU)</span>}
                 </div>
 
                 <button
                   onClick={handleStartGeneration}
                   disabled={createJob.isPending}
-                  style={styles.generateButton}
+                  style={{
+                    ...styles.generateButton,
+                    background: willUseCloud ? '#8b5cf6' : '#2563eb',
+                  }}
                 >
-                  {createJob.isPending ? 'Starting...' : 'Generate Implant'}
+                  {createJob.isPending ? 'Starting...' : willUseCloud ? '☁️ Generate on Cloud' : 'Generate Implant'}
                 </button>
               </div>
             </div>
@@ -755,6 +794,42 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '6px',
     fontSize: '13px',
     color: '#ccc',
+  },
+  cloudToggle: {
+    padding: '12px',
+    background: 'rgba(139, 92, 246, 0.1)',
+    borderRadius: '6px',
+    border: '1px solid rgba(139, 92, 246, 0.2)',
+  },
+  cloudToggleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
+    color: '#ccc',
+    cursor: 'pointer',
+  },
+  checkbox: {
+    width: '16px',
+    height: '16px',
+    accentColor: '#8b5cf6',
+  },
+  cloudBadge: {
+    padding: '2px 6px',
+    background: 'rgba(139, 92, 246, 0.3)',
+    borderRadius: '4px',
+    fontSize: '10px',
+    color: '#a78bfa',
+    fontWeight: 600,
+  },
+  cloudHint: {
+    fontSize: '10px',
+    color: '#666',
+    margin: '6px 0 0',
+  },
+  cloudIndicator: {
+    color: '#a78bfa',
+    fontSize: '12px',
   },
   generateButton: {
     padding: '12px 24px',
