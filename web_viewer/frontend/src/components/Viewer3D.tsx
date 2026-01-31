@@ -12,6 +12,7 @@ interface PointCloudProps {
 
 const PointCloud = ({ geometry, color, visible, size = 0.005 }: PointCloudProps) => {
   const pointsRef = useRef<THREE.Points>(null);
+  const matRef = useRef<THREE.PointsMaterial>(null);
 
   useEffect(() => {
     if (pointsRef.current && geometry) {
@@ -19,12 +20,21 @@ const PointCloud = ({ geometry, color, visible, size = 0.005 }: PointCloudProps)
     }
   }, [geometry]);
 
+  // Update material size when size prop changes
+  useEffect(() => {
+    if (matRef.current) {
+      matRef.current.size = size;
+      matRef.current.needsUpdate = true;
+    }
+  }, [size]);
+
   if (!geometry) return null;
 
   return (
     <points ref={pointsRef} visible={visible}>
       <bufferGeometry attach="geometry" {...geometry} />
       <pointsMaterial
+        ref={matRef}
         attach="material"
         color={color}
         size={size}

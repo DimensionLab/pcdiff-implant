@@ -82,9 +82,9 @@ export function VtkViewport({ scanId, onReady, onError }: VtkViewportProps) {
 
         // Create vtkImageData from raw binary
         const imageData = vtkImageData.newInstance();
-        imageData.setDimensions(dims[0], dims[1], dims[2]);
-        imageData.setSpacing(spacing[0], spacing[1], spacing[2]);
-        imageData.setOrigin(origin[0], origin[1], origin[2]);
+        imageData.setDimensions(dims as [number, number, number]);
+        imageData.setSpacing(spacing as [number, number, number]);
+        imageData.setOrigin(origin as [number, number, number]);
 
         // Create scalar data array
         const scalars = vtkDataArray.newInstance({

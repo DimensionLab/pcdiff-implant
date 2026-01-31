@@ -31,10 +31,13 @@ from web_viewer.backend.routers import (
     audit,
     color_profiles,
     fit_metrics,
+    generation_jobs,
     legacy,
+    notifications,
     point_clouds,
     projects,
     scans,
+    settings as settings_router,
     viewer,
 )
 
@@ -89,6 +92,9 @@ def create_app() -> FastAPI:
     app.include_router(point_clouds.router)
     app.include_router(color_profiles.router)
     app.include_router(fit_metrics.router)
+    app.include_router(generation_jobs.router)
+    app.include_router(notifications.router)
+    app.include_router(settings_router.router)
     app.include_router(viewer.router)
     app.include_router(audit.router)
 
@@ -99,12 +105,14 @@ def create_app() -> FastAPI:
 
 
 def _seed_defaults_if_needed():
-    """Seed default color profiles if the table is empty."""
+    """Seed default color profiles and settings if the tables are empty."""
     from web_viewer.backend.database import SessionLocal
     from web_viewer.backend.models.color_profile import ColorProfile
+    from web_viewer.backend.services.settings_service import SettingsService
 
     db = SessionLocal()
     try:
+        # Seed color profiles
         count = db.query(ColorProfile).count()
         if count == 0:
             logger.info("Seeding default color profiles...")
@@ -112,6 +120,12 @@ def _seed_defaults_if_needed():
 
             seed_color_profiles(db)
             logger.info("Default color profiles seeded")
+
+        # Seed default settings
+        logger.info("Initializing default settings...")
+        settings_service = SettingsService(db)
+        settings_service.init_defaults()
+        logger.info("Default settings initialized")
     finally:
         db.close()
 

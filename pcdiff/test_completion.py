@@ -195,10 +195,12 @@ class GaussianDiffusion:
         clip_denoised=True,
         keep_running=False,
         sampling_steps=None,
+        progress_callback=None,
     ):
         """
         Generate samples
         keep_running: True if we run 2 x num_timesteps, False if we just run num_timesteps
+        progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
         """
 
         assert isinstance(shape, (tuple, list))
@@ -226,10 +228,20 @@ class GaussianDiffusion:
         timestep_range = sorted(timestep_range)
         total_steps = len(timestep_range)
 
-        for t in tqdm(reversed(timestep_range), total=total_steps):
+        import time
+        step_times = []
+        for i, t in enumerate(tqdm(reversed(timestep_range), total=total_steps)):
+            step_start = time.time()
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                   clip_denoised=clip_denoised, return_pred_xstart=False)
+            step_time_ms = int((time.time() - step_start) * 1000)
+            step_times.append(step_time_ms)
+
+            # Report progress every 10 steps or on last step
+            if progress_callback and (i % 10 == 0 or i == total_steps - 1):
+                avg_step_time = sum(step_times[-10:]) / min(len(step_times), 10)
+                progress_callback(i + 1, total_steps, int(avg_step_time))
 
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
@@ -285,8 +297,11 @@ class GaussianDiffusion:
         return sample
 
     def ddim_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
-                         sampling_steps=1000):
-
+                         sampling_steps=1000, progress_callback=None):
+        """
+        DDIM sampling loop with optional progress callback.
+        progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
+        """
         assert isinstance(shape, (tuple, list))
         noise = noise_fn(size=shape, dtype=torch.float, device=device)
 
@@ -294,11 +309,22 @@ class GaussianDiffusion:
 
         ts = np.linspace(0, 999, sampling_steps).round().astype('int')
         ts = np.unique(ts)[::-1]
+        total_steps = len(ts)
 
-        for t in tqdm(ts):
+        import time
+        step_times = []
+        for i, t in enumerate(tqdm(ts)):
+            step_start = time.time()
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.ddim_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                      clip_denoised=clip_denoised, return_pred_xstart=True)
+            step_time_ms = int((time.time() - step_start) * 1000)
+            step_times.append(step_time_ms)
+
+            # Report progress every 5 steps or on last step (DDIM has fewer steps)
+            if progress_callback and (i % 5 == 0 or i == total_steps - 1):
+                avg_step_time = sum(step_times[-5:]) / min(len(step_times), 5)
+                progress_callback(i + 1, total_steps, int(avg_step_time))
 
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
@@ -483,7 +509,13 @@ class Model(nn.Module):
         return losses
 
     def gen_samples(self, partial_x, shape, device, noise_fn=torch.randn, clip_denoised=True, keep_running=False,
-                    sampling_method='ddpm', sampling_steps=1000):
+                    sampling_method='ddpm', sampling_steps=1000, progress_callback=None):
+        """
+        Generate samples using DDPM or DDIM sampling.
+
+        Args:
+            progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
+        """
         if sampling_method == 'ddpm':
             return self.diffusion.p_sample_loop(
                 partial_x,
@@ -494,11 +526,13 @@ class Model(nn.Module):
                 clip_denoised=clip_denoised,
                 keep_running=keep_running,
                 sampling_steps=sampling_steps,
+                progress_callback=progress_callback,
             )
         if sampling_method == 'ddim':
             return self.diffusion.ddim_sample_loop(partial_x, self._denoise, shape=shape, device=device,
                                                    noise_fn=noise_fn, clip_denoised=clip_denoised,
-                                                   sampling_steps=sampling_steps)
+                                                   sampling_steps=sampling_steps,
+                                                   progress_callback=progress_callback)
         else:
             raise NotImplementedError("Not implemented. Use 'ddpm' or 'ddim'.")
 

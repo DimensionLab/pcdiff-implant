@@ -151,7 +151,27 @@ function PointCloudMesh({
   pointSize: number;
 }) {
   const geomRef = useRef<THREE.BufferGeometry>(null);
+  const matRef = useRef<THREE.PointsMaterial>(null);
   const numPoints = positions.length / 3;
+
+  // Update material size when pointSize changes
+  useEffect(() => {
+    if (matRef.current) {
+      matRef.current.size = pointSize;
+      matRef.current.needsUpdate = true;
+    }
+  }, [pointSize]);
+
+  // Update vertex colors when colors change
+  useEffect(() => {
+    if (geomRef.current && colors) {
+      const colorAttr = geomRef.current.getAttribute('color');
+      if (colorAttr) {
+        (colorAttr as THREE.BufferAttribute).array = colors;
+        (colorAttr as THREE.BufferAttribute).needsUpdate = true;
+      }
+    }
+  }, [colors]);
 
   return (
     <points>
@@ -172,6 +192,7 @@ function PointCloudMesh({
         )}
       </bufferGeometry>
       <pointsMaterial
+        ref={matRef}
         size={pointSize}
         sizeAttenuation
         vertexColors={!!colors}

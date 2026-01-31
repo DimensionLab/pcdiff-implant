@@ -32,12 +32,13 @@ class Generator3D(object):
         self.dpsr = dpsr
         self.psr_tanh = psr_tanh
         
-    def generate_mesh(self, data, return_stats=False):
+    def generate_mesh(self, data, return_stats=False, progress_callback=None):
         ''' Generates the output mesh.
 
         Args:
             data (tensor): data tensor
             return_stats (bool): whether stats should be returned
+            progress_callback: Optional callable(step_name, step_num, total_steps) for progress reporting
         '''
         self.model.eval()
         device = self.device
@@ -45,11 +46,22 @@ class Generator3D(object):
 
         p = data.to(device)
 
+        if progress_callback:
+            progress_callback("Encoding point cloud", 1, 3)
+
         t0 = time.time()
         points, normals = self.model(p)
         t1 = time.time()
+
+        if progress_callback:
+            progress_callback("Running DPSR", 2, 3)
+
         psr_grid = self.dpsr(points, normals)
         t2 = time.time()
+
+        if progress_callback:
+            progress_callback("Extracting mesh (marching cubes)", 3, 3)
+
         v, f, _ = mc_from_psr(psr_grid, zero_level=self.threshold)
         stats_dict['pcl'] = t1 - t0
         stats_dict['dpsr'] = t2 - t1

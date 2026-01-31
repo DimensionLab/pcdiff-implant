@@ -192,6 +192,7 @@ function PointCloudLayer({
   pointSize: number;
 }) {
   const geomRef = useRef<THREE.BufferGeometry>(null);
+  const matRef = useRef<THREE.PointsMaterial>(null);
   const numPoints = positions.length / 3;
 
   // Apply shared centering offset to positions
@@ -205,6 +206,25 @@ function PointCloudLayer({
     }
     return centered;
   }, [positions, offset, numPoints]);
+
+  // Update material size when pointSize changes
+  useEffect(() => {
+    if (matRef.current) {
+      matRef.current.size = pointSize;
+      matRef.current.needsUpdate = true;
+    }
+  }, [pointSize]);
+
+  // Update vertex colors when heatmapColors change
+  useEffect(() => {
+    if (geomRef.current && heatmapColors) {
+      const colorAttr = geomRef.current.getAttribute('color');
+      if (colorAttr) {
+        (colorAttr as THREE.BufferAttribute).array = heatmapColors;
+        (colorAttr as THREE.BufferAttribute).needsUpdate = true;
+      }
+    }
+  }, [heatmapColors]);
 
   return (
     <points>
@@ -225,6 +245,7 @@ function PointCloudLayer({
         )}
       </bufferGeometry>
       <pointsMaterial
+        ref={matRef}
         size={pointSize}
         sizeAttenuation
         vertexColors={!!heatmapColors}

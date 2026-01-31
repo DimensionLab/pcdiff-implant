@@ -48,9 +48,12 @@ def init_db():
         audit_log,
         color_profile,
         fit_metrics_result,
+        generation_job,
+        notification,
         point_cloud,
         project,
         scan,
+        settings,
     )
 
     Base.metadata.create_all(bind=engine)

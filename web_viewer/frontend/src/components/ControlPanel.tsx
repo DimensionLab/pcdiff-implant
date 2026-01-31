@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 interface ControlPanelProps {
   showInput: boolean;
   showSample: boolean;

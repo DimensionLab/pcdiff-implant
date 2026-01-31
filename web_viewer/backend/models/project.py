@@ -9,6 +9,7 @@ from web_viewer.backend.database import Base
 from web_viewer.backend.models.base import AuditMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from web_viewer.backend.models.generation_job import GenerationJob
     from web_viewer.backend.models.point_cloud import PointCloud
     from web_viewer.backend.models.scan import Scan
 
@@ -24,6 +25,9 @@ class Project(UUIDMixin, AuditMixin, Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     point_clouds: Mapped[list["PointCloud"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    generation_jobs: Mapped[list["GenerationJob"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 

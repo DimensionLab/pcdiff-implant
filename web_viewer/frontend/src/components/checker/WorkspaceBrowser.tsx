@@ -120,11 +120,11 @@ export function WorkspaceBrowser({
         )}
       </section>
 
-      {/* Point clouds in workspace */}
+      {/* 3D files in workspace */}
       {selectedProjectId && (
         <section style={styles.section}>
           <div style={styles.sectionHeader}>
-            <h4 style={styles.sectionTitle}>Point Clouds</h4>
+            <h4 style={styles.sectionTitle}>3D Files</h4>
             <div style={{ display: 'flex', gap: '4px' }}>
               <button style={styles.addBtn} onClick={() => setShowImportDialog(true)}>
                 + Add
@@ -139,7 +139,7 @@ export function WorkspaceBrowser({
 
           {pointClouds.length === 0 ? (
             <div style={styles.emptyText}>
-              No point clouds in this workspace.
+              No 3D files in this workspace.
             </div>
           ) : (
             <div style={styles.pcList}>
