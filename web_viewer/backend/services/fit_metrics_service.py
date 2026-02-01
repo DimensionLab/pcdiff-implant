@@ -173,14 +173,38 @@ class FitMetricsService:
         self.audit = audit
 
     def _load_points(self, pc_id: str) -> np.ndarray:
-        """Load point cloud data from disk. Returns (N, 3) array."""
+        """Load point cloud data from disk. Returns (N, 3) array.
+        
+        Supports .npy, .stl, and .ply file formats.
+        """
         pc = self.db.query(PointCloud).filter(PointCloud.id == pc_id).first()
         if not pc:
             raise ValueError(f"PointCloud not found: {pc_id}")
         p = Path(pc.file_path)
         if not p.exists():
             raise ValueError(f"File not found: {pc.file_path}")
-        data = np.load(str(p))
+        
+        suffix = p.suffix.lower()
+        
+        if suffix == '.npy':
+            # allow_pickle=True is needed for .npy files that contain object arrays
+            data = np.load(str(p), allow_pickle=True)
+        elif suffix == '.stl':
+            # Load STL mesh and extract vertices
+            import trimesh
+            mesh = trimesh.load(str(p))
+            data = np.array(mesh.vertices)
+        elif suffix == '.ply':
+            # Load PLY point cloud
+            import trimesh
+            cloud = trimesh.load(str(p))
+            if hasattr(cloud, 'vertices'):
+                data = np.array(cloud.vertices)
+            else:
+                data = np.array(cloud)
+        else:
+            raise ValueError(f"Unsupported file format: {suffix}")
+        
         # Ensure (N, 3) shape
         if data.ndim == 1:
             data = data.reshape(-1, 3)
