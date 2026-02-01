@@ -125,9 +125,9 @@ class RunpodService:
                 "sampling_steps": sampling_steps,
                 "output_prefix": output_prefix or f"job_{int(time.time())}",
             },
-            # Set execution timeout to 10 minutes (600000ms)
+            # Set execution timeout to 30 minutes (1800000ms) for DDPM with 1000 steps
             "policy": {
-                "executionTimeout": 600000,
+                "executionTimeout": 1800000,
             }
         }
 

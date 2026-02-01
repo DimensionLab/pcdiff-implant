@@ -216,7 +216,8 @@ def load_pcdiff_model(model_path, device):
     model.eval()
     
     # Load checkpoint
-    checkpoint = torch.load(model_path, map_location=device)
+    # weights_only=False is needed for PyTorch 2.6+ as checkpoints contain numpy arrays
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     state_dict = checkpoint['model_state']
     
     # Handle DDP checkpoints
@@ -241,7 +242,8 @@ def load_voxelization_model(model_path, config_path, device):
     
     # Load model
     model = Encode2Points(cfg).to(device)
-    state_dict = torch.load(model_path, map_location='cpu')
+    # weights_only=False is needed for PyTorch 2.6+ as checkpoints contain numpy arrays
+    state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
     load_model_manual(state_dict['state_dict'], model)
     model.eval()
     

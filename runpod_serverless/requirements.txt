@@ -16,8 +16,9 @@ libigl>=2.4.0
 
 # Scientific computing
 # Pin numpy and scipy to compatible versions to avoid ufunc errors
+# numpy<2.0 required for scipy<1.14 compatibility
 numpy>=1.24.0,<2.0.0
-scipy>=1.11.0,<1.15.0
+scipy>=1.11.0,<1.14.0
 
 # Medical imaging
 pynrrd>=1.0.0
@@ -41,5 +42,5 @@ imageio>=2.31.0
 
 # Note: Install pytorch3d and torch-scatter separately:
 # pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
-# pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+# pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
 
