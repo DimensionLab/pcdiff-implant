@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ScansList } from './ScansList';
 import { PointCloudsList } from './PointCloudsList';
 import { DataImportDialog } from './DataImportDialog';
 import { SkullBreakImporter } from './SkullBreakImporter';
+import { useProjects } from '../../hooks/useProjects';
 
 interface DataBrowserProps {
   onSelectScan: (scanId: string) => void;
   onSelectPointCloud: (pcId: string) => void;
   selectedScanId: string | null;
   selectedPointCloudId: string | null;
+  defaultProjectId?: string;
 }
 
 type Tab = 'scans' | 'point-clouds';
@@ -18,14 +20,35 @@ export function DataBrowser({
   onSelectPointCloud,
   selectedScanId,
   selectedPointCloudId,
+  defaultProjectId,
 }: DataBrowserProps) {
   const [activeTab, setActiveTab] = useState<Tab>('scans');
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showSkullBreakImport, setShowSkullBreakImport] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('');
+  
+  const { data: projects = [] } = useProjects();
+  const defaultProject = defaultProjectId ? projects.find(p => p.id === defaultProjectId) : null;
+
+  // Auto-switch to Point Clouds tab if coming from Implant Generator with a project
+  useEffect(() => {
+    if (defaultProjectId) {
+      setActiveTab('point-clouds');
+      // Pre-filter to defective skulls since that's what Implant Generator needs
+      setCategoryFilter('defective_skull');
+    }
+  }, [defaultProjectId]);
 
   return (
     <div style={styles.container}>
+      {/* Project context banner */}
+      {defaultProject && (
+        <div style={styles.projectBanner}>
+          <span>📁 Assign data to: <strong>{defaultProject.name}</strong></span>
+          <div style={styles.projectHint}>Click 📁 next to any point cloud to assign it</div>
+        </div>
+      )}
+
       <div style={styles.header}>
         <h3 style={styles.title}>Data Browser</h3>
         <div style={styles.actions}>
@@ -97,13 +120,18 @@ export function DataBrowser({
             onSelect={onSelectPointCloud}
             selectedId={selectedPointCloudId}
             categoryFilter={categoryFilter}
+            showAssignButton={true}
+            defaultProjectId={defaultProjectId}
           />
         )}
       </div>
 
       {/* Dialogs */}
       {showImportDialog && (
-        <DataImportDialog onClose={() => setShowImportDialog(false)} />
+        <DataImportDialog 
+          onClose={() => setShowImportDialog(false)} 
+          defaultProjectId={defaultProjectId}
+        />
       )}
       {showSkullBreakImport && (
         <SkullBreakImporter onClose={() => setShowSkullBreakImport(false)} />
@@ -119,6 +147,18 @@ const styles: Record<string, React.CSSProperties> = {
     height: '100%',
     background: '#1a1a2e',
     color: '#e0e0e0',
+  },
+  projectBanner: {
+    padding: '10px 16px',
+    background: 'rgba(37, 99, 235, 0.15)',
+    borderBottom: '1px solid rgba(37, 99, 235, 0.3)',
+    fontSize: '12px',
+    color: '#93c5fd',
+  },
+  projectHint: {
+    fontSize: '11px',
+    color: '#6b8fc7',
+    marginTop: '4px',
   },
   header: {
     display: 'flex',

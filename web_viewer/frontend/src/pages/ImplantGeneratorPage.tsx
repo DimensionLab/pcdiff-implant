@@ -237,7 +237,18 @@ export function ImplantGeneratorPage() {
             <section style={styles.section}>
               <h3 style={styles.sectionTitle}>Input Defective Skull</h3>
               {defectiveSkulls.length === 0 ? (
-                <p style={styles.emptyText}>No defective skulls in this project</p>
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyText}>No defective skulls in this project</p>
+                  <button
+                    onClick={() => navigate(`/?project=${selectedProjectId}`)}
+                    style={styles.importButton}
+                  >
+                    📁 Go to Data Viewer
+                  </button>
+                  <p style={styles.hintText}>
+                    In Data Viewer, use "+ Add" to register a defective skull .npy file for this project.
+                  </p>
+                </div>
               ) : (
                 <select
                   value={selectedInputPcId ?? ''}
@@ -678,6 +689,32 @@ const styles: Record<string, CSSProperties> = {
     color: '#666',
     fontSize: '11px',
     fontStyle: 'italic',
+    margin: 0,
+  },
+  emptyState: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  importButton: {
+    padding: '8px 12px',
+    background: '#2563eb',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+  },
+  hintText: {
+    color: '#555',
+    fontSize: '10px',
+    margin: 0,
+    lineHeight: 1.4,
   },
   jobList: {
     display: 'flex',

@@ -5,6 +5,7 @@
  * Implant Checker page.
  */
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '../components/layout/AppLayout';
 import { DataBrowser } from '../components/data-browser/DataBrowser';
 import { ViewerContainer } from '../components/viewer/ViewerContainer';
@@ -16,6 +17,9 @@ import { useColorProfile } from '../hooks/useColorProfiles';
 import type { ViewerMode } from '../types/viewer';
 
 export function DataViewerPage() {
+  const [searchParams] = useSearchParams();
+  const projectIdFromUrl = searchParams.get('project');
+
   // Data selection state
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
   const [selectedPointCloudId, setSelectedPointCloudId] = useState<string | null>(null);
@@ -52,6 +56,7 @@ export function DataViewerPage() {
           onSelectPointCloud={handleSelectPointCloud}
           selectedScanId={selectedScanId}
           selectedPointCloudId={selectedPointCloudId}
+          defaultProjectId={projectIdFromUrl || undefined}
         />
       }
       main={

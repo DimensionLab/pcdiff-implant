@@ -1,15 +1,33 @@
+import { useState } from 'react';
 import { usePointClouds } from '../../hooks/usePointClouds';
+import { AssignToProjectDialog } from './AssignToProjectDialog';
 
 interface PointCloudsListProps {
   onSelect: (pcId: string) => void;
   selectedId: string | null;
   categoryFilter: string;
+  /** If provided, show "Assign to Project" buttons */
+  showAssignButton?: boolean;
+  /** Default project to pre-select in assign dialog */
+  defaultProjectId?: string | null;
 }
 
-export function PointCloudsList({ onSelect, selectedId, categoryFilter }: PointCloudsListProps) {
+export function PointCloudsList({ 
+  onSelect, 
+  selectedId, 
+  categoryFilter,
+  showAssignButton = false,
+  defaultProjectId,
+}: PointCloudsListProps) {
   const { data: pointClouds, isLoading, error } = usePointClouds(
     categoryFilter ? { scan_category: categoryFilter } : undefined
   );
+  
+  const [assigningPc, setAssigningPc] = useState<{
+    id: string;
+    name: string;
+    projectId: string | null;
+  } | null>(null);
 
   if (isLoading) return <div style={styles.message}>Loading point clouds...</div>;
   if (error) return <div style={styles.error}>Failed to load point clouds</div>;
@@ -18,31 +36,65 @@ export function PointCloudsList({ onSelect, selectedId, categoryFilter }: PointC
   }
 
   return (
-    <div style={styles.list}>
-      {pointClouds.map((pc) => (
-        <button
-          key={pc.id}
-          style={{
-            ...styles.item,
-            ...(selectedId === pc.id ? styles.itemSelected : {}),
-          }}
-          onClick={() => onSelect(pc.id)}
-        >
-          <div style={styles.itemName}>{pc.name}</div>
-          <div style={styles.itemMeta}>
-            {pc.scan_category && (
-              <span style={styles.badge}>{pc.scan_category.replace('_', ' ')}</span>
+    <>
+      <div style={styles.list}>
+        {pointClouds.map((pc) => (
+          <div
+            key={pc.id}
+            style={{
+              ...styles.itemContainer,
+              ...(selectedId === pc.id ? styles.itemContainerSelected : {}),
+            }}
+          >
+            <button
+              style={{
+                ...styles.item,
+                ...(selectedId === pc.id ? styles.itemSelected : {}),
+              }}
+              onClick={() => onSelect(pc.id)}
+            >
+              <div style={styles.itemName}>{pc.name}</div>
+              <div style={styles.itemMeta}>
+                {pc.scan_category && (
+                  <span style={styles.badge}>{pc.scan_category.replace('_', ' ')}</span>
+                )}
+                {pc.num_points && (
+                  <span style={styles.points}>
+                    {pc.num_points.toLocaleString()} pts
+                  </span>
+                )}
+                <span style={styles.format}>{pc.file_format.toUpperCase()}</span>
+              </div>
+            </button>
+            {showAssignButton && (
+              <button
+                style={styles.assignBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAssigningPc({
+                    id: pc.id,
+                    name: pc.name,
+                    projectId: pc.project_id,
+                  });
+                }}
+                title="Assign to project"
+              >
+                📁
+              </button>
             )}
-            {pc.num_points && (
-              <span style={styles.points}>
-                {pc.num_points.toLocaleString()} pts
-              </span>
-            )}
-            <span style={styles.format}>{pc.file_format.toUpperCase()}</span>
           </div>
-        </button>
-      ))}
-    </div>
+        ))}
+      </div>
+      
+      {assigningPc && (
+        <AssignToProjectDialog
+          pointCloudId={assigningPc.id}
+          pointCloudName={assigningPc.name}
+          currentProjectId={assigningPc.projectId || defaultProjectId || null}
+          onClose={() => setAssigningPc(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -53,20 +105,27 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '2px',
     padding: '4px',
   },
+  itemContainer: {
+    display: 'flex',
+    alignItems: 'stretch',
+    borderRadius: '4px',
+  },
+  itemContainerSelected: {
+    background: '#1e3a5f',
+  },
   item: {
+    flex: 1,
     display: 'block',
-    width: '100%',
     textAlign: 'left',
     padding: '8px 12px',
     background: 'transparent',
     color: '#ccc',
     border: 'none',
-    borderRadius: '4px',
+    borderRadius: '4px 0 0 4px',
     cursor: 'pointer',
     fontSize: '12px',
   },
   itemSelected: {
-    background: '#1e3a5f',
     color: '#fff',
   },
   itemName: {
@@ -96,6 +155,16 @@ const styles: Record<string, React.CSSProperties> = {
   format: {
     fontSize: '10px',
     color: '#555',
+  },
+  assignBtn: {
+    padding: '4px 8px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '0 4px 4px 0',
+    cursor: 'pointer',
+    fontSize: '14px',
+    opacity: 0.5,
+    transition: 'opacity 0.15s',
   },
   message: {
     padding: '24px 16px',

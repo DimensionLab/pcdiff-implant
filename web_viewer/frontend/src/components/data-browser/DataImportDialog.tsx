@@ -1,22 +1,26 @@
 import { useState } from 'react';
 import { useCreateScan } from '../../hooks/useScans';
 import { useCreatePointCloud } from '../../hooks/usePointClouds';
+import { useProjects } from '../../hooks/useProjects';
 import { FilePicker } from '../common/FilePicker';
 
 interface DataImportDialogProps {
   onClose: () => void;
+  defaultProjectId?: string;
 }
 
-export function DataImportDialog({ onClose }: DataImportDialogProps) {
+export function DataImportDialog({ onClose, defaultProjectId }: DataImportDialogProps) {
   const [filePath, setFilePath] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
+  const [projectId, setProjectId] = useState(defaultProjectId || '');
   const [fileType, setFileType] = useState<'scan' | 'point_cloud'>('scan');
   const [error, setError] = useState('');
   const [showFilePicker, setShowFilePicker] = useState(false);
 
   const createScan = useCreateScan();
   const createPointCloud = useCreatePointCloud();
+  const { data: projects = [] } = useProjects();
 
   const handleSubmit = async () => {
     setError('');
@@ -31,12 +35,14 @@ export function DataImportDialog({ onClose }: DataImportDialogProps) {
           file_path: filePath.trim(),
           name: name.trim() || undefined,
           scan_category: category || undefined,
+          project_id: projectId || undefined,
         });
       } else {
         await createPointCloud.mutateAsync({
           file_path: filePath.trim(),
           name: name.trim() || undefined,
           scan_category: category || undefined,
+          project_id: projectId || undefined,
         });
       }
       onClose();
@@ -106,6 +112,22 @@ export function DataImportDialog({ onClose }: DataImportDialogProps) {
             <option value="defective_skull">Defective Skull</option>
             <option value="implant">Implant</option>
             <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div style={styles.field}>
+          <label style={styles.label}>Project (optional)</label>
+          <select
+            style={styles.select}
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">No project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
           </select>
         </div>
 
