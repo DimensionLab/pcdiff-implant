@@ -122,14 +122,174 @@ class GenerationService:
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        include_children: bool = False,
     ) -> list[GenerationJob]:
-        """List generation jobs with optional filtering."""
+        """List generation jobs with optional filtering.
+        
+        By default, only returns parent jobs (jobs without parent_job_id).
+        Set include_children=True to also return child jobs.
+        """
         q = self.db.query(GenerationJob)
         if project_id:
             q = q.filter(GenerationJob.project_id == project_id)
         if status:
             q = q.filter(GenerationJob.status == status)
+        if not include_children:
+            # Only return parent jobs (those without a parent)
+            q = q.filter(GenerationJob.parent_job_id == None)
         return q.order_by(GenerationJob.created_at.desc()).offset(offset).limit(limit).all()
+    
+    def get_job_with_children(self, job_id: str) -> GenerationJob | None:
+        """Get a generation job by ID with its child jobs loaded."""
+        job = self.db.query(GenerationJob).filter(GenerationJob.id == job_id).first()
+        if job:
+            # Eagerly load child jobs
+            _ = job.child_jobs
+        return job
+    
+    def get_child_jobs(self, parent_job_id: str) -> list[GenerationJob]:
+        """Get all child jobs for a parent job."""
+        return (
+            self.db.query(GenerationJob)
+            .filter(GenerationJob.parent_job_id == parent_job_id)
+            .order_by(GenerationJob.ensemble_index)
+            .all()
+        )
+    
+    def create_child_job(
+        self,
+        parent_job: GenerationJob,
+        ensemble_index: int,
+    ) -> GenerationJob:
+        """Create a child job for parallel ensemble generation."""
+        child_job = GenerationJob(
+            name=f"{parent_job.name} - Ensemble #{ensemble_index + 1}",
+            description=f"Child job {ensemble_index + 1}/{parent_job.num_ensemble}",
+            project_id=parent_job.project_id,
+            input_pc_id=parent_job.input_pc_id,
+            parent_job_id=parent_job.id,
+            ensemble_index=ensemble_index,
+            status="pending",
+            progress_percent=0,
+            sampling_method=parent_job.sampling_method,
+            sampling_steps=parent_job.sampling_steps,
+            num_ensemble=1,  # Each child generates exactly 1 implant
+            pcdiff_model=parent_job.pcdiff_model,
+            queued_at=datetime.now(timezone.utc),
+        )
+        self.db.add(child_job)
+        self.db.commit()
+        self.db.refresh(child_job)
+        return child_job
+    
+    def update_parent_job_status(self, parent_job_id: str) -> GenerationJob | None:
+        """Update parent job status based on child job statuses.
+        
+        Called after a child job completes/fails to update the parent's aggregate status.
+        """
+        parent_job = self.get_job(parent_job_id)
+        if not parent_job:
+            return None
+        
+        child_jobs = self.get_child_jobs(parent_job_id)
+        if not child_jobs:
+            return parent_job
+        
+        # Calculate aggregate status
+        total = len(child_jobs)
+        completed = sum(1 for j in child_jobs if j.status == "completed")
+        failed = sum(1 for j in child_jobs if j.status == "failed")
+        cancelled = sum(1 for j in child_jobs if j.status == "cancelled")
+        running = sum(1 for j in child_jobs if j.status == "running")
+        
+        # Calculate aggregate progress
+        total_progress = sum(j.progress_percent for j in child_jobs)
+        parent_job.progress_percent = total_progress // total
+        
+        # Determine parent status
+        if completed == total:
+            parent_job.status = "completed"
+            parent_job.completed_at = datetime.now(timezone.utc)
+            parent_job.current_step = f"All {total} ensembles completed"
+            
+            # Aggregate output IDs from all children
+            all_pc_ids = []
+            all_stl_ids = []
+            for child in child_jobs:
+                if child.output_pc_ids_json:
+                    all_pc_ids.extend(json.loads(child.output_pc_ids_json))
+                if child.output_stl_ids_json:
+                    all_stl_ids.extend(json.loads(child.output_stl_ids_json))
+            parent_job.output_pc_ids_json = json.dumps(all_pc_ids)
+            parent_job.output_stl_ids_json = json.dumps(all_stl_ids)
+            
+            # Calculate total generation time
+            if parent_job.started_at:
+                parent_job.generation_time_ms = int(
+                    (datetime.now(timezone.utc) - parent_job.started_at).total_seconds() * 1000
+                )
+            
+            self._create_notification(
+                type="generation_completed",
+                title="Generation Completed",
+                message=f"All {total} implants generated successfully for '{parent_job.name}'.",
+                entity_type="generation_job",
+                entity_id=parent_job.id,
+            )
+        elif failed + cancelled == total:
+            parent_job.status = "failed"
+            parent_job.completed_at = datetime.now(timezone.utc)
+            parent_job.error_message = f"All {total} ensemble jobs failed or were cancelled"
+            parent_job.current_step = "Failed"
+            
+            self._create_notification(
+                type="generation_failed",
+                title="Generation Failed",
+                message=f"Generation '{parent_job.name}' failed.",
+                entity_type="generation_job",
+                entity_id=parent_job.id,
+            )
+        elif completed + failed + cancelled == total:
+            # Some completed, some failed - partial success
+            parent_job.status = "completed"
+            parent_job.completed_at = datetime.now(timezone.utc)
+            parent_job.current_step = f"{completed}/{total} ensembles completed"
+            if failed > 0:
+                parent_job.error_message = f"{failed} ensemble(s) failed"
+            
+            # Aggregate output IDs from completed children only
+            all_pc_ids = []
+            all_stl_ids = []
+            for child in child_jobs:
+                if child.status == "completed":
+                    if child.output_pc_ids_json:
+                        all_pc_ids.extend(json.loads(child.output_pc_ids_json))
+                    if child.output_stl_ids_json:
+                        all_stl_ids.extend(json.loads(child.output_stl_ids_json))
+            parent_job.output_pc_ids_json = json.dumps(all_pc_ids)
+            parent_job.output_stl_ids_json = json.dumps(all_stl_ids)
+            
+            if parent_job.started_at:
+                parent_job.generation_time_ms = int(
+                    (datetime.now(timezone.utc) - parent_job.started_at).total_seconds() * 1000
+                )
+            
+            self._create_notification(
+                type="generation_completed",
+                title="Generation Partially Completed",
+                message=f"{completed}/{total} implants generated for '{parent_job.name}'.",
+                entity_type="generation_job",
+                entity_id=parent_job.id,
+            )
+        elif running > 0 or completed > 0:
+            parent_job.status = "running"
+            parent_job.current_step = f"Running: {completed}/{total} completed, {running} in progress"
+        else:
+            parent_job.current_step = f"Queued: {total} ensemble jobs"
+        
+        self.db.commit()
+        self.db.refresh(parent_job)
+        return parent_job
 
     def update_progress(
         self,
@@ -151,7 +311,11 @@ class GenerationService:
         return job
 
     def cancel_job(self, job_id: str) -> GenerationJob | None:
-        """Cancel a pending or running job."""
+        """Cancel a pending or running job.
+        
+        For parent jobs, also cancels all child jobs.
+        For jobs with active RunPod workers, attempts to cancel them.
+        """
         job = self.get_job(job_id)
         if not job:
             return None
@@ -159,9 +323,25 @@ class GenerationService:
         if job.status in ("completed", "failed", "cancelled"):
             return job
 
+        # If this is a parent job, cancel all child jobs first
+        child_jobs = self.get_child_jobs(job_id)
+        for child in child_jobs:
+            if child.status not in ("completed", "failed", "cancelled"):
+                child.status = "cancelled"
+                child.error_message = "Parent job cancelled"
+                child.completed_at = datetime.now(timezone.utc)
+                
+                # Try to cancel RunPod job if one is running
+                self._try_cancel_runpod_job(child)
+
+        # Cancel the main job
         job.status = "cancelled"
         job.error_message = "Cancelled by user"
         job.completed_at = datetime.now(timezone.utc)
+        
+        # Try to cancel RunPod job if one is running for this job
+        self._try_cancel_runpod_job(job)
+        
         self.db.commit()
         self.db.refresh(job)
 
@@ -169,9 +349,47 @@ class GenerationService:
             action="generation_job.cancel",
             entity_type="generation_job",
             entity_id=job_id,
+            details={"cancelled_children": len(child_jobs)},
         )
 
         return job
+    
+    def _try_cancel_runpod_job(self, job: GenerationJob) -> bool:
+        """Attempt to cancel a RunPod job if one exists for this generation job.
+        
+        Returns True if cancellation was attempted, False otherwise.
+        """
+        try:
+            # Check if job has RunPod metadata
+            if not job.metrics_json:
+                return False
+            
+            metrics = json.loads(job.metrics_json)
+            runpod_job_id = metrics.get("runpod_job_id")
+            
+            if not runpod_job_id:
+                return False
+            
+            # Get RunPod credentials
+            from web_viewer.backend.services.settings_service import SettingsService
+            from web_viewer.backend.services.runpod_service import RunpodService
+            
+            settings_service = SettingsService(self.db)
+            endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
+            api_key = settings_service.get_value("runpod_api_key", "")
+            
+            if not endpoint_id or not api_key:
+                return False
+            
+            # Cancel the RunPod job
+            runpod = RunpodService(endpoint_id=endpoint_id, api_key=api_key)
+            runpod.cancel_job_sync(runpod_job_id)
+            logger.info(f"Cancelled RunPod job {runpod_job_id} for generation job {job.id}")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Failed to cancel RunPod job for {job.id}: {e}")
+            return False
 
     def select_output(self, job_id: str, output_id: str) -> GenerationJob | None:
         """Select a specific output from ensemble results as the preferred one."""
@@ -579,8 +797,18 @@ class GenerationService:
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job not found: {job_id}")
+        
+        # Check if job was cancelled before we even start
+        if job.status == "cancelled":
+            logger.info(f"Job {job_id} was cancelled before execution")
+            return job
 
         t0 = time.time()
+        
+        def _check_cancelled() -> bool:
+            """Check if job was cancelled. Refreshes job from DB."""
+            self.db.refresh(job)
+            return job.status == "cancelled"
 
         try:
             # Get cloud settings
@@ -651,7 +879,18 @@ class GenerationService:
             )
 
             logger.info(f"Submitted Runpod job: {runpod_job_id}")
+            
+            # Store RunPod job ID immediately so it can be cancelled
+            job.metrics_json = json.dumps({"runpod_job_id": runpod_job_id, "cloud_generated": True})
+            self.db.commit()
+            
             update_progress(15, f"Job queued (ID: {runpod_job_id[:8]}...)")
+            
+            # Check if cancelled after submission
+            if _check_cancelled():
+                logger.info(f"Job {job_id} cancelled after RunPod submission, cancelling RunPod job")
+                runpod.cancel_job_sync(runpod_job_id)
+                return job
 
             # Poll for completion with progress updates
             def runpod_progress_callback(status: str, progress: int):
@@ -670,6 +909,7 @@ class GenerationService:
                 progress_callback=runpod_progress_callback,
                 poll_interval=3.0,
                 timeout=1800.0,  # 30 minute timeout (DDPM with 1000 steps can take 15-20 min)
+                should_cancel_callback=_check_cancelled,  # Check for cancellation during polling
             )
 
             update_progress(80, "Downloading results from S3")
@@ -854,6 +1094,311 @@ class GenerationService:
                 entity_id=job.id,
                 details={"error": str(e)},
             )
+
+        return job
+
+    def execute_child_cloud_generation(
+        self,
+        child_job_id: str,
+        progress_callback: Callable[[int, str], None] | None = None,
+    ) -> GenerationJob:
+        """
+        Execute a single child job for parallel ensemble generation on cloud.
+        
+        This is called for each child job in a parallel ensemble batch.
+        After completion, it updates the parent job's aggregate status.
+        
+        Args:
+            child_job_id: The child generation job ID
+            progress_callback: Optional callback(percent, step_text)
+            
+        Returns:
+            Updated child GenerationJob with results
+        """
+        from web_viewer.backend.services.runpod_service import (
+            RunpodService,
+            RunpodError,
+            download_from_s3_url,
+        )
+        from web_viewer.backend.services.settings_service import SettingsService
+
+        job = self.get_job(child_job_id)
+        if not job:
+            raise ValueError(f"Child job not found: {child_job_id}")
+        
+        if not job.parent_job_id:
+            raise ValueError(f"Job {child_job_id} is not a child job")
+        
+        # Check if job was cancelled before we even start
+        if job.status == "cancelled":
+            logger.info(f"Child job {child_job_id} was cancelled before execution")
+            return job
+
+        parent_job_id = job.parent_job_id
+        t0 = time.time()
+        
+        def _check_cancelled() -> bool:
+            """Check if job was cancelled. Refreshes job from DB."""
+            self.db.refresh(job)
+            return job.status == "cancelled"
+
+        try:
+            # Get cloud settings
+            settings_service = SettingsService(self.db)
+            endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
+            api_key = settings_service.get_value("runpod_api_key", "")
+            s3_bucket = settings_service.get_value("aws_s3_bucket", "")
+            s3_region = settings_service.get_value("aws_s3_region", "us-east-1")
+
+            if not endpoint_id or not api_key:
+                raise ValueError("Cloud generation not configured")
+
+            # Mark as running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            job.current_step = "Connecting to cloud GPU"
+            self.db.commit()
+            
+            # Update parent status
+            self.update_parent_job_status(parent_job_id)
+
+            def update_progress(percent: int, step: str):
+                job.progress_percent = percent
+                job.current_step = step
+                self.db.commit()
+                # Also update parent aggregate
+                self.update_parent_job_status(parent_job_id)
+                if progress_callback:
+                    progress_callback(percent, step)
+
+            update_progress(5, "Loading input point cloud")
+
+            # Load input point cloud
+            input_pc = self.db.query(PointCloud).filter(PointCloud.id == job.input_pc_id).first()
+            if not input_pc:
+                raise ValueError(f"Input point cloud not found: {job.input_pc_id}")
+
+            input_path = Path(input_pc.file_path)
+            if not input_path.exists():
+                raise ValueError(f"Input file not found: {input_pc.file_path}")
+
+            # Load points
+            input_points = np.load(str(input_path))
+            if input_points.ndim == 3:
+                input_points = input_points[0]
+            input_points = input_points.astype(np.float32)
+
+            update_progress(10, "Submitting to cloud GPU")
+
+            # Create Runpod service
+            runpod = RunpodService(
+                endpoint_id=endpoint_id,
+                api_key=api_key,
+                s3_bucket=s3_bucket,
+                s3_region=s3_region,
+            )
+
+            # Check if cancelled before submitting
+            if _check_cancelled():
+                logger.info(f"Child job {child_job_id} cancelled before RunPod submission")
+                return job
+
+            # Submit job to Runpod (always num_ensemble=1 for child jobs)
+            runpod_job_id = runpod.submit_job_sync(
+                defective_skull_points=input_points,
+                num_ensemble=1,  # Each child generates exactly 1 implant
+                sampling_steps=job.sampling_steps,
+                output_prefix=f"{job.id}_ens{job.ensemble_index}",
+                pcdiff_model=job.pcdiff_model or "best",
+            )
+
+            logger.info(f"Submitted child Runpod job: {runpod_job_id} (ensemble {job.ensemble_index})")
+            
+            # Store RunPod job ID immediately so it can be cancelled
+            job.metrics_json = json.dumps({"runpod_job_id": runpod_job_id, "cloud_generated": True})
+            self.db.commit()
+            
+            update_progress(15, f"Job queued (ID: {runpod_job_id[:8]}...)")
+            
+            # Check if cancelled after submission
+            if _check_cancelled():
+                logger.info(f"Child job {child_job_id} cancelled after RunPod submission, cancelling RunPod job")
+                runpod.cancel_job_sync(runpod_job_id)
+                return job
+
+            # Poll for completion
+            def runpod_progress_callback(status: str, progress: int):
+                mapped_progress = 15 + int(progress * 0.65)
+                status_messages = {
+                    "IN_QUEUE": "Waiting for GPU worker...",
+                    "IN_PROGRESS": "Running inference on cloud GPU...",
+                    "COMPLETED": "Inference complete, downloading results...",
+                }
+                step_text = status_messages.get(status, f"Status: {status}")
+                update_progress(mapped_progress, step_text)
+
+            result = runpod.wait_for_completion_sync(
+                job_id=runpod_job_id,
+                progress_callback=runpod_progress_callback,
+                poll_interval=3.0,
+                timeout=1800.0,
+                should_cancel_callback=_check_cancelled,  # Check for cancellation during polling
+            )
+
+            update_progress(80, "Downloading results from S3")
+
+            # Parse results
+            output = result.get("output", {})
+            if output.get("status") == "error":
+                raise RunpodError(f"Cloud inference failed: {output.get('error', 'Unknown error')}")
+
+            s3_results = output.get("results", {})
+            metadata = output.get("metadata", {})
+
+            logger.info(f"Child cloud inference completed in {metadata.get('processing_time_seconds', 0):.1f}s")
+
+            # Download and save results
+            output_dir = input_path.parent
+            output_pc_ids = []
+            output_stl_ids = []
+            ensemble_idx = job.ensemble_index or 0
+
+            update_progress(85, "Downloading implant data")
+
+            # Download implant NPY
+            implant_npy_url = s3_results.get("implant_npy")
+            if implant_npy_url:
+                local_npy_path = output_dir / f"{job.parent_job_id}_implant_ens{ensemble_idx}.npy"
+                try:
+                    download_from_s3_url(
+                        implant_npy_url,
+                        local_npy_path,
+                        aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+                        aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                    )
+                    implant_pc = np.load(str(local_npy_path))
+
+                    # Get parent job for naming
+                    parent_job = self.get_job(parent_job_id)
+                    parent_name = parent_job.name if parent_job else job.name
+
+                    # Register as PointCloud
+                    pc = PointCloud(
+                        name=f"{parent_name} - Implant #{ensemble_idx + 1} (Cloud)",
+                        description=f"Generated implant (cloud GPU, ensemble {ensemble_idx + 1})",
+                        file_path=str(local_npy_path),
+                        file_format="npy",
+                        file_size_bytes=get_file_size(local_npy_path),
+                        num_points=len(implant_pc),
+                        point_dims=3,
+                        scan_category="generated_implant",
+                        defect_type=input_pc.defect_type,
+                        skull_id=input_pc.skull_id,
+                        project_id=job.project_id,
+                        metadata_json=json.dumps({
+                            "generation_job_id": job.id,
+                            "parent_job_id": parent_job_id,
+                            "ensemble_index": ensemble_idx,
+                            "cloud_generated": True,
+                            "runpod_job_id": runpod_job_id,
+                            "s3_url": implant_npy_url,
+                            "processing_time_seconds": metadata.get("processing_time_seconds"),
+                        }),
+                    )
+                    self.db.add(pc)
+                    self.db.commit()
+                    self.db.refresh(pc)
+                    output_pc_ids.append(pc.id)
+                except Exception as e:
+                    logger.warning(f"Failed to download implant NPY: {e}")
+
+            update_progress(90, "Downloading mesh data")
+
+            # Download implant STL
+            implant_stl_url = s3_results.get("implant_only_stl")
+            if implant_stl_url:
+                local_stl_path = output_dir / f"{job.parent_job_id}_implant_ens{ensemble_idx}.stl"
+                try:
+                    download_from_s3_url(
+                        implant_stl_url,
+                        local_stl_path,
+                        aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+                        aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                    )
+
+                    parent_job = self.get_job(parent_job_id)
+                    parent_name = parent_job.name if parent_job else job.name
+
+                    stl_pc = PointCloud(
+                        name=f"{parent_name} - Implant #{ensemble_idx + 1} (STL, Cloud)",
+                        description=f"Generated implant mesh (cloud GPU, ensemble {ensemble_idx + 1})",
+                        file_path=str(local_stl_path),
+                        file_format="stl",
+                        file_size_bytes=get_file_size(local_stl_path),
+                        num_points=0,
+                        point_dims=3,
+                        scan_category="generated_implant_mesh",
+                        defect_type=input_pc.defect_type,
+                        skull_id=input_pc.skull_id,
+                        project_id=job.project_id,
+                        metadata_json=json.dumps({
+                            "generation_job_id": job.id,
+                            "parent_job_id": parent_job_id,
+                            "ensemble_index": ensemble_idx,
+                            "cloud_generated": True,
+                            "s3_url": implant_stl_url,
+                        }),
+                    )
+                    self.db.add(stl_pc)
+                    self.db.commit()
+                    self.db.refresh(stl_pc)
+                    output_stl_ids.append(stl_pc.id)
+                except Exception as e:
+                    logger.warning(f"Failed to download implant STL: {e}")
+
+            update_progress(95, "Finalizing")
+
+            # Update child job with results
+            elapsed_ms = int((time.time() - t0) * 1000)
+            job.status = "completed"
+            job.progress_percent = 100
+            job.current_step = "Completed"
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            job.output_pc_ids_json = json.dumps(output_pc_ids)
+            job.output_stl_ids_json = json.dumps(output_stl_ids)
+
+            job.metrics_json = json.dumps({
+                "cloud_generated": True,
+                "runpod_job_id": runpod_job_id,
+                "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                "model_source": metadata.get("model_source"),
+            })
+
+            self.db.commit()
+            self.db.refresh(job)
+
+            # Update parent job aggregate status
+            self.update_parent_job_status(parent_job_id)
+
+            logger.info(
+                "Child cloud generation completed: %s (ensemble %d, %dms)",
+                job.id, ensemble_idx, elapsed_ms,
+            )
+
+        except Exception as e:
+            logger.exception("Child cloud generation failed: %s", job.id)
+            elapsed_ms = int((time.time() - t0) * 1000)
+
+            job.status = "failed"
+            job.error_message = str(e)
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            self.db.commit()
+            self.db.refresh(job)
+
+            # Update parent job aggregate status
+            self.update_parent_job_status(parent_job_id)
 
         return job
 

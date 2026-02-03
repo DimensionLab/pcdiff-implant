@@ -198,6 +198,7 @@ class RunpodService:
         progress_callback: Callable[[str, int], None] | None = None,
         poll_interval: float = 3.0,
         timeout: float = 1200.0,
+        should_cancel_callback: Callable[[], bool] | None = None,
     ) -> dict:
         """
         Wait for a Runpod job to complete, polling for status.
@@ -207,6 +208,7 @@ class RunpodService:
             progress_callback: Optional callback(status, progress_percent)
             poll_interval: Seconds between status checks (default 3s)
             timeout: Maximum seconds to wait (default 20 min)
+            should_cancel_callback: Optional callback that returns True if job should be cancelled
 
         Returns:
             Final job result dictionary with output
@@ -218,6 +220,12 @@ class RunpodService:
             elapsed = time.time() - start_time
             if elapsed > timeout:
                 raise RunpodError(f"Job {job_id} timed out after {timeout}s")
+            
+            # Check if we should cancel
+            if should_cancel_callback and should_cancel_callback():
+                logger.info(f"Cancellation requested for job {job_id}")
+                await self.cancel_job(job_id)
+                raise RunpodError(f"Job {job_id} was cancelled by user")
 
             try:
                 status_response = await self.get_job_status(job_id)
@@ -353,10 +361,11 @@ class RunpodService:
         progress_callback: Callable[[str, int], None] | None = None,
         poll_interval: float = 3.0,
         timeout: float = 600.0,
+        should_cancel_callback: Callable[[], bool] | None = None,
     ) -> dict:
         """Synchronous wrapper for wait_for_completion."""
         return self._run_async(
-            self.wait_for_completion(job_id, progress_callback, poll_interval, timeout)
+            self.wait_for_completion(job_id, progress_callback, poll_interval, timeout, should_cancel_callback)
         )
 
     def cancel_job_sync(self, job_id: str) -> bool:

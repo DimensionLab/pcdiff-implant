@@ -1,23 +1,44 @@
 /**
  * API service for implant generation jobs.
+ * 
+ * Supports parallel ensemble generation:
+ * - When num_ensemble > 1 with cloud, creates parent job with N child jobs
+ * - getJob() returns GenerationJobWithChildren including child_jobs array
  */
 import { apiV1 } from './api-v1';
-import type { GenerationJob, GenerationJobCreate } from '../types/generation';
+import type { GenerationJob, GenerationJobCreate, GenerationJobWithChildren } from '../types/generation';
 
 export const generationApi = {
-  /** Create a new generation job and queue it for execution */
+  /** Create a new generation job and queue it for execution.
+   * 
+   * For cloud generation with num_ensemble > 1:
+   * - Creates a parent job with N child jobs running in parallel
+   * - Returns the parent job immediately
+   */
   async createJob(body: GenerationJobCreate): Promise<GenerationJob> {
     const { data } = await apiV1.post<GenerationJob>('/generation-jobs/', body);
     return data;
   },
 
-  /** Get a specific generation job */
-  async getJob(jobId: string): Promise<GenerationJob> {
-    const { data } = await apiV1.get<GenerationJob>(`/generation-jobs/${jobId}`);
+  /** Get a specific generation job with its child jobs (if any).
+   * 
+   * For parent jobs, includes child_jobs array with status of each parallel ensemble.
+   */
+  async getJob(jobId: string): Promise<GenerationJobWithChildren> {
+    const { data } = await apiV1.get<GenerationJobWithChildren>(`/generation-jobs/${jobId}`);
     return data;
   },
 
-  /** List generation jobs with optional filtering */
+  /** Get child jobs for a parent job */
+  async getChildJobs(jobId: string): Promise<GenerationJob[]> {
+    const { data } = await apiV1.get<GenerationJob[]>(`/generation-jobs/${jobId}/children`);
+    return data;
+  },
+
+  /** List generation jobs with optional filtering.
+   * 
+   * By default only returns parent jobs (not child jobs).
+   */
   async listJobs(params?: {
     project_id?: string;
     status?: string;

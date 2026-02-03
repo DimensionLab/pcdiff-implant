@@ -29,7 +29,12 @@ class GenerationJobUpdate(BaseModel):
 
 
 class GenerationJobRead(BaseModel):
-    """Response schema for generation job."""
+    """Response schema for generation job.
+    
+    Supports parent-child hierarchy for parallel ensemble generation:
+    - Parent jobs have child_jobs populated and parent_job_id is None
+    - Child jobs have parent_job_id set and ensemble_index indicating their position
+    """
 
     id: str
     name: str
@@ -44,6 +49,11 @@ class GenerationJobRead(BaseModel):
     sampling_steps: int
     num_ensemble: int
     pcdiff_model: str | None = None  # "best" or "latest"
+    
+    # Parent-child hierarchy fields
+    parent_job_id: str | None = None
+    ensemble_index: int | None = None  # 0-based index for child jobs
+    
     output_pc_ids_json: str | None = None
     output_stl_ids_json: str | None = None
     selected_output_id: str | None = None
@@ -90,6 +100,41 @@ class GenerationJobRead(BaseModel):
             except (json.JSONDecodeError, TypeError):
                 pass
         return None
+
+
+class GenerationJobWithChildren(GenerationJobRead):
+    """Response schema for a parent job including its child jobs.
+    
+    Used when fetching a parent job to show all ensemble progress.
+    """
+    child_jobs: list["GenerationJobRead"] = []
+    
+    @computed_field
+    @property
+    def is_parent_job(self) -> bool:
+        """True if this is a parent job with child ensemble jobs."""
+        return self.parent_job_id is None and self.num_ensemble > 1
+    
+    @computed_field
+    @property
+    def overall_progress(self) -> int:
+        """Calculate overall progress from child jobs."""
+        if not self.child_jobs:
+            return self.progress_percent
+        total = sum(child.progress_percent for child in self.child_jobs)
+        return total // len(self.child_jobs)
+    
+    @computed_field
+    @property
+    def completed_children(self) -> int:
+        """Count of completed child jobs."""
+        return sum(1 for child in self.child_jobs if child.status == "completed")
+    
+    @computed_field
+    @property
+    def failed_children(self) -> int:
+        """Count of failed child jobs."""
+        return sum(1 for child in self.child_jobs if child.status == "failed")
 
 
 class SelectOutputRequest(BaseModel):

@@ -23,7 +23,7 @@ import {
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useSettings } from '../hooks/useSettings';
 import { pointCloudApi } from '../services/point-cloud-api';
-import type { GenerationJob, PcdiffModel } from '../types/generation';
+import type { GenerationJob, GenerationJobWithChildren, PcdiffModel } from '../types/generation';
 
 export function ImplantGeneratorPage() {
   const navigate = useNavigate();
@@ -477,17 +477,82 @@ export function ImplantGeneratorPage() {
               <h2 style={styles.progressTitle}>{selectedJob.name}</h2>
               {renderJobStatus(selectedJob)}
 
-              <div style={styles.progressBar}>
-                <div
-                  style={{
-                    ...styles.progressFill,
-                    width: `${selectedJob.progress_percent}%`,
-                  }}
-                />
-              </div>
-              <div style={styles.progressText}>
-                {selectedJob.progress_percent}% - {selectedJob.current_step ?? 'Starting...'}
-              </div>
+              {/* Check if this is a parent job with child jobs (parallel ensemble) */}
+              {(selectedJob as GenerationJobWithChildren).child_jobs?.length > 0 ? (
+                <>
+                  {/* Overall progress */}
+                  <div style={styles.overallProgressSection}>
+                    <div style={styles.progressLabel}>
+                      Overall Progress: {(selectedJob as GenerationJobWithChildren).overall_progress ?? selectedJob.progress_percent}%
+                    </div>
+                    <div style={styles.progressBar}>
+                      <div
+                        style={{
+                          ...styles.progressFill,
+                          width: `${(selectedJob as GenerationJobWithChildren).overall_progress ?? selectedJob.progress_percent}%`,
+                        }}
+                      />
+                    </div>
+                    <div style={styles.progressText}>
+                      {(selectedJob as GenerationJobWithChildren).completed_children ?? 0}/{(selectedJob as GenerationJobWithChildren).child_jobs.length} ensembles completed
+                    </div>
+                  </div>
+
+                  {/* Individual child job progress */}
+                  <div style={styles.childJobsSection}>
+                    <h3 style={styles.childJobsTitle}>Parallel Workers</h3>
+                    <div style={styles.childJobsGrid}>
+                      {(selectedJob as GenerationJobWithChildren).child_jobs.map((child, idx) => (
+                        <div key={child.id} style={styles.childJobCard}>
+                          <div style={styles.childJobHeader}>
+                            <span style={styles.childJobIndex}>#{idx + 1}</span>
+                            <span style={{
+                              ...styles.childJobStatus,
+                              color: child.status === 'completed' ? '#10b981' :
+                                     child.status === 'failed' ? '#ef4444' :
+                                     child.status === 'running' ? '#3b82f6' : '#6b7280'
+                            }}>
+                              {child.status === 'completed' ? '✓' :
+                               child.status === 'failed' ? '✗' :
+                               child.status === 'running' ? '⟳' : '○'}
+                            </span>
+                          </div>
+                          <div style={styles.childProgressBar}>
+                            <div
+                              style={{
+                                ...styles.childProgressFill,
+                                width: `${child.progress_percent}%`,
+                                background: child.status === 'completed' ? '#10b981' :
+                                           child.status === 'failed' ? '#ef4444' : '#3b82f6',
+                              }}
+                            />
+                          </div>
+                          <div style={styles.childJobStep}>
+                            {child.status === 'completed' ? 'Done' :
+                             child.status === 'failed' ? 'Failed' :
+                             child.current_step ?? `${child.progress_percent}%`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Single job progress (original view) */}
+                  <div style={styles.progressBar}>
+                    <div
+                      style={{
+                        ...styles.progressFill,
+                        width: `${selectedJob.progress_percent}%`,
+                      }}
+                    />
+                  </div>
+                  <div style={styles.progressText}>
+                    {selectedJob.progress_percent}% - {selectedJob.current_step ?? 'Starting...'}
+                  </div>
+                </>
+              )}
 
               <button onClick={handleCancelJob} style={styles.cancelButton}>
                 Cancel
@@ -1108,5 +1173,75 @@ const styles: Record<string, CSSProperties> = {
     color: '#888',
     marginBottom: '8px',
     lineHeight: '1.5',
+  },
+  // Parallel job progress styles
+  overallProgressSection: {
+    marginBottom: '24px',
+  },
+  progressLabel: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#fff',
+    marginBottom: '8px',
+  },
+  childJobsSection: {
+    marginTop: '24px',
+    padding: '16px',
+    background: '#111',
+    borderRadius: '8px',
+    border: '1px solid #333',
+  },
+  childJobsTitle: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#aaa',
+    marginBottom: '12px',
+    textAlign: 'left',
+  },
+  childJobsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))',
+    gap: '8px',
+  },
+  childJobCard: {
+    padding: '8px',
+    background: '#1a1a1a',
+    borderRadius: '6px',
+    border: '1px solid #333',
+  },
+  childJobHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '6px',
+  },
+  childJobIndex: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#fff',
+  },
+  childJobStatus: {
+    fontSize: '14px',
+    fontWeight: 600,
+  },
+  childProgressBar: {
+    width: '100%',
+    height: '4px',
+    background: '#333',
+    borderRadius: '2px',
+    overflow: 'hidden',
+  },
+  childProgressFill: {
+    height: '100%',
+    borderRadius: '2px',
+    transition: 'width 0.3s',
+  },
+  childJobStep: {
+    fontSize: '9px',
+    color: '#666',
+    marginTop: '4px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
 };

@@ -1,8 +1,13 @@
 /**
  * Types for implant generation jobs.
+ * 
+ * Supports parent-child job hierarchy for parallel ensemble generation:
+ * - Parent job: Created when user requests N ensembles with cloud, tracks overall progress
+ * - Child jobs: Individual jobs (one per ensemble) that run in parallel on separate workers
  */
 
 export type PcdiffModel = 'best' | 'latest';
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface GenerationJob {
   id: string;
@@ -10,7 +15,7 @@ export interface GenerationJob {
   description?: string;
   project_id?: string;
   input_pc_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: JobStatus;
   progress_percent: number;
   current_step?: string;
   error_message?: string;
@@ -18,6 +23,11 @@ export interface GenerationJob {
   sampling_steps: number;
   num_ensemble: number;
   pcdiff_model?: PcdiffModel;
+  
+  // Parent-child hierarchy fields
+  parent_job_id?: string;  // Set for child jobs
+  ensemble_index?: number;  // 0-based index for child jobs
+  
   output_pc_ids: string[];
   output_stl_ids: string[];
   selected_output_id?: string;
@@ -29,6 +39,20 @@ export interface GenerationJob {
   created_at: string;
   updated_at: string;
   created_by: string;
+}
+
+/**
+ * Extended job type that includes child jobs for parent jobs.
+ * Returned by the GET /generation-jobs/{id} endpoint.
+ */
+export interface GenerationJobWithChildren extends GenerationJob {
+  child_jobs: GenerationJob[];
+  
+  // Computed fields from backend
+  is_parent_job?: boolean;
+  overall_progress?: number;
+  completed_children?: number;
+  failed_children?: number;
 }
 
 export interface GenerationJobCreate {

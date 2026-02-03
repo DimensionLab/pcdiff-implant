@@ -1,7 +1,12 @@
-"""GenerationJob model -- tracks implant generation jobs using PCDiff + Voxelization pipeline."""
+"""GenerationJob model -- tracks implant generation jobs using PCDiff + Voxelization pipeline.
+
+Supports parent-child job hierarchy for parallel ensemble generation:
+- Parent job: Created when user requests N ensembles, tracks overall progress
+- Child jobs: Individual jobs (one per ensemble) that run in parallel on separate workers
+"""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, List
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -28,6 +33,14 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     input_pc_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("point_clouds.id", ondelete="CASCADE"), nullable=False
     )
+    
+    # Parent-child hierarchy for parallel ensemble jobs
+    parent_job_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("generation_jobs.id", ondelete="CASCADE"), nullable=True
+    )
+    ensemble_index: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )  # 0-based index for child jobs (None for parent jobs)
 
     # Status tracking
     status: Mapped[str] = mapped_column(
@@ -78,6 +91,30 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     # Relationships
     project: Mapped[Optional["Project"]] = relationship(back_populates="generation_jobs")
     input_point_cloud: Mapped["PointCloud"] = relationship(foreign_keys=[input_pc_id])
+    
+    # Parent-child relationship for ensemble jobs
+    parent_job: Mapped[Optional["GenerationJob"]] = relationship(
+        "GenerationJob",
+        remote_side="GenerationJob.id",
+        back_populates="child_jobs",
+        foreign_keys=[parent_job_id],
+    )
+    child_jobs: Mapped[List["GenerationJob"]] = relationship(
+        "GenerationJob",
+        back_populates="parent_job",
+        foreign_keys=[parent_job_id],
+        order_by="GenerationJob.ensemble_index",
+    )
+
+    @property
+    def is_parent_job(self) -> bool:
+        """True if this is a parent job with child ensemble jobs."""
+        return self.parent_job_id is None and self.num_ensemble > 1
+    
+    @property
+    def is_child_job(self) -> bool:
+        """True if this is a child job of a parent ensemble job."""
+        return self.parent_job_id is not None
 
     def __repr__(self) -> str:
         return f"<GenerationJob id={self.id!r} name={self.name!r} status={self.status!r}>"
