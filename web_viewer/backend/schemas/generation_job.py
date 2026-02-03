@@ -17,6 +17,7 @@ class GenerationJobCreate(BaseModel):
     name: str | None = None
     description: str | None = None
     use_cloud: bool | None = None  # None = use default from settings, True = force cloud, False = force local
+    pcdiff_model: str = "best"  # "best" or "latest" - which PCDiff model checkpoint to use
 
 
 class GenerationJobUpdate(BaseModel):
@@ -42,6 +43,7 @@ class GenerationJobRead(BaseModel):
     sampling_method: str
     sampling_steps: int
     num_ensemble: int
+    pcdiff_model: str | None = None  # "best" or "latest"
     output_pc_ids_json: str | None = None
     output_stl_ids_json: str | None = None
     selected_output_id: str | None = None

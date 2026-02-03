@@ -102,6 +102,7 @@ class RunpodService:
         num_ensemble: int = 1,
         sampling_steps: int = 1000,
         output_prefix: str | None = None,
+        pcdiff_model: str = "best",
     ) -> str:
         """
         Submit an async generation job to Runpod using /run endpoint.
@@ -111,6 +112,7 @@ class RunpodService:
             num_ensemble: Number of ensemble samples to generate
             sampling_steps: Number of diffusion steps
             output_prefix: Optional prefix for S3 output keys
+            pcdiff_model: Which PCDiff model to use ("best" or "latest")
 
         Returns:
             Job ID for tracking the request
@@ -124,6 +126,7 @@ class RunpodService:
                 "num_ensemble": num_ensemble,
                 "sampling_steps": sampling_steps,
                 "output_prefix": output_prefix or f"job_{int(time.time())}",
+                "pcdiff_model": pcdiff_model,
             },
             # Set execution timeout to 30 minutes (1800000ms) for DDPM with 1000 steps
             "policy": {
@@ -327,6 +330,7 @@ class RunpodService:
         num_ensemble: int = 1,
         sampling_steps: int = 1000,
         output_prefix: str | None = None,
+        pcdiff_model: str = "best",
     ) -> str:
         """Synchronous wrapper for submit_job."""
         return self._run_async(
@@ -335,6 +339,7 @@ class RunpodService:
                 num_ensemble,
                 sampling_steps,
                 output_prefix,
+                pcdiff_model,
             )
         )
 

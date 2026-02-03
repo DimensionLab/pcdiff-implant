@@ -23,7 +23,7 @@ import {
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useSettings } from '../hooks/useSettings';
 import { pointCloudApi } from '../services/point-cloud-api';
-import type { GenerationJob } from '../types/generation';
+import type { GenerationJob, PcdiffModel } from '../types/generation';
 
 export function ImplantGeneratorPage() {
   const navigate = useNavigate();
@@ -41,6 +41,7 @@ export function ImplantGeneratorPage() {
   const [numEnsemble, setNumEnsemble] = useState(5);
   const [jobName, setJobName] = useState('');
   const [useCloud, setUseCloud] = useState<boolean | null>(null); // null = use default from settings
+  const [pcdiffModel, setPcdiffModel] = useState<PcdiffModel>('best');
 
   // Project creation
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -102,6 +103,7 @@ export function ImplantGeneratorPage() {
         num_ensemble: numEnsemble,
         name: jobName.trim() || undefined,
         use_cloud: useCloud ?? undefined, // null means use default from settings
+        pcdiff_model: pcdiffModel,
       },
       {
         onSuccess: (job) => {
@@ -118,6 +120,7 @@ export function ImplantGeneratorPage() {
     numEnsemble,
     jobName,
     useCloud,
+    pcdiffModel,
     createJob,
     setSearchParams,
   ]);
@@ -395,6 +398,34 @@ export function ImplantGeneratorPage() {
                   />
                   <p style={styles.hint}>
                     Generate multiple implants to compare and select the best one.
+                  </p>
+                </div>
+
+                {/* Model Selection */}
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>PCDiff Model</label>
+                  <div style={styles.radioGroup}>
+                    <label style={styles.radioLabel}>
+                      <input
+                        type="radio"
+                        name="pcdiff_model"
+                        checked={pcdiffModel === 'best'}
+                        onChange={() => setPcdiffModel('best')}
+                      />
+                      <span>Best (Recommended)</span>
+                    </label>
+                    <label style={styles.radioLabel}>
+                      <input
+                        type="radio"
+                        name="pcdiff_model"
+                        checked={pcdiffModel === 'latest'}
+                        onChange={() => setPcdiffModel('latest')}
+                      />
+                      <span>Latest (Experimental)</span>
+                    </label>
+                  </div>
+                  <p style={styles.hint}>
+                    "Best" uses the highest-performing checkpoint. "Latest" uses the most recently trained model.
                   </p>
                 </div>
 

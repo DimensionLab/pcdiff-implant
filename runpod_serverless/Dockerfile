@@ -73,8 +73,9 @@ COPY . /app/
 RUN mkdir -p /app/models
 
 # Copy model checkpoints from the correct locations
-# PCDiff model from pcdiff/checkpoints/
+# PCDiff models from pcdiff/checkpoints/ (both best and latest for model switching)
 COPY pcdiff/checkpoints/model_best.pth /app/models/pcdiff_best.pth
+COPY pcdiff/checkpoints/model_latest.pth /app/models/pcdiff_latest.pth
 
 # Voxelization model from voxelization/checkpoints/
 COPY voxelization/checkpoints/model_best.pt /app/models/voxelization_best.pt

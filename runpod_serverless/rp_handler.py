@@ -49,31 +49,58 @@ sys.path.insert(0, str(PROJECT_ROOT / "voxelization"))
 # Network volume path (Runpod mounts network volumes here)
 NETWORK_VOLUME_PATH = Path("/runpod-volume")
 
+# Available PCDiff model variants
+PCDIFF_MODEL_VARIANTS = {
+    "best": "pcdiff_best.pth",
+    "latest": "pcdiff_latest.pth",
+}
+DEFAULT_PCDIFF_MODEL = "best"
+
 # Model paths with priority: Network Volume > Environment Variable > Embedded
-def get_model_paths():
+def get_model_paths(pcdiff_variant: str = None):
     """
     Determine model paths with priority:
     1. Network Volume (/runpod-volume/models/) - for easy updates
     2. Environment variable override
     3. Embedded in Docker image (/app/models/)
+    
+    Args:
+        pcdiff_variant: Which PCDiff model to use ("best" or "latest"). 
+                       Defaults to "best" if not specified.
     """
+    # Resolve variant
+    if pcdiff_variant is None:
+        pcdiff_variant = DEFAULT_PCDIFF_MODEL
+    
+    if pcdiff_variant not in PCDIFF_MODEL_VARIANTS:
+        print(f"⚠ Unknown PCDiff variant '{pcdiff_variant}', falling back to '{DEFAULT_PCDIFF_MODEL}'")
+        pcdiff_variant = DEFAULT_PCDIFF_MODEL
+    
+    pcdiff_filename = PCDIFF_MODEL_VARIANTS[pcdiff_variant]
+    
     # Network volume paths
-    nv_pcdiff = NETWORK_VOLUME_PATH / "models" / "pcdiff_best.pth"
+    nv_pcdiff = NETWORK_VOLUME_PATH / "models" / pcdiff_filename
     nv_vox = NETWORK_VOLUME_PATH / "models" / "voxelization_best.pt"
     
     # Embedded paths (fallback)
-    embedded_pcdiff = Path("/app/models/pcdiff_best.pth")
+    embedded_pcdiff = Path("/app/models") / pcdiff_filename
     embedded_vox = Path("/app/models/voxelization_best.pt")
     
     # Determine PCDiff model path
     if os.environ.get('PCDIFF_MODEL_PATH'):
         pcdiff_path = Path(os.environ['PCDIFF_MODEL_PATH'])
+        print(f"✓ Using PCDiff model from env override: {pcdiff_path}")
     elif nv_pcdiff.exists():
         pcdiff_path = nv_pcdiff
-        print(f"✓ Using PCDiff model from network volume: {nv_pcdiff}")
-    else:
+        print(f"✓ Using PCDiff model '{pcdiff_variant}' from network volume: {nv_pcdiff}")
+    elif embedded_pcdiff.exists():
         pcdiff_path = embedded_pcdiff
-        print(f"✓ Using embedded PCDiff model: {embedded_pcdiff}")
+        print(f"✓ Using embedded PCDiff model '{pcdiff_variant}': {embedded_pcdiff}")
+    else:
+        # Fallback to best if requested variant not found
+        fallback_path = Path("/app/models/pcdiff_best.pth")
+        print(f"⚠ PCDiff model '{pcdiff_variant}' not found, falling back to: {fallback_path}")
+        pcdiff_path = fallback_path
     
     # Determine Voxelization model path
     if os.environ.get('VOXELIZATION_MODEL_PATH'):
@@ -85,7 +112,7 @@ def get_model_paths():
         vox_path = embedded_vox
         print(f"✓ Using embedded Voxelization model: {embedded_vox}")
     
-    return str(pcdiff_path), str(vox_path)
+    return str(pcdiff_path), str(vox_path), pcdiff_variant
 
 VOXELIZATION_CONFIG_PATH = "/app/voxelization/configs/gen_skullbreak.yaml"
 
@@ -95,6 +122,7 @@ voxelization_model = None
 voxelization_generator = None
 device = None
 current_model_paths = None  # Track which models are loaded
+current_pcdiff_variant = None  # Track which PCDiff variant is loaded
 
 
 def get_s3_client():
@@ -140,17 +168,23 @@ def download_from_s3(s3_url, local_path):
     s3_client.download_file(bucket, key, str(local_path))
 
 
-def load_models():
-    """Load PCDiff and Voxelization models into GPU memory."""
-    global pcdiff_model, voxelization_model, voxelization_generator, device, current_model_paths
+def load_models(pcdiff_variant: str = None):
+    """Load PCDiff and Voxelization models into GPU memory.
+    
+    Args:
+        pcdiff_variant: Which PCDiff model to use ("best" or "latest").
+                       If None, uses the default ("best").
+    """
+    global pcdiff_model, voxelization_model, voxelization_generator, device, current_model_paths, current_pcdiff_variant
     
     print("=" * 60)
     print("Loading models...")
     print("=" * 60)
     
     # Get model paths (with network volume priority)
-    pcdiff_path, vox_path = get_model_paths()
+    pcdiff_path, vox_path, resolved_variant = get_model_paths(pcdiff_variant)
     current_model_paths = (pcdiff_path, vox_path)
+    current_pcdiff_variant = resolved_variant
     
     # Setup device
     if torch.cuda.is_available():
@@ -166,7 +200,7 @@ def load_models():
     if not Path(pcdiff_path).exists():
         raise FileNotFoundError(f"PCDiff model not found: {pcdiff_path}")
     pcdiff_model = load_pcdiff_model(pcdiff_path, device)
-    print("✓ PCDiff model loaded successfully")
+    print(f"✓ PCDiff model '{resolved_variant}' loaded successfully")
     
     # Load Voxelization model
     print(f"\nLoading Voxelization model from: {vox_path}")
@@ -180,7 +214,37 @@ def load_models():
     print("✓ Voxelization model loaded successfully")
     
     print("\n" + "=" * 60)
-    print("All models loaded successfully!")
+    print(f"All models loaded successfully! (PCDiff variant: {resolved_variant})")
+    print("=" * 60)
+
+
+def reload_pcdiff_model(pcdiff_variant: str):
+    """Reload only the PCDiff model with a different variant.
+    
+    This is more efficient than reloading all models when only
+    switching the PCDiff variant.
+    """
+    global pcdiff_model, current_model_paths, current_pcdiff_variant, device
+    
+    if pcdiff_variant not in PCDIFF_MODEL_VARIANTS:
+        raise ValueError(f"Unknown PCDiff variant: {pcdiff_variant}. Available: {list(PCDIFF_MODEL_VARIANTS.keys())}")
+    
+    print(f"\n{'=' * 60}")
+    print(f"Switching PCDiff model from '{current_pcdiff_variant}' to '{pcdiff_variant}'...")
+    print("=" * 60)
+    
+    pcdiff_path, vox_path, resolved_variant = get_model_paths(pcdiff_variant)
+    
+    # Load new PCDiff model
+    print(f"Loading PCDiff model from: {pcdiff_path}")
+    if not Path(pcdiff_path).exists():
+        raise FileNotFoundError(f"PCDiff model not found: {pcdiff_path}")
+    
+    pcdiff_model = load_pcdiff_model(pcdiff_path, device)
+    current_model_paths = (pcdiff_path, current_model_paths[1])
+    current_pcdiff_variant = resolved_variant
+    
+    print(f"✓ PCDiff model '{resolved_variant}' loaded successfully")
     print("=" * 60)
 
 
@@ -423,7 +487,8 @@ def handler(event):
             "input_format": "base64" | "s3_url",
             "num_ensemble": 1,  # optional, default 1
             "sampling_steps": 1000,  # optional, default 1000
-            "output_prefix": "job_123"  # optional, for S3 key prefix
+            "output_prefix": "job_123",  # optional, for S3 key prefix
+            "pcdiff_model": "best" | "latest"  # optional, default "best"
         }
     }
     
@@ -444,21 +509,22 @@ def handler(event):
             "processing_time_seconds": 123.45,
             "num_implant_points": 3072,
             "num_ensemble": 1,
-            "model_source": "network_volume" | "embedded"
+            "model_source": "network_volume" | "embedded",
+            "pcdiff_model_variant": "best" | "latest"
         }
     }
+    
+    Available PCDiff model variants:
+    - "best": The best performing model checkpoint (default)
+    - "latest": The most recently trained model checkpoint
     """
-    global pcdiff_model, voxelization_model, current_model_paths
+    global pcdiff_model, voxelization_model, current_model_paths, current_pcdiff_variant
     
     print(f"Handler started with event: {json.dumps(event, default=str)[:500]}...")
     
     start_time = datetime.now()
     
     try:
-        # Ensure models are loaded
-        if pcdiff_model is None or voxelization_model is None:
-            load_models()
-        
         # Parse input
         job_input = event.get('input', {})
         
@@ -467,6 +533,14 @@ def handler(event):
         num_ensemble = job_input.get('num_ensemble', 1)
         sampling_steps = job_input.get('sampling_steps', 1000)
         output_prefix = job_input.get('output_prefix', str(uuid.uuid4())[:8])
+        requested_pcdiff_model = job_input.get('pcdiff_model', DEFAULT_PCDIFF_MODEL)
+        
+        # Ensure models are loaded
+        if pcdiff_model is None or voxelization_model is None:
+            load_models(pcdiff_variant=requested_pcdiff_model)
+        # Check if we need to switch PCDiff model variant
+        elif current_pcdiff_variant != requested_pcdiff_model:
+            reload_pcdiff_model(requested_pcdiff_model)
         
         if not defective_skull_data:
             return {"error": "Missing 'defective_skull' in input"}
@@ -561,6 +635,8 @@ def handler(event):
                     "mesh_faces": len(faces),
                     "model_source": model_source,
                     "pcdiff_model": current_model_paths[0] if current_model_paths else "unknown",
+                    "pcdiff_model_variant": current_pcdiff_variant,
+                    "available_pcdiff_variants": list(PCDIFF_MODEL_VARIANTS.keys()),
                     "voxelization_model": current_model_paths[1] if current_model_paths else "unknown"
                 }
             }

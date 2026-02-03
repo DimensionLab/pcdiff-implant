@@ -49,6 +49,7 @@ def create_job(
             num_ensemble=body.num_ensemble,
             name=body.name,
             description=body.description,
+            pcdiff_model=body.pcdiff_model,
         )
 
         # Determine whether to use cloud or local execution

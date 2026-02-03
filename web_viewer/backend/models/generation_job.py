@@ -43,6 +43,9 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     )  # "ddim" or "ddpm"
     sampling_steps: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     num_ensemble: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    pcdiff_model: Mapped[Optional[str]] = mapped_column(
+        String(20), default="best", nullable=True
+    )  # "best" or "latest" - which PCDiff model checkpoint to use
 
     # Timing
     queued_at: Mapped[Optional[datetime]] = mapped_column(

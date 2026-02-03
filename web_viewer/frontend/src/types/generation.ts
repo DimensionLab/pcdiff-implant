@@ -2,6 +2,8 @@
  * Types for implant generation jobs.
  */
 
+export type PcdiffModel = 'best' | 'latest';
+
 export interface GenerationJob {
   id: string;
   name: string;
@@ -15,6 +17,7 @@ export interface GenerationJob {
   sampling_method: 'ddim' | 'ddpm';
   sampling_steps: number;
   num_ensemble: number;
+  pcdiff_model?: PcdiffModel;
   output_pc_ids: string[];
   output_stl_ids: string[];
   selected_output_id?: string;
@@ -37,4 +40,5 @@ export interface GenerationJobCreate {
   name?: string;
   description?: string;
   use_cloud?: boolean;  // null = use default from settings, true = force cloud, false = force local
+  pcdiff_model?: PcdiffModel;  // "best" or "latest" - which PCDiff model checkpoint to use
 }

@@ -59,6 +59,7 @@ class GenerationService:
         num_ensemble: int = 5,
         name: str | None = None,
         description: str | None = None,
+        pcdiff_model: str = "best",
     ) -> GenerationJob:
         """Create a new generation job in pending state."""
         # Validate input point cloud exists
@@ -81,6 +82,7 @@ class GenerationService:
             sampling_method=sampling_method,
             sampling_steps=sampling_steps,
             num_ensemble=num_ensemble,
+            pcdiff_model=pcdiff_model,
             queued_at=datetime.now(timezone.utc),
         )
         self.db.add(job)
@@ -645,6 +647,7 @@ class GenerationService:
                 num_ensemble=job.num_ensemble,
                 sampling_steps=job.sampling_steps,
                 output_prefix=job.id,
+                pcdiff_model=job.pcdiff_model or "best",
             )
 
             logger.info(f"Submitted Runpod job: {runpod_job_id}")
