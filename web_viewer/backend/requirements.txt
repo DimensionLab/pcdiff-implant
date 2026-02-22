@@ -20,13 +20,11 @@ scipy>=1.11.0
 trimesh>=4.0.0
 
 # Utilities
-
-# Utilities
 python-json-logger>=2.0.0
 python-dotenv>=1.0.0
 
-# Cloud generation (Runpod)
+# Cloud generation (Runpod) and OpenRouter AI
 httpx>=0.25.0
 
-# AWS S3 (for downloading cloud generation results)
-boto3>=1.34.0
+# PDF generation for case reports
+weasyprint>=60.0

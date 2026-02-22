@@ -4,6 +4,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { NotificationBell } from './components/common/NotificationBell';
 import { NotificationProvider } from './context/NotificationContext';
 import { DataViewerPage } from './pages/DataViewerPage';
+import { DoctorPortalPage } from './pages/DoctorPortalPage';
 import { ImplantCheckerPage } from './pages/ImplantCheckerPage';
 import { ImplantGeneratorPage } from './pages/ImplantGeneratorPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -28,6 +29,7 @@ function App() {
             <div style={rootStyles.pageContent}>
               <Routes>
                 <Route path="/" element={<DataViewerPage />} />
+                <Route path="/portal" element={<DoctorPortalPage />} />
                 <Route path="/generator" element={<ImplantGeneratorPage />} />
                 <Route path="/checker" element={<ImplantCheckerPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
@@ -45,6 +47,7 @@ function NavHeader() {
   const currentPath = location.pathname;
 
   const navItems = [
+    { path: '/portal', label: 'Doctor Portal' },
     { path: '/', label: 'Data Viewer' },
     { path: '/generator', label: 'Implant Generator' },
     { path: '/checker', label: 'Implant Checker' },

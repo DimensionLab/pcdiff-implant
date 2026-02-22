@@ -17,6 +17,7 @@ from web_viewer.backend.schemas.generation_job import (
     GenerationJobCreate,
     GenerationJobRead,
     GenerationJobWithChildren,
+    RevoxelizeJobCreate,
     SelectOutputRequest,
 )
 from web_viewer.backend.services.audit_service import AuditService
@@ -116,6 +117,9 @@ def create_job(
                     name=body.name,
                     description=body.description,
                     pcdiff_model=body.pcdiff_model,
+                    voxelization_resolution=body.voxelization_resolution,
+                    smoothing_iterations=body.smoothing_iterations,
+                    close_holes=body.close_holes,
                 )
                 
                 # Mark parent as running (children will update aggregate status)
@@ -147,6 +151,9 @@ def create_job(
                     name=body.name,
                     description=body.description,
                     pcdiff_model=body.pcdiff_model,
+                    voxelization_resolution=body.voxelization_resolution,
+                    smoothing_iterations=body.smoothing_iterations,
+                    close_holes=body.close_holes,
                 )
                 background_tasks.add_task(service.execute_cloud_generation, job.id)
                 return job
@@ -161,10 +168,72 @@ def create_job(
                 name=body.name,
                 description=body.description,
                 pcdiff_model=body.pcdiff_model,
+                voxelization_resolution=body.voxelization_resolution,
+                smoothing_iterations=body.smoothing_iterations,
+                close_holes=body.close_holes,
             )
             background_tasks.add_task(service.execute_generation, job.id)
             return job
             
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/revoxelize", response_model=GenerationJobRead, status_code=201)
+def create_revoxelization_job(
+    body: RevoxelizeJobCreate,
+    background_tasks: BackgroundTasks,
+    service: GenerationService = Depends(_get_service),
+    settings_service: SettingsService = Depends(_get_settings_service),
+):
+    """Create a re-voxelization job to regenerate mesh from existing implant point cloud.
+    
+    Use this to generate a new STL mesh with a different level of detail (resolution)
+    from an already-generated implant point cloud. This skips the diffusion step
+    and only runs the voxelization/mesh generation part.
+    
+    Resolution options:
+    - 128: Fast, low detail (for previews)
+    - 256: Medium detail
+    - 512: High detail (default, balanced)
+    - 1024: Ultra detail (slower, for final production)
+    
+    Can run locally or in the cloud depending on settings and use_cloud flag.
+    """
+    try:
+        # Create re-voxelization job
+        job = service.create_revoxelization_job(
+            project_id=body.project_id,
+            source_implant_pc_id=body.source_implant_pc_id,
+            input_pc_id=body.input_pc_id,
+            voxelization_resolution=body.voxelization_resolution,
+            name=body.name,
+            description=body.description,
+            smoothing_iterations=body.smoothing_iterations,
+            close_holes=body.close_holes,
+        )
+        
+        # Check if we should use cloud execution
+        cloud_enabled = settings_service.get_value("cloud_generation_enabled", "false").lower() == "true"
+        use_cloud = body.use_cloud if body.use_cloud is not None else cloud_enabled
+        
+        if use_cloud:
+            # Verify cloud is configured
+            endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
+            api_key = settings_service.get_value("runpod_api_key", "")
+            if not endpoint_id or not api_key:
+                logger.warning("Cloud requested but not configured, falling back to local")
+                background_tasks.add_task(service.execute_generation, job.id)
+            else:
+                # Run re-voxelization in cloud
+                logger.info(f"Running re-voxelization in cloud (resolution: {body.voxelization_resolution}³)")
+                background_tasks.add_task(service.execute_cloud_revoxelization, job.id)
+        else:
+            # Run locally
+            background_tasks.add_task(service.execute_generation, job.id)
+        
+        return job
+        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

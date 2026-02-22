@@ -103,6 +103,9 @@ class RunpodService:
         sampling_steps: int = 1000,
         output_prefix: str | None = None,
         pcdiff_model: str = "best",
+        voxelization_resolution: int = 512,
+        smoothing_iterations: int = 0,
+        close_holes: bool = False,
     ) -> str:
         """
         Submit an async generation job to Runpod using /run endpoint.
@@ -113,6 +116,9 @@ class RunpodService:
             sampling_steps: Number of diffusion steps
             output_prefix: Optional prefix for S3 output keys
             pcdiff_model: Which PCDiff model to use ("best" or "latest")
+            voxelization_resolution: PSR grid resolution (128, 256, 512, 1024)
+            smoothing_iterations: Laplacian smoothing iterations (0 = disabled)
+            close_holes: Whether to fill holes in the generated mesh
 
         Returns:
             Job ID for tracking the request
@@ -121,16 +127,20 @@ class RunpodService:
 
         payload = {
             "input": {
+                "job_type": "full",
                 "defective_skull": encoded_data,
                 "input_format": "base64",
                 "num_ensemble": num_ensemble,
                 "sampling_steps": sampling_steps,
+                "voxelization_resolution": voxelization_resolution,
+                "smoothing_iterations": smoothing_iterations,
+                "close_holes": close_holes,
                 "output_prefix": output_prefix or f"job_{int(time.time())}",
                 "pcdiff_model": pcdiff_model,
             },
-            # Set execution timeout to 30 minutes (1800000ms) for DDPM with 1000 steps
+            # Set execution timeout to 60 minutes (3600000ms) for DDPM with 1000 steps
             "policy": {
-                "executionTimeout": 1800000,
+                "executionTimeout": 3600000,
             }
         }
 
@@ -160,6 +170,77 @@ class RunpodService:
                 raise RunpodError(f"No job ID in response: {result}")
 
             logger.info(f"Submitted Runpod job: {job_id} (status: {status})")
+            return job_id
+
+    async def submit_revoxelization_job(
+        self,
+        implant_points: np.ndarray,
+        defective_skull_points: np.ndarray,
+        voxelization_resolution: int = 512,
+        output_prefix: str | None = None,
+        smoothing_iterations: int = 0,
+        close_holes: bool = False,
+    ) -> str:
+        """
+        Submit a re-voxelization job to Runpod (mesh generation only, no diffusion).
+
+        Args:
+            implant_points: Existing implant point cloud (N, 3)
+            defective_skull_points: Defective skull point cloud (M, 3)
+            voxelization_resolution: PSR grid resolution (128, 256, 512, 1024)
+            output_prefix: Optional prefix for S3 output keys
+            smoothing_iterations: Laplacian smoothing iterations (0 = disabled)
+            close_holes: Whether to fill holes in the generated mesh
+
+        Returns:
+            Job ID for tracking the request
+        """
+        encoded_implant = self._encode_point_cloud(implant_points)
+        encoded_defective = self._encode_point_cloud(defective_skull_points)
+
+        payload = {
+            "input": {
+                "job_type": "revoxelize",
+                "implant_points": encoded_implant,
+                "defective_skull": encoded_defective,
+                "input_format": "base64",
+                "voxelization_resolution": voxelization_resolution,
+                "smoothing_iterations": smoothing_iterations,
+                "close_holes": close_holes,
+                "output_prefix": output_prefix or f"revox_{int(time.time())}",
+            },
+            # Re-voxelization is fast, 5 minute timeout should be plenty
+            "policy": {
+                "executionTimeout": 300000,
+            }
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.base_url}/run",
+                headers=self._get_headers(),
+                json=payload,
+            )
+
+            if response.status_code == 401:
+                raise RunpodError("Invalid API key - check your Runpod API key")
+            if response.status_code == 404:
+                raise RunpodError(f"Endpoint not found: {self.endpoint_id}")
+            if response.status_code == 429:
+                raise RunpodError("Rate limited - too many requests")
+            if response.status_code != 200:
+                raise RunpodError(
+                    f"Failed to submit revox job: {response.status_code} - {response.text}"
+                )
+
+            result = response.json()
+            job_id = result.get("id")
+            status = result.get("status")
+
+            if not job_id:
+                raise RunpodError(f"No job ID in response: {result}")
+
+            logger.info(f"Submitted Runpod re-voxelization job: {job_id} (status: {status}, resolution: {voxelization_resolution})")
             return job_id
 
     async def get_job_status(self, job_id: str) -> dict:
@@ -339,6 +420,9 @@ class RunpodService:
         sampling_steps: int = 1000,
         output_prefix: str | None = None,
         pcdiff_model: str = "best",
+        voxelization_resolution: int = 512,
+        smoothing_iterations: int = 0,
+        close_holes: bool = False,
     ) -> str:
         """Synchronous wrapper for submit_job."""
         return self._run_async(
@@ -348,6 +432,9 @@ class RunpodService:
                 sampling_steps,
                 output_prefix,
                 pcdiff_model,
+                voxelization_resolution,
+                smoothing_iterations,
+                close_holes,
             )
         )
 

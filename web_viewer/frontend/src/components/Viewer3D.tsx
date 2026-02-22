@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid } from '@react-three/drei';
+import { TrackballControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface PointCloudProps {
@@ -98,11 +98,17 @@ export const Viewer3D = ({
         <axesHelper args={[1]} />
 
         {/* Camera Controls */}
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.05}
+        <TrackballControls
+          rotateSpeed={2}
+          zoomSpeed={1.2}
+          panSpeed={0.8}
           minDistance={0.5}
           maxDistance={10}
+          noPan={false}
+          noRotate={false}
+          noZoom={false}
+          staticMoving={false}
+          dynamicDampingFactor={0.05}
         />
       </Canvas>
     </div>

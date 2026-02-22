@@ -19,11 +19,12 @@ import {
   useCancelJob,
   useSelectOutput,
   useDeleteUnselectedOutputs,
+  useCreateRevoxelizationJob,
 } from '../hooks/useGeneration';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useSettings } from '../hooks/useSettings';
 import { pointCloudApi } from '../services/point-cloud-api';
-import type { GenerationJob, GenerationJobWithChildren, PcdiffModel } from '../types/generation';
+import type { GenerationJob, GenerationJobWithChildren, PcdiffModel, VoxelizationResolution } from '../types/generation';
 
 export function ImplantGeneratorPage() {
   const navigate = useNavigate();
@@ -42,10 +43,22 @@ export function ImplantGeneratorPage() {
   const [jobName, setJobName] = useState('');
   const [useCloud, setUseCloud] = useState<boolean | null>(null); // null = use default from settings
   const [pcdiffModel, setPcdiffModel] = useState<PcdiffModel>('best');
+  const [voxelResolution, setVoxelResolution] = useState<VoxelizationResolution>(512);
 
   // Project creation
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+
+  // Mesh post-processing
+  const [smoothingIterations, setSmoothingIterations] = useState(0);
+  const [closeHoles, setCloseHoles] = useState(false);
+
+  // Re-voxelization
+  const [showRevoxPanel, setShowRevoxPanel] = useState(false);
+  const [revoxResolution, setRevoxResolution] = useState<VoxelizationResolution>(512);
+  const [revoxSmoothing, setRevoxSmoothing] = useState(0);
+  const [revoxCloseHoles, setRevoxCloseHoles] = useState(false);
+  const [useCloudRevox, setUseCloudRevox] = useState<boolean | null>(null); // null = use default
 
   // Settings for cloud generation
   const { data: appSettings } = useSettings();
@@ -75,6 +88,7 @@ export function ImplantGeneratorPage() {
   const cancelJob = useCancelJob();
   const selectOutput = useSelectOutput();
   const deleteUnselected = useDeleteUnselectedOutputs();
+  const createRevoxJob = useCreateRevoxelizationJob();
 
   // Handlers
   const handleCreateProject = useCallback(() => {
@@ -104,6 +118,9 @@ export function ImplantGeneratorPage() {
         name: jobName.trim() || undefined,
         use_cloud: useCloud ?? undefined, // null means use default from settings
         pcdiff_model: pcdiffModel,
+        voxelization_resolution: voxelResolution,
+        smoothing_iterations: smoothingIterations,
+        close_holes: closeHoles,
       },
       {
         onSuccess: (job) => {
@@ -146,6 +163,29 @@ export function ImplantGeneratorPage() {
     if (!selectedJobId) return;
     deleteUnselected.mutate(selectedJobId);
   }, [selectedJobId, deleteUnselected]);
+
+  const handleStartRevoxelization = useCallback(() => {
+    if (!selectedJob || !selectedJob.selected_output_id || !selectedProjectId) return;
+    createRevoxJob.mutate(
+      {
+        project_id: selectedProjectId,
+        source_implant_pc_id: selectedJob.selected_output_id,
+        input_pc_id: selectedJob.input_pc_id,
+        voxelization_resolution: revoxResolution,
+        name: `${selectedJob.name} - Revox ${revoxResolution}³`,
+        use_cloud: useCloudRevox,
+        smoothing_iterations: revoxSmoothing,
+        close_holes: revoxCloseHoles,
+      },
+      {
+        onSuccess: (job) => {
+          setSelectedJobId(job.id);
+          setSearchParams({ job: job.id });
+          setShowRevoxPanel(false);
+        },
+      },
+    );
+  }, [selectedJob, selectedProjectId, revoxResolution, useCloudRevox, createRevoxJob, setSearchParams]);
 
   const handleViewInChecker = useCallback(() => {
     navigate('/checker');
@@ -429,6 +469,63 @@ export function ImplantGeneratorPage() {
                   </p>
                 </div>
 
+                {/* Voxelization Resolution */}
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Mesh Detail Level</label>
+                  <select
+                    value={voxelResolution}
+                    onChange={(e) => setVoxelResolution(Number(e.target.value) as VoxelizationResolution)}
+                    style={styles.select}
+                  >
+                    <option value={128}>Low (128³) - Fast preview</option>
+                    <option value={256}>Medium (256³) - Balanced</option>
+                    <option value={512}>High (512³) - Recommended</option>
+                    <option value={1024}>Ultra (1024³) - Production quality</option>
+                  </select>
+                  <p style={styles.hint}>
+                    Higher detail takes longer but produces finer mesh geometry.
+                    You can re-voxelize later with a different resolution.
+                  </p>
+                </div>
+
+                {/* Mesh Post-Processing */}
+                <div style={styles.postProcessSection}>
+                  <label style={styles.label}>Mesh Post-Processing</label>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>
+                      Smoothing: {smoothingIterations === 0 ? 'Off' : `${smoothingIterations} iterations`}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={smoothingIterations}
+                      onChange={(e) => setSmoothingIterations(Number(e.target.value))}
+                      style={styles.slider}
+                    />
+                    <p style={styles.hint}>
+                      Laplacian smoothing reduces surface noise. Higher values produce a smoother implant.
+                    </p>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.checkboxLabel}>
+                      <input
+                        type="checkbox"
+                        checked={closeHoles}
+                        onChange={(e) => setCloseHoles(e.target.checked)}
+                        style={styles.checkbox}
+                      />
+                      <span>Close holes (repair mesh)</span>
+                    </label>
+                    <p style={styles.hint}>
+                      Fills holes and fixes normals to produce a watertight mesh suitable for 3D printing.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Cloud Generation Toggle */}
                 <div style={styles.cloudToggle}>
                   <label style={styles.cloudToggleLabel}>
@@ -630,6 +727,100 @@ export function ImplantGeneratorPage() {
                     </button>
                   )}
               </div>
+
+              {/* Re-voxelization Section */}
+              {selectedJob.selected_output_id && (
+                <div style={styles.revoxSection}>
+                  <h3 style={styles.subsectionTitle}>Re-voxelize with Different Resolution</h3>
+                  <p style={styles.hint}>
+                    Generate a new mesh from the selected implant point cloud with a different level of detail.
+                  </p>
+                  
+                  {!showRevoxPanel ? (
+                    <button
+                      onClick={() => setShowRevoxPanel(true)}
+                      style={styles.revoxButton}
+                    >
+                      Create New Mesh Resolution
+                    </button>
+                  ) : (
+                    <div style={styles.revoxPanel}>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>New Resolution</label>
+                        <select
+                          value={revoxResolution}
+                          onChange={(e) => setRevoxResolution(Number(e.target.value) as VoxelizationResolution)}
+                          style={styles.select}
+                        >
+                          <option value={128}>Low (128³) - Fast preview</option>
+                          <option value={256}>Medium (256³) - Balanced</option>
+                          <option value={512}>High (512³) - Recommended</option>
+                          <option value={1024}>Ultra (1024³) - Production quality</option>
+                        </select>
+                        <p style={styles.hint}>
+                          Current mesh was generated at {selectedJob.voxelization_resolution}³ resolution.
+                        </p>
+                      </div>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>
+                          Smoothing: {revoxSmoothing === 0 ? 'Off' : `${revoxSmoothing} iterations`}
+                        </label>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={revoxSmoothing}
+                          onChange={(e) => setRevoxSmoothing(Number(e.target.value))}
+                          style={styles.slider}
+                        />
+                      </div>
+                      <div style={styles.formGroup}>
+                        <label style={styles.checkboxLabel}>
+                          <input
+                            type="checkbox"
+                            checked={revoxCloseHoles}
+                            onChange={(e) => setRevoxCloseHoles(e.target.checked)}
+                            style={styles.checkbox}
+                          />
+                          <span>Close holes (repair mesh)</span>
+                        </label>
+                      </div>
+                      {cloudConfigured && (
+                        <div style={styles.formGroup}>
+                          <label style={styles.checkboxLabel}>
+                            <input
+                              type="checkbox"
+                              checked={useCloudRevox ?? appSettings?.cloud_generation_enabled ?? false}
+                              onChange={(e) => setUseCloudRevox(e.target.checked)}
+                              style={styles.checkbox}
+                            />
+                            <span>Use Cloud GPU</span>
+                          </label>
+                          <p style={styles.hint}>
+                            Run re-voxelization on cloud GPU for faster processing at high resolutions.
+                          </p>
+                        </div>
+                      )}
+                      <div style={styles.revoxActions}>
+                        <button
+                          onClick={handleStartRevoxelization}
+                          disabled={createRevoxJob.isPending}
+                          style={styles.startRevoxButton}
+                        >
+                          {createRevoxJob.isPending ? 'Starting...' : 'Start Re-voxelization'}
+                        </button>
+                        <button
+                          onClick={() => setShowRevoxPanel(false)}
+                          style={styles.cancelRevoxButton}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -927,6 +1118,23 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '6px',
     fontSize: '13px',
     color: '#ccc',
+  },
+  postProcessSection: {
+    padding: '12px',
+    background: 'rgba(16, 185, 129, 0.08)',
+    borderRadius: '6px',
+    border: '1px solid rgba(16, 185, 129, 0.2)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  checkboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
+    color: '#ccc',
+    cursor: 'pointer',
   },
   cloudToggle: {
     padding: '12px',
@@ -1243,5 +1451,50 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  // Re-voxelization styles
+  revoxSection: {
+    marginTop: '24px',
+    paddingTop: '24px',
+    borderTop: '1px solid #333',
+  },
+  revoxButton: {
+    padding: '10px 20px',
+    background: '#374151',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
+  },
+  revoxPanel: {
+    background: '#111',
+    padding: '16px',
+    borderRadius: '8px',
+    marginTop: '12px',
+  },
+  revoxActions: {
+    display: 'flex',
+    gap: '12px',
+    marginTop: '12px',
+  },
+  startRevoxButton: {
+    padding: '10px 20px',
+    background: '#7c3aed',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  cancelRevoxButton: {
+    padding: '10px 20px',
+    background: 'transparent',
+    color: '#aaa',
+    border: '1px solid #444',
+    borderRadius: '6px',
+    fontSize: '13px',
+    cursor: 'pointer',
   },
 };

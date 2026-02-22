@@ -84,10 +84,10 @@ trap cleanup EXIT INT TERM
 
 # Start backend in background
 echo ""
-echo "Starting backend on http://localhost:8080..."
+echo "Starting backend on http://localhost:8081..."
 cd "$SCRIPT_DIR/backend"
 export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
-python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8080 &
+python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8081 &
 BACKEND_PID=$!
 
 # Wait for backend to start
@@ -102,9 +102,9 @@ FRONTEND_PID=$!
 echo ""
 echo "================================"
 echo "Development servers started!"
-echo "Backend:  http://localhost:8080"
+echo "Backend:  http://localhost:8081"
 echo "Frontend: http://localhost:5173"
-echo "API docs: http://localhost:8080/docs"
+echo "API docs: http://localhost:8081/docs"
 echo "================================"
 echo ""
 echo "Press Ctrl+C to stop both servers"

@@ -6,7 +6,7 @@
  * - getJob() returns GenerationJobWithChildren including child_jobs array
  */
 import { apiV1 } from './api-v1';
-import type { GenerationJob, GenerationJobCreate, GenerationJobWithChildren } from '../types/generation';
+import type { GenerationJob, GenerationJobCreate, GenerationJobWithChildren, RevoxelizeJobCreate } from '../types/generation';
 
 export const generationApi = {
   /** Create a new generation job and queue it for execution.
@@ -66,5 +66,21 @@ export const generationApi = {
   /** Delete all unselected outputs from a completed job */
   async deleteUnselectedOutputs(jobId: string): Promise<void> {
     await apiV1.delete(`/generation-jobs/${jobId}/unselected-outputs`);
+  },
+
+  /** Create a re-voxelization job to regenerate mesh with different resolution.
+   * 
+   * Use this to generate a new STL mesh with a different level of detail
+   * from an already-generated implant point cloud.
+   * 
+   * Resolution options:
+   * - 128: Fast, low detail (for previews)
+   * - 256: Medium detail
+   * - 512: High detail (default, balanced)
+   * - 1024: Ultra detail (slower, for final production)
+   */
+  async createRevoxelizationJob(body: RevoxelizeJobCreate): Promise<GenerationJob> {
+    const { data } = await apiV1.post<GenerationJob>('/generation-jobs/revoxelize', body);
+    return data;
   },
 };

@@ -40,12 +40,14 @@ from web_viewer.backend.middleware.audit_middleware import AuditMiddleware
 # Import routers
 from web_viewer.backend.routers import (
     audit,
+    case_reports,
     color_profiles,
     filesystem,
     fit_metrics,
     generation_jobs,
     legacy,
     notifications,
+    patients,
     point_clouds,
     projects,
     scans,
@@ -110,6 +112,9 @@ def create_app() -> FastAPI:
     app.include_router(viewer.router)
     app.include_router(audit.router)
     app.include_router(filesystem.router)
+    # Doctor portal routers
+    app.include_router(patients.router)
+    app.include_router(case_reports.router)
 
     # Legacy endpoints (backward compatibility)
     app.include_router(legacy.router)

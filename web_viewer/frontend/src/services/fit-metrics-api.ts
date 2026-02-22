@@ -1,6 +1,6 @@
 import { apiV1 } from './api-v1';
 import type { FitMetricsResult, FitMetricsRequest, SkullImplantPair } from '../types/checker';
-import type { Project, ProjectCreate } from '../types/project';
+import type { Project, ProjectCreate, ProjectUpdate } from '../types/project';
 import type { PointCloud } from '../types/point-cloud';
 
 export const fitMetricsApi = {
@@ -45,6 +45,11 @@ export const projectApi = {
 
   async create(body: ProjectCreate): Promise<Project> {
     const { data } = await apiV1.post<Project>('/projects/', body);
+    return data;
+  },
+
+  async update(id: string, body: ProjectUpdate): Promise<Project> {
+    const { data } = await apiV1.put<Project>(`/projects/${id}`, body);
     return data;
   },
 

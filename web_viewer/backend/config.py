@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # Server settings
     host: str = "0.0.0.0"
-    port: int = 8080
+    port: int = 8081
 
     # Directory paths
     project_root: Path = Path(__file__).parent.parent.parent

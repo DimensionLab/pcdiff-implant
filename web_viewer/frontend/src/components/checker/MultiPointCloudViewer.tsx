@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid } from '@react-three/drei';
+import { TrackballControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { useMultiPointCloudData } from '../../hooks/useMultiPointCloudData';
 import { MeshLayer } from './MeshLayer';
@@ -148,11 +148,17 @@ export function MultiPointCloudViewer({
         )}
         {showAxes && <axesHelper args={[r * 0.5]} />}
 
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.1}
+        <TrackballControls
+          rotateSpeed={2}
+          zoomSpeed={1.2}
+          panSpeed={0.8}
           minDistance={r * 0.05}
           maxDistance={r * 10}
+          noPan={false}
+          noRotate={false}
+          noZoom={false}
+          staticMoving={false}
+          dynamicDampingFactor={0.1}
         />
       </Canvas>
 

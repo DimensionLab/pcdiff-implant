@@ -293,8 +293,8 @@ def load_pcdiff_model(model_path, device):
     return model
 
 
-def load_voxelization_model(model_path, config_path, device):
-    """Load the voxelization model."""
+def load_voxelization_model(model_path, config_path, device, resolution=512):
+    """Load the voxelization model with configurable resolution."""
     from voxelization.src.model import Encode2Points
     from voxelization.src.utils import load_config, load_model_manual
     from voxelization.src import config as vox_config
@@ -304,6 +304,10 @@ def load_voxelization_model(model_path, config_path, device):
     cfg = load_config(config_path, default_config)
     cfg['test']['model_file'] = model_path
     
+    # Set voxelization resolution
+    cfg['generation']['psr_resolution'] = resolution
+    cfg['generation']['psr_sigma'] = 2 if resolution >= 512 else 1
+    
     # Load model
     model = Encode2Points(cfg).to(device)
     # weights_only=False is needed for PyTorch 2.6+ as checkpoints contain numpy arrays
@@ -311,10 +315,34 @@ def load_voxelization_model(model_path, config_path, device):
     load_model_manual(state_dict['state_dict'], model)
     model.eval()
     
-    # Get generator
+    # Get generator with custom resolution
     generator = vox_config.get_generator(model, cfg, device=device)
     
     return model, generator
+
+
+# Cache for voxelization generators at different resolutions
+voxelization_generators_cache = {}
+
+
+def get_voxelization_generator(resolution=512):
+    """Get or create a voxelization generator for a specific resolution."""
+    global voxelization_generators_cache, device
+    
+    if resolution in voxelization_generators_cache:
+        print(f"Using cached voxelization generator (resolution: {resolution}³)")
+        return voxelization_generators_cache[resolution]
+    
+    print(f"Creating voxelization generator (resolution: {resolution}³)")
+    _, vox_path, _ = get_model_paths()
+    _, generator = load_voxelization_model(
+        vox_path, 
+        VOXELIZATION_CONFIG_PATH,
+        device,
+        resolution=resolution
+    )
+    voxelization_generators_cache[resolution] = generator
+    return generator
 
 
 def run_pcdiff_inference(input_points, num_ens=1, sampling_steps=1000):
@@ -370,9 +398,19 @@ def run_pcdiff_inference(input_points, num_ens=1, sampling_steps=1000):
     return implant_world, input_points, shift, scale, implant_normalized
 
 
-def run_voxelization(implant_points, defective_points, implant_points_normalized):
-    """Run voxelization to convert point cloud to mesh."""
-    global voxelization_generator, device
+def run_voxelization(implant_points, defective_points, implant_points_normalized, resolution=512):
+    """Run voxelization to convert point cloud to mesh.
+    
+    Args:
+        implant_points: World-space implant points (num_ensemble, N, 3)
+        defective_points: World-space defective skull points (M, 3)
+        implant_points_normalized: Normalized implant points (num_ensemble, N, 3)
+        resolution: PSR grid resolution (128, 256, 512, or 1024)
+    """
+    global device
+    
+    # Get generator for this resolution
+    generator = get_voxelization_generator(resolution)
     
     # Get first ensemble sample
     implant_pc = implant_points[0]
@@ -383,22 +421,25 @@ def run_voxelization(implant_points, defective_points, implant_points_normalized
     implant_pc_normalized = implant_pc_normalized.astype(np.float32)
     combined_points = np.concatenate([defective_normalized, implant_pc_normalized], axis=0).astype(np.float32)
     
+    print(f"Voxelization input: {len(defective_normalized)} defective + {len(implant_pc_normalized)} implant = {len(combined_points)} total (resolution: {resolution}³)")
+    
     # Convert to torch
     inputs = torch.from_numpy(combined_points).float().unsqueeze(0).to(device)
     
     # Generate mesh
     with torch.no_grad():
-        vertices, faces, points, normals, psr_grid = voxelization_generator.generate_mesh(inputs)
+        vertices, faces, points, normals, psr_grid = generator.generate_mesh(inputs)
     
     # Convert PSR grid to binary volume
     psr_grid_np = psr_grid.detach().cpu().numpy()[0, :, :, :]
-    volume_complete = np.zeros((512, 512, 512), dtype=np.uint8)
+    grid_shape = psr_grid_np.shape  # matches resolution³
+    volume_complete = np.zeros(grid_shape, dtype=np.uint8)
     volume_complete[psr_grid_np <= 0] = 1
     
     # Generate volume for defective skull alone for boolean subtraction
     defective_tensor = torch.from_numpy(defective_normalized).float().unsqueeze(0).to(device)
     with torch.no_grad():
-        _, _, _, _, psr_defective = voxelization_generator.generate_mesh(defective_tensor)
+        _, _, _, _, psr_defective = generator.generate_mesh(defective_tensor)
     psr_defective_np = psr_defective.detach().cpu().numpy()[0, :, :, :]
     volume_defective = np.zeros_like(volume_complete)
     volume_defective[psr_defective_np <= 0] = 1
@@ -411,8 +452,105 @@ def run_voxelization(implant_points, defective_points, implant_points_normalized
     return vertices, faces, volume_complete, volume_implant, implant_pc
 
 
+def run_revoxelization_only(implant_points_world, defective_points_world, resolution=512):
+    """Run voxelization only on existing implant point cloud.
+    
+    This skips PCDiff inference and only runs voxelization with custom resolution.
+    Used for re-generating mesh with different detail level from existing point cloud.
+    
+    Args:
+        implant_points_world: World-space implant points (N, 3)
+        defective_points_world: World-space defective skull points (M, 3)
+        resolution: PSR grid resolution (128, 256, 512, or 1024)
+        
+    Returns:
+        vertices, faces, volume_complete, volume_implant, implant_pc
+    """
+    global device
+    
+    # Get generator for this resolution
+    generator = get_voxelization_generator(resolution)
+    
+    # Compute normalization from combined bounding box
+    all_points = np.concatenate([defective_points_world, implant_points_world], axis=0)
+    bbox_min = all_points.min(axis=0)
+    bbox_max = all_points.max(axis=0)
+    center = (bbox_min + bbox_max) / 2
+    scale = (bbox_max - bbox_min).max()
+    shift = center - 0.5 * scale
+    
+    # Normalize both point clouds to [0, 1]
+    defective_normalized = ((defective_points_world - shift) / scale).astype(np.float32)
+    implant_normalized = ((implant_points_world - shift) / scale).astype(np.float32)
+    
+    combined_points = np.concatenate([defective_normalized, implant_normalized], axis=0).astype(np.float32)
+    
+    print(f"Re-voxelization input: {len(defective_normalized)} defective + {len(implant_normalized)} implant = {len(combined_points)} total (resolution: {resolution}³)")
+    
+    # Convert to torch
+    inputs = torch.from_numpy(combined_points).float().unsqueeze(0).to(device)
+    
+    # Generate mesh
+    with torch.no_grad():
+        vertices, faces, points, normals, psr_grid = generator.generate_mesh(inputs)
+    
+    # Scale vertices back to world space
+    vertices_world = vertices * scale + shift
+    
+    # Convert PSR grid to binary volume
+    psr_grid_np = psr_grid.detach().cpu().numpy()[0, :, :, :]
+    grid_shape = psr_grid_np.shape  # matches resolution³
+    volume_complete = np.zeros(grid_shape, dtype=np.uint8)
+    volume_complete[psr_grid_np <= 0] = 1
+    
+    # Generate volume for defective skull alone for boolean subtraction
+    defective_tensor = torch.from_numpy(defective_normalized).float().unsqueeze(0).to(device)
+    with torch.no_grad():
+        _, _, _, _, psr_defective = generator.generate_mesh(defective_tensor)
+    psr_defective_np = psr_defective.detach().cpu().numpy()[0, :, :, :]
+    volume_defective = np.zeros_like(volume_complete)
+    volume_defective[psr_defective_np <= 0] = 1
+    
+    volume_implant = np.clip(
+        volume_complete.astype(np.int16) - volume_defective.astype(np.int16), 
+        0, 1
+    ).astype(np.uint8)
+    
+    return vertices_world, faces, volume_complete, volume_implant, implant_points_world, shift, scale
+
+
+def postprocess_mesh(mesh, smoothing_iterations=0, close_holes=False):
+    """Apply post-processing to a trimesh mesh.
+    
+    Args:
+        mesh: trimesh.Trimesh object
+        smoothing_iterations: Laplacian smoothing iterations (0 = disabled, 1-100)
+        close_holes: Whether to fill holes and repair the mesh
+        
+    Returns:
+        Processed trimesh.Trimesh (modified in-place and returned)
+    """
+    import trimesh
+    
+    if close_holes:
+        print(f"Closing holes in mesh ({len(mesh.vertices)} verts, {len(mesh.faces)} faces)")
+        trimesh.repair.fill_holes(mesh)
+        trimesh.repair.fix_winding(mesh)
+        trimesh.repair.fix_normals(mesh)
+        print(f"After hole closing: {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
+    
+    if smoothing_iterations > 0:
+        iterations = max(1, min(smoothing_iterations, 100))
+        print(f"Smoothing mesh ({iterations} iterations)")
+        trimesh.smoothing.filter_laplacian(mesh, lamb=0.5, iterations=iterations)
+        print(f"After smoothing: {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
+    
+    return mesh
+
+
 def export_results(output_dir, vertices, faces, volume_complete, volume_implant, 
-                   implant_pc, defective_points, shift, scale, implant_points_normalized):
+                   implant_pc, defective_points, shift, scale, implant_points_normalized,
+                   smoothing_iterations=0, close_holes=False):
     """Export all output formats to output directory."""
     import trimesh
     import nrrd
@@ -444,6 +582,10 @@ def export_results(output_dir, vertices, faces, volume_complete, volume_implant,
     # 3. Try to create implant mesh from convex hull
     try:
         implant_mesh = implant_cloud.convex_hull
+        
+        # Apply post-processing to implant mesh
+        implant_mesh = postprocess_mesh(implant_mesh, smoothing_iterations=smoothing_iterations, close_holes=close_holes)
+        
         ply_path = output_dir / 'implant_only.ply'
         implant_mesh.export(str(ply_path))
         results['implant_only_ply'] = ply_path
@@ -480,43 +622,48 @@ def handler(event):
     """
     Runpod Serverless Handler Function
     
-    Input format:
+    Supports two job types:
+    
+    1. FULL GENERATION (job_type: "full" or omitted):
     {
         "input": {
+            "job_type": "full",  # optional, default
             "defective_skull": <base64 encoded .npy file OR S3 URL>,
             "input_format": "base64" | "s3_url",
             "num_ensemble": 1,  # optional, default 1
             "sampling_steps": 1000,  # optional, default 1000
+            "voxelization_resolution": 512,  # optional, default 512
             "output_prefix": "job_123",  # optional, for S3 key prefix
             "pcdiff_model": "best" | "latest"  # optional, default "best"
         }
     }
     
-    Output format:
+    2. RE-VOXELIZATION ONLY (job_type: "revoxelize"):
     {
-        "status": "success",
-        "results": {
-            "skull_complete_ply": "https://...",
-            "skull_complete_stl": "https://...",
-            "implant_only_ply": "https://...",
-            "implant_only_stl": "https://...",
-            "implant_pc_ply": "https://...",
-            "skull_complete_nrrd": "https://...",
-            "implant_volume_nrrd": "https://...",
-            "implant_npy": "https://..."
-        },
-        "metadata": {
-            "processing_time_seconds": 123.45,
-            "num_implant_points": 3072,
-            "num_ensemble": 1,
-            "model_source": "network_volume" | "embedded",
-            "pcdiff_model_variant": "best" | "latest"
+        "input": {
+            "job_type": "revoxelize",
+            "implant_points": <base64 encoded .npy file>,  # existing implant point cloud
+            "defective_skull": <base64 encoded .npy file>,  # defective skull for combined vox
+            "input_format": "base64",
+            "voxelization_resolution": 1024,  # new resolution
+            "output_prefix": "revox_123"
         }
     }
     
-    Available PCDiff model variants:
-    - "best": The best performing model checkpoint (default)
-    - "latest": The most recently trained model checkpoint
+    Output format (both job types):
+    {
+        "status": "success",
+        "results": {
+            "implant_only_stl": "https://...",
+            "implant_npy": "https://..."  # only for full generation
+        },
+        "metadata": {
+            "processing_time_seconds": 123.45,
+            "job_type": "full" | "revoxelize",
+            "voxelization_resolution": 512,
+            ...
+        }
+    }
     """
     global pcdiff_model, voxelization_model, current_model_paths, current_pcdiff_variant
     
@@ -527,119 +674,217 @@ def handler(event):
     try:
         # Parse input
         job_input = event.get('input', {})
-        
-        defective_skull_data = job_input.get('defective_skull')
+        job_type = job_input.get('job_type', 'full')
         input_format = job_input.get('input_format', 'base64')
-        num_ensemble = job_input.get('num_ensemble', 1)
-        sampling_steps = job_input.get('sampling_steps', 1000)
         output_prefix = job_input.get('output_prefix', str(uuid.uuid4())[:8])
-        requested_pcdiff_model = job_input.get('pcdiff_model', DEFAULT_PCDIFF_MODEL)
+        voxelization_resolution = job_input.get('voxelization_resolution', 512)
+        smoothing_iterations = job_input.get('smoothing_iterations', 0)
+        close_holes = job_input.get('close_holes', False)
         
-        # Ensure models are loaded
-        if pcdiff_model is None or voxelization_model is None:
-            load_models(pcdiff_variant=requested_pcdiff_model)
-        # Check if we need to switch PCDiff model variant
-        elif current_pcdiff_variant != requested_pcdiff_model:
-            reload_pcdiff_model(requested_pcdiff_model)
-        
-        if not defective_skull_data:
-            return {"error": "Missing 'defective_skull' in input"}
+        # Validate resolution
+        valid_resolutions = [128, 256, 512, 1024]
+        if voxelization_resolution not in valid_resolutions:
+            return {"error": f"Invalid voxelization_resolution: {voxelization_resolution}. Valid: {valid_resolutions}"}
         
         # Create temp directory for this job
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_dir = Path(temp_dir)
-            input_path = temp_dir / 'input.npy'
             output_dir = temp_dir / 'output'
             output_dir.mkdir()
             
-            # Load input point cloud
-            if input_format == 'base64':
-                # Decode base64 to numpy file
-                npy_bytes = base64.b64decode(defective_skull_data)
-                with open(input_path, 'wb') as f:
-                    f.write(npy_bytes)
-            elif input_format == 's3_url':
-                # Download from S3
-                download_from_s3(defective_skull_data, input_path)
-            else:
-                return {"error": f"Unknown input_format: {input_format}"}
-            
-            # Load point cloud
-            input_points = np.load(str(input_path))
-            if len(input_points.shape) == 3:
-                input_points = input_points[0]
-            
-            print(f"Loaded input point cloud: {input_points.shape}")
-            
-            # Step 1: Run PCDiff
-            print("Running PCDiff inference...")
-            implant_points, defective_points, shift, scale, implant_normalized = run_pcdiff_inference(
-                input_points, 
-                num_ens=num_ensemble,
-                sampling_steps=sampling_steps
-            )
-            print(f"Generated implant: {implant_points.shape}")
-            
-            # Step 2: Run Voxelization
-            print("Running voxelization...")
-            vertices, faces, volume_complete, volume_implant, implant_pc = run_voxelization(
-                implant_points, defective_points, implant_normalized
-            )
-            print(f"Generated mesh: {len(vertices)} vertices, {len(faces)} faces")
-            
-            # Step 3: Export results
-            print("Exporting results...")
-            local_results = export_results(
-                output_dir, vertices, faces, volume_complete, volume_implant,
-                implant_pc, defective_points, shift, scale, implant_normalized
-            )
-            
-            # Step 4: Upload to S3 (only the files needed by frontend)
-            print("Uploading to S3...")
-            s3_results = {}
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            
-            # Only upload the files that the frontend expects:
-            # - implant_npy: Generated implant point cloud
-            # - implant_only_stl: Generated implant mesh
-            required_outputs = ['implant_npy', 'implant_only_stl']
-            
-            for key, local_path in local_results.items():
-                if key not in required_outputs:
-                    print(f"  Skipping {key} (not required by frontend)")
-                    continue
-                    
-                s3_key = f"inference_results/{output_prefix}/{timestamp}/{local_path.name}"
-                try:
-                    url = upload_to_s3(local_path, s3_key)
-                    s3_results[key] = url
-                    print(f"  Uploaded: {key} -> {url}")
-                except Exception as e:
-                    print(f"  Failed to upload {key}: {e}")
-            
-            # Calculate processing time
-            processing_time = (datetime.now() - start_time).total_seconds()
-            
-            # Determine model source
-            model_source = "network_volume" if current_model_paths and "runpod-volume" in current_model_paths[0] else "embedded"
-            
-            return {
-                "status": "success",
-                "results": s3_results,
-                "metadata": {
-                    "processing_time_seconds": processing_time,
-                    "num_implant_points": implant_pc.shape[0],
-                    "num_ensemble": num_ensemble,
-                    "sampling_steps": sampling_steps,
-                    "mesh_vertices": len(vertices),
-                    "mesh_faces": len(faces),
-                    "model_source": model_source,
-                    "pcdiff_model": current_model_paths[0] if current_model_paths else "unknown",
-                    "pcdiff_model_variant": current_pcdiff_variant,
-                    "available_pcdiff_variants": list(PCDIFF_MODEL_VARIANTS.keys()),
-                    "voxelization_model": current_model_paths[1] if current_model_paths else "unknown"
+            if job_type == 'revoxelize':
+                # RE-VOXELIZATION ONLY - skip PCDiff, just run voxelization
+                print(f"=== RE-VOXELIZATION JOB (resolution: {voxelization_resolution}³) ===")
+                
+                implant_data = job_input.get('implant_points')
+                defective_data = job_input.get('defective_skull')
+                
+                if not implant_data:
+                    return {"error": "Missing 'implant_points' for revoxelize job"}
+                if not defective_data:
+                    return {"error": "Missing 'defective_skull' for revoxelize job"}
+                
+                # Load implant points
+                implant_path = temp_dir / 'implant.npy'
+                if input_format == 'base64':
+                    npy_bytes = base64.b64decode(implant_data)
+                    with open(implant_path, 'wb') as f:
+                        f.write(npy_bytes)
+                else:
+                    download_from_s3(implant_data, implant_path)
+                
+                implant_points = np.load(str(implant_path))
+                if len(implant_points.shape) == 3:
+                    implant_points = implant_points[0]
+                
+                # Load defective skull points
+                defective_path = temp_dir / 'defective.npy'
+                if input_format == 'base64':
+                    npy_bytes = base64.b64decode(defective_data)
+                    with open(defective_path, 'wb') as f:
+                        f.write(npy_bytes)
+                else:
+                    download_from_s3(defective_data, defective_path)
+                
+                defective_points = np.load(str(defective_path))
+                if len(defective_points.shape) == 3:
+                    defective_points = defective_points[0]
+                
+                print(f"Loaded implant: {implant_points.shape}, defective: {defective_points.shape}")
+                
+                # Ensure voxelization model is loaded
+                if voxelization_model is None:
+                    load_models()
+                
+                # Run re-voxelization
+                print(f"Running re-voxelization at {voxelization_resolution}³...")
+                vertices, faces, volume_complete, volume_implant, implant_pc, shift, scale = run_revoxelization_only(
+                    implant_points, defective_points, resolution=voxelization_resolution
+                )
+                print(f"Generated mesh: {len(vertices)} vertices, {len(faces)} faces")
+                
+                # Export STL mesh
+                import trimesh
+                mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+                
+                # Apply post-processing
+                mesh = postprocess_mesh(mesh, smoothing_iterations=smoothing_iterations, close_holes=close_holes)
+                
+                stl_path = output_dir / f'implant_res{voxelization_resolution}.stl'
+                mesh.export(str(stl_path))
+                
+                # Upload to S3
+                print("Uploading to S3...")
+                s3_results = {}
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                s3_key = f"inference_results/{output_prefix}/{timestamp}/implant_res{voxelization_resolution}.stl"
+                url = upload_to_s3(stl_path, s3_key)
+                s3_results['implant_only_stl'] = url
+                print(f"  Uploaded: implant_only_stl -> {url}")
+                
+                processing_time = (datetime.now() - start_time).total_seconds()
+                
+                return {
+                    "status": "success",
+                    "results": s3_results,
+                    "metadata": {
+                        "processing_time_seconds": processing_time,
+                        "job_type": "revoxelize",
+                        "voxelization_resolution": voxelization_resolution,
+                        "smoothing_iterations": smoothing_iterations,
+                        "close_holes": close_holes,
+                        "mesh_vertices": len(mesh.vertices),
+                        "mesh_faces": len(mesh.faces),
+                        "num_implant_points": len(implant_pc),
+                    }
                 }
-            }
+            
+            else:
+                # FULL GENERATION - PCDiff + Voxelization
+                print(f"=== FULL GENERATION JOB (resolution: {voxelization_resolution}³) ===")
+                
+                defective_skull_data = job_input.get('defective_skull')
+                num_ensemble = job_input.get('num_ensemble', 1)
+                sampling_steps = job_input.get('sampling_steps', 1000)
+                requested_pcdiff_model = job_input.get('pcdiff_model', DEFAULT_PCDIFF_MODEL)
+                
+                # Ensure models are loaded
+                if pcdiff_model is None or voxelization_model is None:
+                    load_models(pcdiff_variant=requested_pcdiff_model)
+                # Check if we need to switch PCDiff model variant
+                elif current_pcdiff_variant != requested_pcdiff_model:
+                    reload_pcdiff_model(requested_pcdiff_model)
+                
+                if not defective_skull_data:
+                    return {"error": "Missing 'defective_skull' in input"}
+                
+                input_path = temp_dir / 'input.npy'
+                
+                # Load input point cloud
+                if input_format == 'base64':
+                    npy_bytes = base64.b64decode(defective_skull_data)
+                    with open(input_path, 'wb') as f:
+                        f.write(npy_bytes)
+                elif input_format == 's3_url':
+                    download_from_s3(defective_skull_data, input_path)
+                else:
+                    return {"error": f"Unknown input_format: {input_format}"}
+                
+                # Load point cloud
+                input_points = np.load(str(input_path))
+                if len(input_points.shape) == 3:
+                    input_points = input_points[0]
+                
+                print(f"Loaded input point cloud: {input_points.shape}")
+                
+                # Step 1: Run PCDiff
+                print("Running PCDiff inference...")
+                implant_points, defective_points, shift, scale, implant_normalized = run_pcdiff_inference(
+                    input_points, 
+                    num_ens=num_ensemble,
+                    sampling_steps=sampling_steps
+                )
+                print(f"Generated implant: {implant_points.shape}")
+                
+                # Step 2: Run Voxelization with specified resolution
+                print(f"Running voxelization at {voxelization_resolution}³...")
+                vertices, faces, volume_complete, volume_implant, implant_pc = run_voxelization(
+                    implant_points, defective_points, implant_normalized, resolution=voxelization_resolution
+                )
+                print(f"Generated mesh: {len(vertices)} vertices, {len(faces)} faces")
+                
+                # Step 3: Export results
+                print("Exporting results...")
+                local_results = export_results(
+                    output_dir, vertices, faces, volume_complete, volume_implant,
+                    implant_pc, defective_points, shift, scale, implant_normalized,
+                    smoothing_iterations=smoothing_iterations, close_holes=close_holes,
+                )
+                
+                # Step 4: Upload to S3 (only the files needed by frontend)
+                print("Uploading to S3...")
+                s3_results = {}
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                
+                required_outputs = ['implant_npy', 'implant_only_stl']
+                
+                for key, local_path in local_results.items():
+                    if key not in required_outputs:
+                        print(f"  Skipping {key} (not required by frontend)")
+                        continue
+                        
+                    s3_key = f"inference_results/{output_prefix}/{timestamp}/{local_path.name}"
+                    try:
+                        url = upload_to_s3(local_path, s3_key)
+                        s3_results[key] = url
+                        print(f"  Uploaded: {key} -> {url}")
+                    except Exception as e:
+                        print(f"  Failed to upload {key}: {e}")
+                
+                processing_time = (datetime.now() - start_time).total_seconds()
+                model_source = "network_volume" if current_model_paths and "runpod-volume" in current_model_paths[0] else "embedded"
+                
+                return {
+                    "status": "success",
+                    "results": s3_results,
+                    "metadata": {
+                        "processing_time_seconds": processing_time,
+                        "job_type": "full",
+                        "num_implant_points": implant_pc.shape[0],
+                        "num_ensemble": num_ensemble,
+                        "sampling_steps": sampling_steps,
+                        "voxelization_resolution": voxelization_resolution,
+                        "smoothing_iterations": smoothing_iterations,
+                        "close_holes": close_holes,
+                        "mesh_vertices": len(vertices),
+                        "mesh_faces": len(faces),
+                        "model_source": model_source,
+                        "pcdiff_model": current_model_paths[0] if current_model_paths else "unknown",
+                        "pcdiff_model_variant": current_pcdiff_variant,
+                        "available_pcdiff_variants": list(PCDIFF_MODEL_VARIANTS.keys()),
+                        "voxelization_model": current_model_paths[1] if current_model_paths else "unknown"
+                    }
+                }
     
     except Exception as e:
         traceback.print_exc()

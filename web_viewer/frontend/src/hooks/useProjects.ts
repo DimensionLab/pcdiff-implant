@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectApi } from '../services/fit-metrics-api';
-import type { ProjectCreate } from '../types/project';
+import type { ProjectCreate, ProjectUpdate } from '../types/project';
 
 export function useProjects() {
   return useQuery({
@@ -38,6 +38,19 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: (body: ProjectCreate) => projectApi.create(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+  });
+}
+
+export function useUpdateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ProjectUpdate }) =>
+      projectApi.update(id, body),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['project', id] });
+      qc.invalidateQueries({ queryKey: ['patient-projects'] });
+    },
   });
 }
 

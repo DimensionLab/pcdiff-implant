@@ -35,7 +35,14 @@ def list_projects(services=Depends(_get_services)):
 @router.post("/", response_model=ProjectRead, status_code=201)
 def create_project(body: ProjectCreate, services=Depends(_get_services)):
     return services["project"].create_project(
-        name=body.name, description=body.description
+        name=body.name,
+        description=body.description,
+        patient_id=body.patient_id,
+        reconstruction_type=body.reconstruction_type,
+        implant_material=body.implant_material,
+        notes=body.notes,
+        region_code=body.region_code,
+        metadata_json=body.metadata_json,
     )
 
 

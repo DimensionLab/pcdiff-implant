@@ -60,6 +60,24 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
         String(20), default="best", nullable=True
     )  # "best" or "latest" - which PCDiff model checkpoint to use
 
+    # Voxelization parameters
+    voxelization_resolution: Mapped[int] = mapped_column(
+        Integer, default=512, nullable=False
+    )  # PSR grid resolution: 128 (fast), 256, 512 (default/balanced), 1024 (high detail)
+
+    # Mesh post-processing parameters
+    smoothing_iterations: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )  # Laplacian smoothing iterations (0 = disabled, 1-100)
+    close_holes: Mapped[bool] = mapped_column(
+        Integer, default=False, nullable=False, server_default="0"
+    )  # Whether to fill holes in the generated mesh
+    
+    # Re-voxelization tracking - source implant point cloud for re-voxelization jobs
+    source_implant_pc_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("point_clouds.id", ondelete="SET NULL"), nullable=True
+    )  # If set, this is a re-voxelization job (skips diffusion, only runs voxelization)
+
     # Timing
     queued_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -91,6 +109,9 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     # Relationships
     project: Mapped[Optional["Project"]] = relationship(back_populates="generation_jobs")
     input_point_cloud: Mapped["PointCloud"] = relationship(foreign_keys=[input_pc_id])
+    source_implant_point_cloud: Mapped[Optional["PointCloud"]] = relationship(
+        foreign_keys=[source_implant_pc_id]
+    )  # For re-voxelization jobs only
     
     # Parent-child relationship for ensemble jobs
     parent_job: Mapped[Optional["GenerationJob"]] = relationship(
@@ -115,6 +136,11 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     def is_child_job(self) -> bool:
         """True if this is a child job of a parent ensemble job."""
         return self.parent_job_id is not None
+    
+    @property
+    def is_revoxelization_job(self) -> bool:
+        """True if this is a re-voxelization job (no diffusion, just mesh generation)."""
+        return self.source_implant_pc_id is not None
 
     def __repr__(self) -> str:
         return f"<GenerationJob id={self.id!r} name={self.name!r} status={self.status!r}>"

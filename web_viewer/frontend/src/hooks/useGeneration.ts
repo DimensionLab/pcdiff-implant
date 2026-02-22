@@ -3,7 +3,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generationApi } from '../services/generation-api';
-import type { GenerationJobCreate } from '../types/generation';
+import type { GenerationJobCreate, RevoxelizeJobCreate } from '../types/generation';
 
 /**
  * Query for a single generation job, with auto-polling when running.
@@ -108,6 +108,24 @@ export function useDeleteUnselectedOutputs() {
       queryClient.invalidateQueries({ queryKey: ['generation-job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['point-clouds'] });
       queryClient.invalidateQueries({ queryKey: ['project-point-clouds'] });
+    },
+  });
+}
+
+/**
+ * Mutation to create a re-voxelization job.
+ * Re-voxelizes an existing implant point cloud with a different mesh resolution.
+ */
+export function useCreateRevoxelizationJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: RevoxelizeJobCreate) => generationApi.createRevoxelizationJob(body),
+    onSuccess: (job) => {
+      queryClient.invalidateQueries({ queryKey: ['generation-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      // Set the job in cache immediately
+      queryClient.setQueryData(['generation-job', job.id], job);
     },
   });
 }

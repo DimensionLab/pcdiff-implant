@@ -31,8 +31,23 @@ class ProjectService:
         self,
         name: str,
         description: str | None = None,
+        patient_id: str | None = None,
+        reconstruction_type: str | None = None,
+        implant_material: str | None = None,
+        notes: str | None = None,
+        region_code: str | None = None,
+        metadata_json: str | None = None,
     ) -> Project:
-        project = Project(name=name, description=description)
+        project = Project(
+            name=name,
+            description=description,
+            patient_id=patient_id,
+            reconstruction_type=reconstruction_type,
+            implant_material=implant_material,
+            notes=notes,
+            region_code=region_code,
+            metadata_json=metadata_json,
+        )
         self.db.add(project)
         self.db.commit()
         self.db.refresh(project)
@@ -41,7 +56,7 @@ class ProjectService:
             action="project.create",
             entity_type="project",
             entity_id=project.id,
-            details={"name": name},
+            details={"name": name, "patient_id": patient_id},
         )
         return project
 

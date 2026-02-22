@@ -18,6 +18,23 @@ class GenerationJobCreate(BaseModel):
     description: str | None = None
     use_cloud: bool | None = None  # None = use default from settings, True = force cloud, False = force local
     pcdiff_model: str = "best"  # "best" or "latest" - which PCDiff model checkpoint to use
+    voxelization_resolution: int = 512  # PSR grid resolution: 128, 256, 512 (default), 1024
+    smoothing_iterations: int = 0  # Laplacian smoothing: 0 = disabled, 1-100
+    close_holes: bool = False  # Fill holes in the generated mesh
+
+
+class RevoxelizeJobCreate(BaseModel):
+    """Request to create a re-voxelization job (mesh generation only, no diffusion)."""
+
+    project_id: str
+    source_implant_pc_id: str  # Existing implant point cloud to re-voxelize
+    input_pc_id: str  # Defective skull point cloud (needed for combined voxelization)
+    voxelization_resolution: int = 512  # PSR grid resolution: 128, 256, 512, 1024
+    name: str | None = None
+    description: str | None = None
+    use_cloud: bool | None = None
+    smoothing_iterations: int = 0  # Laplacian smoothing: 0 = disabled, 1-100
+    close_holes: bool = False  # Fill holes in the generated mesh
 
 
 class GenerationJobUpdate(BaseModel):
@@ -49,6 +66,10 @@ class GenerationJobRead(BaseModel):
     sampling_steps: int
     num_ensemble: int
     pcdiff_model: str | None = None  # "best" or "latest"
+    voxelization_resolution: int = 512  # PSR grid resolution
+    smoothing_iterations: int = 0  # Laplacian smoothing iterations
+    close_holes: bool = False  # Fill holes in mesh
+    source_implant_pc_id: str | None = None  # Set for re-voxelization jobs
     
     # Parent-child hierarchy fields
     parent_job_id: str | None = None

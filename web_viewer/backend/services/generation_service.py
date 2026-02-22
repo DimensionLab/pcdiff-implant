@@ -39,6 +39,47 @@ _model_cache: dict = {
 }
 
 
+def _postprocess_smooth(mesh, iterations: int = 5, lamb: float = 0.5):
+    """Apply Laplacian smoothing to a trimesh mesh.
+
+    Uses trimesh's built-in filter to iteratively smooth vertices
+    towards the average of their neighbours.
+
+    Args:
+        mesh: trimesh.Trimesh object
+        iterations: Number of smoothing iterations (clamped 1-100)
+        lamb: Smoothing factor per iteration (0-1). Higher = more smoothing.
+
+    Returns:
+        Smoothed trimesh.Trimesh (modified in-place and returned).
+    """
+    import trimesh
+
+    iterations = max(1, min(iterations, 100))
+    trimesh.smoothing.filter_laplacian(mesh, lamb=lamb, iterations=iterations)
+    return mesh
+
+
+def _postprocess_close_holes(mesh):
+    """Fill holes in a trimesh mesh and fix normals.
+
+    Uses trimesh's repair utilities to fill holes and ensure the mesh
+    is watertight with consistent face winding.
+
+    Args:
+        mesh: trimesh.Trimesh object
+
+    Returns:
+        Repaired trimesh.Trimesh (modified in-place and returned).
+    """
+    import trimesh
+
+    trimesh.repair.fill_holes(mesh)
+    trimesh.repair.fix_winding(mesh)
+    trimesh.repair.fix_normals(mesh)
+    return mesh
+
+
 class GenerationService:
     """Service for managing implant generation jobs."""
 
@@ -60,6 +101,9 @@ class GenerationService:
         name: str | None = None,
         description: str | None = None,
         pcdiff_model: str = "best",
+        voxelization_resolution: int = 512,
+        smoothing_iterations: int = 0,
+        close_holes: bool = False,
     ) -> GenerationJob:
         """Create a new generation job in pending state."""
         # Validate input point cloud exists
@@ -83,6 +127,9 @@ class GenerationService:
             sampling_steps=sampling_steps,
             num_ensemble=num_ensemble,
             pcdiff_model=pcdiff_model,
+            voxelization_resolution=voxelization_resolution,
+            smoothing_iterations=smoothing_iterations,
+            close_holes=close_holes,
             queued_at=datetime.now(timezone.utc),
         )
         self.db.add(job)
@@ -98,6 +145,7 @@ class GenerationService:
                 "sampling_method": sampling_method,
                 "sampling_steps": sampling_steps,
                 "num_ensemble": num_ensemble,
+                "voxelization_resolution": voxelization_resolution,
             },
         )
 
@@ -106,6 +154,88 @@ class GenerationService:
             type="generation_queued",
             title="Generation Queued",
             message=f"Implant generation '{name}' has been queued.",
+            entity_type="generation_job",
+            entity_id=job.id,
+        )
+
+        return job
+
+    def create_revoxelization_job(
+        self,
+        project_id: str,
+        source_implant_pc_id: str,
+        input_pc_id: str,
+        voxelization_resolution: int = 512,
+        name: str | None = None,
+        description: str | None = None,
+        smoothing_iterations: int = 0,
+        close_holes: bool = False,
+    ) -> GenerationJob:
+        """Create a re-voxelization job (only runs voxelization, no diffusion).
+        
+        This is used to generate a mesh from an existing implant point cloud
+        with a different voxelization resolution (level of detail).
+        
+        Args:
+            project_id: Project to associate the job with
+            source_implant_pc_id: Existing implant point cloud to re-voxelize
+            input_pc_id: Defective skull point cloud (needed for combined voxelization)
+            voxelization_resolution: PSR grid resolution (128, 256, 512, 1024)
+            name: Optional job name
+            description: Optional job description
+        """
+        # Validate source implant point cloud exists
+        source_pc = self.db.query(PointCloud).filter(PointCloud.id == source_implant_pc_id).first()
+        if not source_pc:
+            raise ValueError(f"Source implant point cloud not found: {source_implant_pc_id}")
+        
+        # Validate input point cloud exists
+        input_pc = self.db.query(PointCloud).filter(PointCloud.id == input_pc_id).first()
+        if not input_pc:
+            raise ValueError(f"Input point cloud not found: {input_pc_id}")
+
+        # Generate default name if not provided
+        if not name:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            res_label = {128: "low", 256: "medium", 512: "high", 1024: "ultra"}.get(voxelization_resolution, str(voxelization_resolution))
+            name = f"Revoxel_{source_pc.name}_{res_label}_{timestamp}"
+
+        job = GenerationJob(
+            name=name,
+            description=description or f"Re-voxelization at {voxelization_resolution}³ resolution",
+            project_id=project_id,
+            input_pc_id=input_pc_id,  # Defective skull (for combined voxelization)
+            source_implant_pc_id=source_implant_pc_id,  # Source implant to re-voxelize
+            status="pending",
+            progress_percent=0,
+            sampling_method="ddim",  # Not used for revox, but required field
+            sampling_steps=0,  # Not used for revox
+            num_ensemble=1,  # Only one output for revox
+            voxelization_resolution=voxelization_resolution,
+            smoothing_iterations=smoothing_iterations,
+            close_holes=close_holes,
+            queued_at=datetime.now(timezone.utc),
+        )
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+
+        self.audit.log(
+            action="generation_job.create_revoxelization",
+            entity_type="generation_job",
+            entity_id=job.id,
+            details={
+                "source_implant_pc_id": source_implant_pc_id,
+                "input_pc_id": input_pc_id,
+                "voxelization_resolution": voxelization_resolution,
+            },
+        )
+
+        # Create notification
+        self._create_notification(
+            type="generation_queued",
+            title="Re-voxelization Queued",
+            message=f"Re-voxelization '{name}' has been queued.",
             entity_type="generation_job",
             entity_id=job.id,
         )
@@ -175,6 +305,9 @@ class GenerationService:
             sampling_steps=parent_job.sampling_steps,
             num_ensemble=1,  # Each child generates exactly 1 implant
             pcdiff_model=parent_job.pcdiff_model,
+            voxelization_resolution=parent_job.voxelization_resolution,
+            smoothing_iterations=parent_job.smoothing_iterations,
+            close_holes=parent_job.close_holes,
             queued_at=datetime.now(timezone.utc),
         )
         self.db.add(child_job)
@@ -474,10 +607,16 @@ class GenerationService:
         Execute the full generation pipeline for a job.
 
         This method is designed to be called from a background task.
+        Supports both full generation (PCDiff + voxelization) and 
+        re-voxelization only (for existing implant point clouds).
         """
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job not found: {job_id}")
+        
+        # Check if this is a re-voxelization job
+        if job.is_revoxelization_job:
+            return self._execute_revoxelization(job, vox_model_path, progress_callback)
 
         # Use default model paths if not provided
         if not pcdiff_model_path:
@@ -663,6 +802,9 @@ class GenerationService:
                         scale=scale,
                         output_stl_path=str(stl_path),
                         vox_model_path=vox_model_path,
+                        resolution=job.voxelization_resolution,
+                        smoothing_iterations=job.smoothing_iterations,
+                        close_holes=bool(job.close_holes),
                         progress_callback=vox_progress_callback,
                     )
 
@@ -758,6 +900,217 @@ class GenerationService:
 
             self.audit.log(
                 action="generation_job.fail",
+                entity_type="generation_job",
+                entity_id=job.id,
+                details={"error": str(e)},
+            )
+
+        return job
+
+    def _execute_revoxelization(
+        self,
+        job: GenerationJob,
+        vox_model_path: str | None = None,
+        progress_callback: Callable[[int, str], None] | None = None,
+    ) -> GenerationJob:
+        """
+        Execute re-voxelization of an existing implant point cloud.
+        
+        This skips the PCDiff diffusion step and only runs voxelization
+        with the job's specified resolution.
+        """
+        if not vox_model_path:
+            vox_model_path = str(settings.project_root / "voxelization" / "checkpoints" / "model_best.pt")
+
+        t0 = time.time()
+
+        try:
+            # Mark as running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            job.current_step = "Initializing re-voxelization"
+            self.db.commit()
+
+            self._create_notification(
+                type="generation_started",
+                title="Re-voxelization Started",
+                message=f"Re-voxelization '{job.name}' has started.",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            def update_progress(percent: int, step: str):
+                job.progress_percent = percent
+                job.current_step = step
+                self.db.commit()
+                if progress_callback:
+                    progress_callback(percent, step)
+
+            update_progress(10, "Loading source implant point cloud")
+
+            # Load source implant point cloud
+            source_pc = self.db.query(PointCloud).filter(PointCloud.id == job.source_implant_pc_id).first()
+            if not source_pc:
+                raise ValueError(f"Source implant point cloud not found: {job.source_implant_pc_id}")
+
+            source_path = Path(source_pc.file_path)
+            if not source_path.exists():
+                raise ValueError(f"Source implant file not found: {source_pc.file_path}")
+
+            # Load implant points
+            implant_points_world = np.load(str(source_path))
+            if implant_points_world.ndim == 3:
+                implant_points_world = implant_points_world[0]
+            implant_points_world = implant_points_world.astype(np.float32)
+
+            update_progress(20, "Loading defective skull point cloud")
+
+            # Load defective skull point cloud
+            input_pc = self.db.query(PointCloud).filter(PointCloud.id == job.input_pc_id).first()
+            if not input_pc:
+                raise ValueError(f"Input point cloud not found: {job.input_pc_id}")
+
+            input_path = Path(input_pc.file_path)
+            if not input_path.exists():
+                raise ValueError(f"Input file not found: {input_pc.file_path}")
+
+            defective_points = np.load(str(input_path))
+            if defective_points.ndim == 3:
+                defective_points = defective_points[0]
+            defective_points = defective_points.astype(np.float32)
+
+            update_progress(30, "Normalizing point clouds")
+
+            # Compute normalization parameters from the defective skull
+            # (same as original generation did)
+            all_points = np.concatenate([defective_points, implant_points_world], axis=0)
+            bbox_min = all_points.min(axis=0)
+            bbox_max = all_points.max(axis=0)
+            center = (bbox_min + bbox_max) / 2
+            scale = (bbox_max - bbox_min).max()
+            
+            # Use a slightly larger bounding box for stability
+            shift = center - 0.5 * scale
+            
+            # Normalize implant points
+            implant_normalized = (implant_points_world - shift) / scale
+
+            # Create output directory
+            output_dir = Path(input_pc.file_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            update_progress(40, f"Running voxelization at {job.voxelization_resolution}³ resolution")
+
+            # Progress callback for voxelization
+            def vox_progress_callback(step_desc: str):
+                update_progress(50, f"Voxelizing: {step_desc}")
+
+            # Run voxelization
+            stl_path = output_dir / f"{job.id}_revox_res{job.voxelization_resolution}.stl"
+            self._run_voxelization(
+                defective_points=defective_points,
+                implant_points_normalized=implant_normalized,
+                shift=shift,
+                scale=scale,
+                output_stl_path=str(stl_path),
+                vox_model_path=vox_model_path,
+                resolution=job.voxelization_resolution,
+                smoothing_iterations=job.smoothing_iterations,
+                close_holes=bool(job.close_holes),
+                progress_callback=vox_progress_callback,
+            )
+
+            update_progress(80, "Saving mesh record")
+
+            # Register as PointCloud record (STL mesh)
+            res_label = {128: "low", 256: "medium", 512: "high", 1024: "ultra"}.get(
+                job.voxelization_resolution, str(job.voxelization_resolution)
+            )
+            stl_pc = PointCloud(
+                name=f"{source_pc.name} ({res_label} detail)",
+                description=f"Re-voxelized at {job.voxelization_resolution}³ resolution from {source_pc.name}",
+                file_path=str(stl_path),
+                file_format="stl",
+                file_size_bytes=get_file_size(stl_path),
+                num_points=0,  # Mesh, not point cloud
+                point_dims=3,
+                scan_category="generated_implant_mesh",
+                defect_type=input_pc.defect_type,
+                skull_id=input_pc.skull_id,
+                project_id=job.project_id,
+                metadata_json=json.dumps({
+                    "generation_job_id": job.id,
+                    "source_implant_pc_id": job.source_implant_pc_id,
+                    "voxelization_resolution": job.voxelization_resolution,
+                    "is_revoxelization": True,
+                }),
+            )
+            self.db.add(stl_pc)
+            self.db.commit()
+            self.db.refresh(stl_pc)
+
+            # Store output reference
+            job.output_stl_ids_json = json.dumps([stl_pc.id])
+
+            update_progress(90, "Finalizing")
+
+            # Mark as completed
+            elapsed_ms = int((time.time() - t0) * 1000)
+            job.status = "completed"
+            job.progress_percent = 100
+            job.current_step = "Completed"
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            job.selected_output_id = stl_pc.id  # Auto-select the only output
+
+            self.db.commit()
+            self.db.refresh(job)
+
+            self._create_notification(
+                type="generation_completed",
+                title="Re-voxelization Complete",
+                message=f"Re-voxelization '{job.name}' completed in {elapsed_ms/1000:.1f}s.",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            self.audit.log(
+                action="generation_job.revoxelization_complete",
+                entity_type="generation_job",
+                entity_id=job.id,
+                details={
+                    "generation_time_ms": elapsed_ms,
+                    "voxelization_resolution": job.voxelization_resolution,
+                    "output_stl_id": stl_pc.id,
+                },
+            )
+
+            logger.info(
+                "Re-voxelization job completed: %s (resolution: %d³, %dms)",
+                job.id, job.voxelization_resolution, elapsed_ms,
+            )
+
+        except Exception as e:
+            logger.exception("Re-voxelization job failed: %s", job.id)
+            elapsed_ms = int((time.time() - t0) * 1000)
+
+            job.status = "failed"
+            job.error_message = str(e)
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            self.db.commit()
+            self.db.refresh(job)
+
+            self._create_notification(
+                type="generation_failed",
+                title="Re-voxelization Failed",
+                message=f"Re-voxelization '{job.name}' failed: {str(e)[:100]}",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            self.audit.log(
+                action="generation_job.revoxelization_fail",
                 entity_type="generation_job",
                 entity_id=job.id,
                 details={"error": str(e)},
@@ -876,6 +1229,9 @@ class GenerationService:
                 sampling_steps=job.sampling_steps,
                 output_prefix=job.id,
                 pcdiff_model=job.pcdiff_model or "best",
+                voxelization_resolution=job.voxelization_resolution,
+                smoothing_iterations=job.smoothing_iterations,
+                close_holes=bool(job.close_holes),
             )
 
             logger.info(f"Submitted Runpod job: {runpod_job_id}")
@@ -908,7 +1264,7 @@ class GenerationService:
                 job_id=runpod_job_id,
                 progress_callback=runpod_progress_callback,
                 poll_interval=3.0,
-                timeout=1800.0,  # 30 minute timeout (DDPM with 1000 steps can take 15-20 min)
+                timeout=3600.0,  # 60 minute timeout (DDPM with 1000 steps can take 15-20 min)
                 should_cancel_callback=_check_cancelled,  # Check for cancellation during polling
             )
 
@@ -916,11 +1272,24 @@ class GenerationService:
 
             # Parse results
             output = result.get("output", {})
+            
+            # Check if output is missing (worker crashed or returned nothing)
+            if not output:
+                logger.error(f"RunPod job {runpod_job_id} completed but returned no output. Full response: {result}")
+                raise RunpodError(f"Cloud worker returned no output. This usually means the worker crashed. Check RunPod logs for job {runpod_job_id}")
+            
             if output.get("status") == "error":
-                raise RunpodError(f"Cloud inference failed: {output.get('error', 'Unknown error')}")
+                error_msg = output.get('error', 'Unknown error')
+                traceback_info = output.get('traceback', '')
+                logger.error(f"RunPod job failed: {error_msg}\n{traceback_info}")
+                raise RunpodError(f"Cloud inference failed: {error_msg}")
 
             s3_results = output.get("results", {})
             metadata = output.get("metadata", {})
+            
+            # Check if results are empty
+            if not s3_results:
+                logger.warning(f"RunPod job {runpod_job_id} returned empty results. Output: {output}")
 
             logger.info(f"Cloud inference completed in {metadata.get('processing_time_seconds', 0):.1f}s")
 
@@ -1097,6 +1466,248 @@ class GenerationService:
 
         return job
 
+    def execute_cloud_revoxelization(
+        self,
+        job_id: str,
+        progress_callback: Callable[[int, str], None] | None = None,
+    ) -> GenerationJob:
+        """
+        Execute re-voxelization using Runpod cloud GPU.
+        
+        This skips PCDiff and only runs voxelization in the cloud.
+        """
+        from web_viewer.backend.services.runpod_service import (
+            RunpodService,
+            RunpodError,
+            download_from_s3_url,
+        )
+        from web_viewer.backend.services.settings_service import SettingsService
+
+        job = self.get_job(job_id)
+        if not job:
+            raise ValueError(f"Job not found: {job_id}")
+        
+        if not job.is_revoxelization_job:
+            raise ValueError(f"Job {job_id} is not a re-voxelization job")
+
+        t0 = time.time()
+
+        try:
+            # Get cloud settings
+            settings_service = SettingsService(self.db)
+            endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
+            api_key = settings_service.get_value("runpod_api_key", "")
+
+            if not endpoint_id or not api_key:
+                raise ValueError("Cloud generation not configured")
+
+            # Mark as running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            job.current_step = "Initializing cloud re-voxelization"
+            self.db.commit()
+
+            self._create_notification(
+                type="generation_started",
+                title="Cloud Re-voxelization Started",
+                message=f"Re-voxelization '{job.name}' started on cloud GPU.",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            def update_progress(percent: int, step: str):
+                job.progress_percent = percent
+                job.current_step = step
+                self.db.commit()
+                if progress_callback:
+                    progress_callback(percent, step)
+
+            update_progress(10, "Loading point clouds")
+
+            # Load source implant point cloud
+            source_pc = self.db.query(PointCloud).filter(PointCloud.id == job.source_implant_pc_id).first()
+            if not source_pc:
+                raise ValueError(f"Source implant not found: {job.source_implant_pc_id}")
+
+            implant_points = np.load(source_pc.file_path)
+            if implant_points.ndim == 3:
+                implant_points = implant_points[0]
+
+            # Load defective skull
+            input_pc = self.db.query(PointCloud).filter(PointCloud.id == job.input_pc_id).first()
+            if not input_pc:
+                raise ValueError(f"Input point cloud not found: {job.input_pc_id}")
+
+            defective_points = np.load(input_pc.file_path)
+            if defective_points.ndim == 3:
+                defective_points = defective_points[0]
+
+            update_progress(20, "Submitting to cloud GPU")
+
+            # Create RunpodService and submit re-voxelization job
+            runpod_service = RunpodService(
+                endpoint_id=endpoint_id,
+                api_key=api_key,
+            )
+
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            runpod_job_id = loop.run_until_complete(
+                runpod_service.submit_revoxelization_job(
+                    implant_points=implant_points,
+                    defective_skull_points=defective_points,
+                    voxelization_resolution=job.voxelization_resolution,
+                    output_prefix=f"revox_{job.id[:8]}",
+                    smoothing_iterations=job.smoothing_iterations,
+                    close_holes=bool(job.close_holes),
+                )
+            )
+
+            update_progress(30, f"Processing on cloud GPU (job: {runpod_job_id[:8]})")
+
+            # Wait for completion
+            result = loop.run_until_complete(
+                runpod_service.wait_for_completion(
+                    runpod_job_id,
+                    progress_callback=lambda status, pct: update_progress(30 + pct // 2, f"Cloud: {status}"),
+                    timeout=600.0,  # 10 minutes for revox
+                )
+            )
+            loop.close()
+
+            # Process results
+            output = result.get("output", {})
+            s3_results = output.get("results", {})
+            metadata = output.get("metadata", {})
+
+            if output.get("status") == "error":
+                raise RunpodError(f"Cloud error: {output.get('error')}")
+
+            update_progress(85, "Downloading results")
+
+            # Download STL from S3
+            output_stl_ids = []
+            implant_stl_url = s3_results.get("implant_only_stl")
+            
+            if implant_stl_url:
+                output_dir = Path(input_pc.file_path).parent
+                local_stl_path = output_dir / f"{job.id}_revox_res{job.voxelization_resolution}.stl"
+
+                download_from_s3_url(
+                    implant_stl_url, 
+                    local_stl_path,
+                    aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+                    aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                )
+
+                # Register as PointCloud record
+                res_label = {128: "low", 256: "medium", 512: "high", 1024: "ultra"}.get(
+                    job.voxelization_resolution, str(job.voxelization_resolution)
+                )
+                stl_pc = PointCloud(
+                    name=f"{source_pc.name} ({res_label} detail, cloud)",
+                    description=f"Re-voxelized at {job.voxelization_resolution}³ on cloud GPU",
+                    file_path=str(local_stl_path),
+                    file_format="stl",
+                    file_size_bytes=get_file_size(local_stl_path),
+                    num_points=0,
+                    point_dims=3,
+                    scan_category="generated_implant_mesh",
+                    defect_type=input_pc.defect_type,
+                    skull_id=input_pc.skull_id,
+                    project_id=job.project_id,
+                    metadata_json=json.dumps({
+                        "generation_job_id": job.id,
+                        "source_implant_pc_id": job.source_implant_pc_id,
+                        "voxelization_resolution": job.voxelization_resolution,
+                        "is_revoxelization": True,
+                        "cloud_generated": True,
+                        "s3_url": implant_stl_url,
+                    }),
+                )
+                self.db.add(stl_pc)
+                self.db.commit()
+                self.db.refresh(stl_pc)
+                output_stl_ids.append(stl_pc.id)
+
+            update_progress(95, "Finalizing")
+
+            # Update job
+            elapsed_ms = int((time.time() - t0) * 1000)
+            job.status = "completed"
+            job.progress_percent = 100
+            job.current_step = "Completed (Cloud GPU)"
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            job.output_stl_ids_json = json.dumps(output_stl_ids)
+            
+            if output_stl_ids:
+                job.selected_output_id = output_stl_ids[0]
+
+            job.metrics_json = json.dumps({
+                "cloud_generated": True,
+                "runpod_job_id": runpod_job_id,
+                "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                "voxelization_resolution": job.voxelization_resolution,
+            })
+
+            self.db.commit()
+            self.db.refresh(job)
+
+            self._create_notification(
+                type="generation_completed",
+                title="Cloud Re-voxelization Complete",
+                message=f"Re-voxelization '{job.name}' completed on cloud GPU in {elapsed_ms/1000:.1f}s.",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            self.audit.log(
+                action="generation_job.revoxelization_complete_cloud",
+                entity_type="generation_job",
+                entity_id=job.id,
+                details={
+                    "generation_time_ms": elapsed_ms,
+                    "voxelization_resolution": job.voxelization_resolution,
+                    "runpod_job_id": runpod_job_id,
+                },
+            )
+
+            logger.info(
+                "Cloud re-voxelization completed: %s (resolution: %d³, %dms)",
+                job.id, job.voxelization_resolution, elapsed_ms,
+            )
+
+        except Exception as e:
+            logger.exception("Cloud re-voxelization failed: %s", job.id)
+            elapsed_ms = int((time.time() - t0) * 1000)
+
+            job.status = "failed"
+            job.error_message = str(e)
+            job.completed_at = datetime.now(timezone.utc)
+            job.generation_time_ms = elapsed_ms
+            self.db.commit()
+            self.db.refresh(job)
+
+            self._create_notification(
+                type="generation_failed",
+                title="Cloud Re-voxelization Failed",
+                message=f"Re-voxelization '{job.name}' failed: {str(e)[:100]}",
+                entity_type="generation_job",
+                entity_id=job.id,
+            )
+
+            self.audit.log(
+                action="generation_job.revoxelization_fail_cloud",
+                entity_type="generation_job",
+                entity_id=job.id,
+                details={"error": str(e)},
+            )
+
+        return job
+
     def execute_child_cloud_generation(
         self,
         child_job_id: str,
@@ -1210,6 +1821,9 @@ class GenerationService:
                 sampling_steps=job.sampling_steps,
                 output_prefix=f"{job.id}_ens{job.ensemble_index}",
                 pcdiff_model=job.pcdiff_model or "best",
+                voxelization_resolution=job.voxelization_resolution,
+                smoothing_iterations=job.smoothing_iterations,
+                close_holes=bool(job.close_holes),
             )
 
             logger.info(f"Submitted child Runpod job: {runpod_job_id} (ensemble {job.ensemble_index})")
@@ -1241,7 +1855,7 @@ class GenerationService:
                 job_id=runpod_job_id,
                 progress_callback=runpod_progress_callback,
                 poll_interval=3.0,
-                timeout=1800.0,
+                timeout=3600.0,
                 should_cancel_callback=_check_cancelled,  # Check for cancellation during polling
             )
 
@@ -1249,11 +1863,24 @@ class GenerationService:
 
             # Parse results
             output = result.get("output", {})
+            
+            # Check if output is missing (worker crashed or returned nothing)
+            if not output:
+                logger.error(f"RunPod job {runpod_job_id} completed but returned no output. Full response: {result}")
+                raise RunpodError(f"Cloud worker returned no output. This usually means the worker crashed. Check RunPod logs for job {runpod_job_id}")
+            
             if output.get("status") == "error":
-                raise RunpodError(f"Cloud inference failed: {output.get('error', 'Unknown error')}")
+                error_msg = output.get('error', 'Unknown error')
+                traceback_info = output.get('traceback', '')
+                logger.error(f"RunPod job failed: {error_msg}\n{traceback_info}")
+                raise RunpodError(f"Cloud inference failed: {error_msg}")
 
             s3_results = output.get("results", {})
             metadata = output.get("metadata", {})
+            
+            # Check if results are empty
+            if not s3_results:
+                logger.warning(f"RunPod job {runpod_job_id} returned empty results. Output: {output}")
 
             logger.info(f"Child cloud inference completed in {metadata.get('processing_time_seconds', 0):.1f}s")
 
@@ -1604,6 +2231,9 @@ class GenerationService:
         scale: float,
         output_stl_path: str,
         vox_model_path: str,
+        resolution: int = 512,
+        smoothing_iterations: int = 0,
+        close_holes: bool = False,
         progress_callback: Callable[[str], None] | None = None,
     ):
         """
@@ -1613,6 +2243,15 @@ class GenerationService:
         to create a watertight mesh from the combined defective skull + implant points.
 
         Args:
+            defective_points: Defective skull point cloud (world coordinates)
+            implant_points_normalized: Implant point cloud (normalized [0,1])
+            shift: Translation offset used to normalize points
+            scale: Scale factor used to normalize points
+            output_stl_path: Path to save the output STL mesh
+            vox_model_path: Path to the voxelization model checkpoint
+            resolution: PSR grid resolution (128, 256, 512, or 1024)
+            smoothing_iterations: Laplacian smoothing iterations (0 = disabled)
+            close_holes: Whether to fill holes in the generated mesh
             progress_callback: Optional callable(step_description) for progress reporting
         """
         import trimesh
@@ -1629,15 +2268,15 @@ class GenerationService:
         ).astype(np.float32)
 
         logger.info(
-            "Voxelization input: %d defective + %d implant = %d total points",
-            len(defective_normalized), len(implant_points_normalized), len(combined_points)
+            "Voxelization input: %d defective + %d implant = %d total points (resolution: %d³)",
+            len(defective_normalized), len(implant_points_normalized), len(combined_points), resolution
         )
 
         if progress_callback:
-            progress_callback("Loading voxelization model")
+            progress_callback(f"Loading voxelization model (resolution: {resolution}³)")
 
         # Load model and run inference
-        generator, device = self._load_voxelization_model(vox_model_path)
+        generator, device = self._load_voxelization_model(vox_model_path, resolution=resolution)
 
         inputs = torch.from_numpy(combined_points).float().unsqueeze(0).to(device)
 
@@ -1660,20 +2299,44 @@ class GenerationService:
         # Create mesh using trimesh
         mesh = trimesh.Trimesh(vertices=vertices_world, faces=faces)
 
+        # Post-processing: hole closing
+        if close_holes:
+            if progress_callback:
+                progress_callback("Closing holes in mesh")
+            mesh = _postprocess_close_holes(mesh)
+            logger.info("Hole closing applied: %d vertices, %d faces", len(mesh.vertices), len(mesh.faces))
+
+        # Post-processing: smoothing
+        if smoothing_iterations > 0:
+            if progress_callback:
+                progress_callback(f"Smoothing mesh ({smoothing_iterations} iterations)")
+            mesh = _postprocess_smooth(mesh, iterations=smoothing_iterations)
+            logger.info("Smoothing applied (%d iterations): %d vertices, %d faces",
+                       smoothing_iterations, len(mesh.vertices), len(mesh.faces))
+
         # Export as STL
         mesh.export(output_stl_path)
-        logger.info("Saved STL mesh: %s (%d vertices, %d faces)",
-                    output_stl_path, len(vertices), len(faces))
+        logger.info("Saved STL mesh: %s (%d vertices, %d faces, resolution: %d³)",
+                    output_stl_path, len(vertices), len(faces), resolution)
 
-    def _load_voxelization_model(self, model_path: str):
-        """Load voxelization model with caching."""
+    def _load_voxelization_model(self, model_path: str, resolution: int = 512):
+        """Load voxelization model with caching.
+        
+        Args:
+            model_path: Path to the model checkpoint
+            resolution: PSR grid resolution (128, 256, 512, or 1024).
+                       Higher = more detail, slower, more memory.
+        """
+        # Cache key includes resolution since different resolutions need different DPSR modules
+        cache_key = f"voxelization_{resolution}"
+        
         with _model_cache["lock"]:
-            cached = _model_cache.get("voxelization")
+            cached = _model_cache.get(cache_key)
             if cached and cached.get("path") == model_path:
-                logger.info("Using cached voxelization model")
+                logger.info("Using cached voxelization model (resolution: %d³)", resolution)
                 return cached["generator"], cached["device"]
 
-            logger.info("Loading voxelization model from: %s", model_path)
+            logger.info("Loading voxelization model from: %s (resolution: %d³)", model_path, resolution)
 
             # Add project paths
             project_root = settings.project_root
@@ -1689,8 +2352,11 @@ class GenerationService:
             default_config = str(project_root / "voxelization" / "configs" / "default.yaml")
             cfg = load_config(config_path, default_config)
 
-            # Override model path
+            # Override model path and resolution
             cfg['test']['model_file'] = model_path
+            cfg['generation']['psr_resolution'] = resolution
+            # PSR sigma scales with resolution for consistent smoothing
+            cfg['generation']['psr_sigma'] = 2 if resolution >= 512 else 1
 
             # Select device
             from web_viewer.backend.services.settings_service import SettingsService
@@ -1705,16 +2371,17 @@ class GenerationService:
             load_model_manual(state_dict['state_dict'], model)
             model.eval()
 
-            # Get generator
+            # Get generator with custom resolution
             generator = vox_config.get_generator(model, cfg, device=device)
 
-            logger.info("Voxelization model loaded successfully")
+            logger.info("Voxelization model loaded successfully (resolution: %d³)", resolution)
 
-            # Cache for reuse
-            _model_cache["voxelization"] = {
+            # Cache for reuse (with resolution-specific key)
+            _model_cache[cache_key] = {
                 "generator": generator,
                 "device": device,
                 "path": model_path,
+                "resolution": resolution,
             }
 
             return generator, device
