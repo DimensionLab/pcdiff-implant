@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCDiff Web Viewer - Standalone</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        header {
+            background-color: #2a2a2a;
+            padding: 20px 30px;
+            border-bottom: 2px solid #333333;
+        }
+        
+        header h1 {
+            font-size: 24px;
+            color: #4CAF50;
+            margin-bottom: 5px;
+        }
+        
+        header p {
+            font-size: 14px;
+            color: #999999;
+        }
+        
+        main {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 20px;
+            padding: 20px;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .panel {
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        
+        #canvas-container {
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            border: 2px solid #333333;
+            position: relative;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .result-item {
+            padding: 12px;
+            background-color: #333333;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .result-item:hover {
+            background-color: #404040;
+        }
+        
+        .result-item.selected {
+            background-color: #404040;
+            border: 2px solid #4CAF50;
+        }
+        
+        button {
+            padding: 10px 16px;
+            background-color: #333333;
+            color: #ffffff;
+            border: 2px solid #444444;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            width: 100%;
+            margin: 5px 0;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+        
+        button.active {
+            background-color: #4CAF50;
+            border-color: #4CAF50;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        .label {
+            color: #999999;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+        }
+        
+        .help {
+            font-size: 12px;
+            color: #999999;
+            line-height: 1.8;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>PCDiff Web Viewer</h1>
+            <p>Standalone HTML5 viewer (no build required)</p>
+        </header>
+        
+        <main>
+            <div class="panel">
+                <h2>Results</h2>
+                <div id="results-list">Loading...</div>
+            </div>
+            
+            <div id="canvas-container">
+                <div id="loading">Select a result to view</div>
+            </div>
+            
+            <div class="panel">
+                <h2>Controls</h2>
+                <div id="controls">
+                    <div class="info-row">
+                        <span class="label">Input Points:</span>
+                        <span id="input-points">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">Sample Points:</span>
+                        <span id="sample-points">-</span>
+                    </div>
+                    <button id="toggle-input" class="active">✓ Input (Defective)</button>
+                    <button id="toggle-sample" class="active">✓ Sample (Implant)</button>
+                    <button id="reset-camera">Reset Camera</button>
+                    
+                    <div class="help">
+                        <div>🖱️ Left Click: Rotate</div>
+                        <div>🖱️ Right Click: Pan</div>
+                        <div>🖱️ Scroll: Zoom</div>
+                    </div>
+                </div>
+                
+                <h2 style="margin-top: 20px;">Downloads</h2>
+                <div id="downloads">Select a result</div>
+            </div>
+        </main>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+        // API Configuration
+        const API_BASE = '/api';
+        
+        // State
+        let scene, camera, renderer, controls;
+        let inputPointCloud = null;
+        let samplePointCloud = null;
+        let selectedResult = null;
+        
+        // Initialize Three.js
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+            
+            camera = new THREE.PerspectiveCamera(
+                75,
+                container.clientWidth / container.clientHeight,
+                0.1,
+                1000
+            );
+            camera.position.set(1, 1, 1.5);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            // Grid
+            const gridHelper = new THREE.GridHelper(2, 20, 0x444444, 0x222222);
+            scene.add(gridHelper);
+            
+            // Axes
+            const axesHelper = new THREE.AxesHelper(1);
+            scene.add(axesHelper);
+            
+            // Resize handler
+            window.addEventListener('resize', onResize);
+            
+            animate();
+        }
+        
+        function onResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // Load results list
+        async function loadResults() {
+            try {
+                const response = await fetch(`${API_BASE}/results`);
+                const results = await response.json();
+                
+                const container = document.getElementById('results-list');
+                container.innerHTML = '';
+                
+                results.forEach(result => {
+                    const div = document.createElement('div');
+                    div.className = 'result-item';
+                    div.textContent = result.name;
+                    div.onclick = () => selectResult(result);
+                    container.appendChild(div);
+                });
+            } catch (error) {
+                document.getElementById('results-list').textContent = 'Error loading results';
+                console.error(error);
+            }
+        }
+        
+        // Select a result
+        async function selectResult(result) {
+            selectedResult = result;
+            document.getElementById('loading').textContent = 'Loading...';
+            
+            // Update UI
+            document.querySelectorAll('.result-item').forEach(el => {
+                el.classList.toggle('selected', el.textContent === result.name);
+            });
+            
+            // Load point clouds
+            await loadPointCloud(result.id, 'input', 0xcccccc);
+            await loadPointCloud(result.id, 'sample', 0xff6464);
+            
+            document.getElementById('loading').style.display = 'none';
+            
+            // Load file list
+            loadFiles(result.id);
+        }
+        
+        // Load a point cloud
+        async function loadPointCloud(resultId, type, color) {
+            const loader = new PLYLoader();
+            const url = `${API_BASE}/files/${resultId}/${type}.ply`;
+            
+            return new Promise((resolve, reject) => {
+                loader.load(
+                    url,
+                    (geometry) => {
+                        geometry.computeBoundingBox();
+                        const center = new THREE.Vector3();
+                        geometry.boundingBox.getCenter(center);
+                        geometry.translate(-center.x, -center.y, -center.z);
+                        
+                        const material = new THREE.PointsMaterial({
+                            color: color,
+                            size: 0.005,
+                            sizeAttenuation: true
+                        });
+                        
+                        const points = new THREE.Points(geometry, material);
+                        
+                        if (type === 'input') {
+                            if (inputPointCloud) scene.remove(inputPointCloud);
+                            inputPointCloud = points;
+                            document.getElementById('input-points').textContent = 
+                                geometry.attributes.position.count.toLocaleString();
+                        } else {
+                            if (samplePointCloud) scene.remove(samplePointCloud);
+                            samplePointCloud = points;
+                            document.getElementById('sample-points').textContent = 
+                                geometry.attributes.position.count.toLocaleString();
+                        }
+                        
+                        scene.add(points);
+                        resolve();
+                    },
+                    undefined,
+                    reject
+                );
+            });
+        }
+        
+        // Load file list
+        async function loadFiles(resultId) {
+            try {
+                const response = await fetch(`${API_BASE}/results/${resultId}/files`);
+                const data = await response.json();
+                
+                const container = document.getElementById('downloads');
+                container.innerHTML = '';
+                
+                if (data.files.length === 0) {
+                    container.textContent = 'No files available';
+                    return;
+                }
+                
+                data.files.forEach(file => {
+                    const button = document.createElement('button');
+                    button.textContent = `Download ${file.name}`;
+                    button.onclick = () => {
+                        window.open(file.path, '_blank');
+                    };
+                    container.appendChild(button);
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }
+        
+        // Button handlers
+        document.getElementById('toggle-input').onclick = function() {
+            if (inputPointCloud) {
+                inputPointCloud.visible = !inputPointCloud.visible;
+                this.classList.toggle('active', inputPointCloud.visible);
+                this.textContent = inputPointCloud.visible ? '✓ Input (Defective)' : '○ Input (Defective)';
+            }
+        };
+        
+        document.getElementById('toggle-sample').onclick = function() {
+            if (samplePointCloud) {
+                samplePointCloud.visible = !samplePointCloud.visible;
+                this.classList.toggle('active', samplePointCloud.visible);
+                this.textContent = samplePointCloud.visible ? '✓ Sample (Implant)' : '○ Sample (Implant)';
+            }
+        };
+        
+        document.getElementById('reset-camera').onclick = () => {
+            camera.position.set(1, 1, 1.5);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        };
+        
+        // Initialize
+        initThree();
+        loadResults();
+    </script>
+</body>
+</html>
+

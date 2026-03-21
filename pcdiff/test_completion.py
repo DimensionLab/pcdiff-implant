@@ -185,11 +185,22 @@ class GaussianDiffusion:
         sample = torch.cat([data[:, :, :self.sv_points], sample], dim=-1)
         return sample
 
-    def p_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
-                      keep_running=False):
+    def p_sample_loop(
+        self,
+        partial_x,
+        denoise_fn,
+        shape,
+        device,
+        noise_fn=torch.randn,
+        clip_denoised=True,
+        keep_running=False,
+        sampling_steps=None,
+        progress_callback=None,
+    ):
         """
         Generate samples
         keep_running: True if we run 2 x num_timesteps, False if we just run num_timesteps
+        progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
         """
 
         assert isinstance(shape, (tuple, list))
@@ -197,10 +208,40 @@ class GaussianDiffusion:
 
         img_t = torch.cat([partial_x, noise], dim=-1)
 
-        for t in tqdm(reversed(range(0, self.num_timesteps if not keep_running else len(self.betas))), total=1000):
+        if sampling_steps is not None and sampling_steps > 0:
+            if keep_running:
+                max_steps = len(self.betas)
+            else:
+                max_steps = self.num_timesteps
+            sampling_steps = min(sampling_steps, max_steps)
+            timestep_range = np.linspace(
+                max_steps - 1,
+                0,
+                num=sampling_steps,
+                endpoint=True,
+            )
+            timestep_range = np.clip(np.round(timestep_range).astype(int), 0, max_steps - 1)
+            timestep_range = list(dict.fromkeys(timestep_range.tolist()))
+        else:
+            timestep_range = list(range(self.num_timesteps if not keep_running else len(self.betas)))
+
+        timestep_range = sorted(timestep_range)
+        total_steps = len(timestep_range)
+
+        import time
+        step_times = []
+        for i, t in enumerate(tqdm(reversed(timestep_range), total=total_steps)):
+            step_start = time.time()
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                   clip_denoised=clip_denoised, return_pred_xstart=False)
+            step_time_ms = int((time.time() - step_start) * 1000)
+            step_times.append(step_time_ms)
+
+            # Report progress every 10 steps or on last step
+            if progress_callback and (i % 10 == 0 or i == total_steps - 1):
+                avg_step_time = sum(step_times[-10:]) / min(len(step_times), 10)
+                progress_callback(i + 1, total_steps, int(avg_step_time))
 
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
@@ -256,8 +297,11 @@ class GaussianDiffusion:
         return sample
 
     def ddim_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
-                         sampling_steps=1000):
-
+                         sampling_steps=1000, progress_callback=None):
+        """
+        DDIM sampling loop with optional progress callback.
+        progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
+        """
         assert isinstance(shape, (tuple, list))
         noise = noise_fn(size=shape, dtype=torch.float, device=device)
 
@@ -265,11 +309,22 @@ class GaussianDiffusion:
 
         ts = np.linspace(0, 999, sampling_steps).round().astype('int')
         ts = np.unique(ts)[::-1]
+        total_steps = len(ts)
 
-        for t in tqdm(ts):
+        import time
+        step_times = []
+        for i, t in enumerate(tqdm(ts)):
+            step_start = time.time()
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.ddim_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                      clip_denoised=clip_denoised, return_pred_xstart=True)
+            step_time_ms = int((time.time() - step_start) * 1000)
+            step_times.append(step_time_ms)
+
+            # Report progress every 5 steps or on last step (DDIM has fewer steps)
+            if progress_callback and (i % 5 == 0 or i == total_steps - 1):
+                avg_step_time = sum(step_times[-5:]) / min(len(step_times), 5)
+                progress_callback(i + 1, total_steps, int(avg_step_time))
 
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
@@ -454,14 +509,30 @@ class Model(nn.Module):
         return losses
 
     def gen_samples(self, partial_x, shape, device, noise_fn=torch.randn, clip_denoised=True, keep_running=False,
-                    sampling_method='ddpm', sampling_steps=1000):
+                    sampling_method='ddpm', sampling_steps=1000, progress_callback=None):
+        """
+        Generate samples using DDPM or DDIM sampling.
+
+        Args:
+            progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
+        """
         if sampling_method == 'ddpm':
-            return self.diffusion.p_sample_loop(partial_x, self._denoise, shape=shape, device=device, noise_fn=noise_fn,
-                                                clip_denoised=clip_denoised, keep_running=keep_running)
+            return self.diffusion.p_sample_loop(
+                partial_x,
+                self._denoise,
+                shape=shape,
+                device=device,
+                noise_fn=noise_fn,
+                clip_denoised=clip_denoised,
+                keep_running=keep_running,
+                sampling_steps=sampling_steps,
+                progress_callback=progress_callback,
+            )
         if sampling_method == 'ddim':
             return self.diffusion.ddim_sample_loop(partial_x, self._denoise, shape=shape, device=device,
                                                    noise_fn=noise_fn, clip_denoised=clip_denoised,
-                                                   sampling_steps=sampling_steps)
+                                                   sampling_steps=sampling_steps,
+                                                   progress_callback=progress_callback)
         else:
             raise NotImplementedError("Not implemented. Use 'ddpm' or 'ddim'.")
 
@@ -575,12 +646,16 @@ def main(opt):
 
         resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
         
-        # Handle DDP-saved checkpoints (remove 'module.' prefix if present)
+        # Handle DDP-saved checkpoints and torch.compile checkpoints
         state_dict = resumed_param['model_state']
         if list(state_dict.keys())[0].startswith('model.module.'):
             # Checkpoint was saved with DistributedDataParallel
             state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
             logger.info("Loaded checkpoint from distributed training (removed 'module.' prefix)")
+        elif list(state_dict.keys())[0].startswith('model._orig_mod.'):
+            # Checkpoint was saved with torch.compile
+            state_dict = {k.replace('model._orig_mod.', 'model.'): v for k, v in state_dict.items()}
+            logger.info("Loaded checkpoint from compiled training (removed '_orig_mod.' prefix)")
         
         model.load_state_dict(state_dict)
 

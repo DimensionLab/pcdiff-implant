@@ -56,7 +56,12 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    cfg = load_config(args.config, 'voxelization/configs/default.yaml')
+    # Convert config path to absolute path to support running from any directory
+    config_path = os.path.abspath(args.config)
+    # Get script directory for default config
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    default_config = os.path.join(script_dir, 'configs', 'default.yaml')
+    cfg = load_config(config_path, default_config)
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device('cuda', local_rank) if use_cuda else torch.device('cpu')
     vis_n_outputs = cfg['generation']['vis_n_outputs'] or -1

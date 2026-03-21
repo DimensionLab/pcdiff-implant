@@ -5,7 +5,7 @@ train:
 
 data:
   dset: SkullFix
-  path: datasets/SkullFix/results/syn  # Path to results folder of point cloud diffusion model (SkullFix)
+  path: pcdiff/datasets/SkullFix/results/syn  # Path to results folder of point cloud diffusion model (SkullFix)
 
 generation:
   generation_dir: gen_skullfix

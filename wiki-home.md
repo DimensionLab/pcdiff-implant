@@ -21,6 +21,16 @@ Welcome to the Point Cloud Diffusion Models for Automatic Implant Generation wik
   - [Best Practices](pcdiff/distributed-training.md#best-practices)
   - [Troubleshooting](pcdiff/distributed-training.md#troubleshooting)
   - [Multi-Node Training](pcdiff/distributed-training.md#multi-node-training)
+- [Training Scripts Guide](scripts/training-guide.md) 🚀 **Automated Training**
+  - [Quick Start](scripts/training-guide.md#quick-start)
+  - [Dual Model Training](scripts/training-guide.md#configuration)
+  - [GPU Allocation Strategy](scripts/training-guide.md#gpu-allocation-strategy)
+  - [Common Issues](scripts/training-guide.md#common-issues--solutions)
+  - [Monitoring Guide](scripts/training-guide.md#monitoring)
+- [Technical Reference](scripts/technical-reference.md) 🔧
+  - [Checkpoint Remapping](scripts/technical-reference.md#checkpoint-device-mismatch)
+  - [GPU Configuration](scripts/technical-reference.md#gpu-device-ordinal-error)
+  - [Learning Rate Scaling Theory](scripts/technical-reference.md#learning-rate-scaling)
 - [Voxelization Network](voxelization/README.md)
 
 ### Data

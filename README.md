@@ -75,6 +75,29 @@ Both networks, the point cloud diffusion model and the voxelization network are 
 * Information on training and using the point cloud diffusion model can be found [here](./pcdiff/README.md)
 * Information on training and using the voxelization network can be found [here](./voxelization/README.md)
 
+## Web-Based 3D Viewer
+
+An interactive web viewer is available for visualizing inference results in 3D:
+* **[web_viewer/README.md](./web_viewer/README.md)** - Setup and usage guide
+* **[web_viewer/DEPLOYMENT.md](./web_viewer/DEPLOYMENT.md)** - Remote access deployment
+
+**Features:**
+- 🔍 Interactive 3D visualization with Three.js
+- 📥 Export to PLY (visualization) and STL (3D printing) formats
+- 🌐 Remote access via external IP
+- 🎨 Toggle visibility, ensemble sample cycling
+- 🚀 Auto-conversion of NPY files to web formats
+
+**Quick Start:**
+```bash
+cd web_viewer
+./start_dev.sh  # Development mode with hot-reload
+# OR
+./start_server.sh  # Production mode for remote access
+```
+
+Access at: `http://localhost:5173` (dev) or `http://YOUR_IP:8080` (production)
+
 ## Implementation Details for Comparing Methods
 * **3D U-Net**:  For implementing the paper [Improving the Automatic Cranial Implant Design in Cranioplasty by Linking Different Datasets](https://link.springer.com/chapter/10.1007/978-3-030-92652-6_4), we used their publicly available [implementation](https://github.com/MWod/AutoImplant_2021). As described in the paper we trained for 1000 iteration with 500 cases per iteration. The batch size was set to 1 and the Adam optimizer with a learning rate of 0.002 was used. The learning rate was decreased by a factor of 0.997 per iteration. We trained the network without linking both datasets via registration.
 * **3D U-Net (sparse)**: For implementing the paper [Sparse Convolutional Neural Network for Skull Reconstruction](https://link.springer.com/chapter/10.1007/978-3-030-92652-6_7), we used their publicly available [implementation](https://github.com/akroviakov/SparseSkullCompletion). As described in their paper, we trained for 16 epochs using a batch size of 1. As proposed in the paper, we used an Adam optimizer with a learning rate of 0.001.

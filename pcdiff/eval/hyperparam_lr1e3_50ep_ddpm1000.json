@@ -1,0 +1,31 @@
+{
+  "checkpoint": "/workspace/pcdiff-implant/pcdiff/runs/SkullBreak/20260120_091549-hyperparam-search-lr1e3-50ep/checkpoints/model_best.pth",
+  "sampling_method": "ddpm",
+  "sampling_steps": 1000,
+  "num_ens": 1,
+  "num_samples": 2,
+  "num_valid": 2,
+  "total_time_s": 1817.8658459186554,
+  "mean_dsc": 0.0,
+  "mean_bdsc": 0.0,
+  "mean_hd95": 175.74351403123003,
+  "per_sample": [
+    {
+      "case_id": "086",
+      "dsc": 0.0,
+      "bdsc": 0.0,
+      "hd95": 105.27373841561818,
+      "time_s": 918.1690366268158,
+      "error": null
+    },
+    {
+      "case_id": "088",
+      "dsc": 0.0,
+      "bdsc": 0.0,
+      "hd95": 246.21328964684187,
+      "time_s": 899.6968092918396,
+      "error": null
+    }
+  ],
+  "timestamp": "2026-01-20T10:46:40.609730"
+}

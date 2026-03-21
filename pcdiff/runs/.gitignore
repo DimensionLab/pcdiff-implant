@@ -1,0 +1,5 @@
+# Ignore all run directories (training artifacts)
+# But keep the .gitkeep and .gitignore
+*
+!.gitkeep
+!.gitignore

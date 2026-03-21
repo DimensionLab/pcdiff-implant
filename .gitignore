@@ -1,4 +1,5 @@
 # Data related directories and files
+.DS_Store
 /datasets
 /pcdiff/datasets/Skull*
 /.venv/
@@ -11,15 +12,19 @@ uv.lock
 *.obj
 
 # Model output
+/output*
 /pcdiff/output
+/pcdiff/checkpoints/*
 /voxelization/output
 /voxelization/out
+/voxelization/checkpoints/*
 
 # Log-files
 *.log
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+.cache/
 *.py[cod]
 *$py.class
 
@@ -48,3 +53,12 @@ cuda_*.run
 wandb/
 
 /inference*
+/screenshots*
+
+# Web Viewer
+/web_viewer/frontend/node_modules/
+/web_viewer/frontend/dist/
+/web_viewer/frontend/.env
+/web_viewer/frontend/.env.local
+/web_viewer/backend/__pycache__/
+*.pyc

@@ -1,0 +1,68 @@
+{
+  "description": "Fixed validation subset for proxy evaluation during training (10 test cases, bilateral defect only)",
+  "defect_type": "bilateral",
+  "num_samples": 10,
+  "samples": [
+    {
+      "case_id": "086",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/086_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/086.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/086.nrrd"
+    },
+    {
+      "case_id": "088",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/088_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/088.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/088.nrrd"
+    },
+    {
+      "case_id": "090",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/090_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/090.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/090.nrrd"
+    },
+    {
+      "case_id": "092",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/092_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/092.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/092.nrrd"
+    },
+    {
+      "case_id": "094",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/094_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/094.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/094.nrrd"
+    },
+    {
+      "case_id": "096",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/096_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/096.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/096.nrrd"
+    },
+    {
+      "case_id": "098",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/098_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/098.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/098.nrrd"
+    },
+    {
+      "case_id": "100",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/100_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/100.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/100.nrrd"
+    },
+    {
+      "case_id": "102",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/102_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/102.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/102.nrrd"
+    },
+    {
+      "case_id": "104",
+      "defective_npy": "datasets/SkullBreak/defective_skull/bilateral/104_surf.npy",
+      "defective_nrrd": "datasets/SkullBreak/defective_skull/bilateral/104.nrrd",
+      "implant_nrrd": "datasets/SkullBreak/implant/bilateral/104.nrrd"
+    }
+  ],
+  "notes": "Selected every other test case (086, 088, ..., 104) to provide diverse coverage across the test set while keeping evaluation fast (~5-10 min per proxy eval)"
+}

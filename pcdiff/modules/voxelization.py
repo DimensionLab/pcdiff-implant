@@ -1,5 +1,9 @@
 import torch
 import torch.nn as nn
+try:
+    import torch._dynamo as dynamo  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    dynamo = None
 
 import modules.functional as F
 
@@ -26,3 +30,6 @@ class Voxelization(nn.Module):
 
     def extra_repr(self):
         return 'resolution={}{}'.format(self.r, ', normalized eps = {}'.format(self.eps) if self.normalize else '')
+
+if dynamo is not None:  # pragma: no cover
+    Voxelization.forward = dynamo.disable(Voxelization.forward)
