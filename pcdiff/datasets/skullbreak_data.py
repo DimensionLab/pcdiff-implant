@@ -3,6 +3,7 @@ Implements a data structure for loading point clouds from the SkullBreak dataset
 """
 
 import csv
+import os
 import numpy as np
 import open3d as o3d
 import torch as th
@@ -12,6 +13,7 @@ class SkullBreakDataset(th.utils.data.Dataset):
     def __init__(self, path, num_points, num_nn, norm_mode, num_samples=1, eval=False, augment=False):
         super().__init__()
         self.directory = path
+        self.csv_base_dir = os.path.dirname(os.path.abspath(path))
         self.num_points = num_points
         self.num_nn = num_nn
         self.database = []
@@ -26,12 +28,17 @@ class SkullBreakDataset(th.utils.data.Dataset):
             for row in csv_reader:
                 for defect_id in range(5):
                     datapoint = dict()
-                    # Extract base path and filename from complete_skull path
-                    # e.g., "datasets/SkullBreak/complete_skull/000_surf.npy"
-                    base_path = row[0].split('complete_skull')[0]  # "datasets/SkullBreak/"
-                    filename = row[0].split('/')[-1]  # "000_surf.npy"
-                    datapoint['defective_skull'] = base_path + 'defective_skull/' + self.defects[defect_id] + '/' + filename
-                    datapoint['implant'] = base_path + 'implant/' + self.defects[defect_id] + '/' + filename
+                    entry = row[0]
+                    base_path = entry.split('complete_skull')[0]
+                    filename = entry.split('/')[-1]
+                    defective = base_path + 'defective_skull/' + self.defects[defect_id] + '/' + filename
+                    implant = base_path + 'implant/' + self.defects[defect_id] + '/' + filename
+                    # Resolve relative paths against CSV file directory
+                    if not os.path.isabs(defective):
+                        defective = os.path.join(self.csv_base_dir, defective)
+                        implant = os.path.join(self.csv_base_dir, implant)
+                    datapoint['defective_skull'] = defective
+                    datapoint['implant'] = implant
                     self.database.append(datapoint)
 
     def __getitem__(self, file):

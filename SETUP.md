@@ -171,6 +171,16 @@ source .venv/bin/activate
 - Some old model checkpoints might need conversion (test thoroughly)
 - Performance should be equal or better with modern PyTorch
 
+## Dataset Path Convention
+
+Dataset CSV files (e.g., `pcdiff/datasets/SkullBreak/*.csv`) use **relative paths** — relative to the CSV file's own directory. The data loader resolves them automatically. Never commit absolute or user-specific paths to these files.
+
+Environment variables go in `.env` files (not tracked by git). Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp web_viewer/.env.example web_viewer/.env
+```
+
 ## Next Steps
 
 After installation, proceed with:
