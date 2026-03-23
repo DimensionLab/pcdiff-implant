@@ -56,7 +56,7 @@ build-backend = "hatchling.build"
 wandb = ["wandb>=0.16.0"]
 
 [dependency-groups]
-dev = ["ipdb>=0.13.0", "pytest>=8.0.0", "pre-commit>=3.8.0"]
+dev = ["ipdb>=0.13.0", "pytest>=8.0.0", "pre-commit>=3.8.0", "ruff>=0.8.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["pcdiff", "voxelization"]
@@ -68,4 +68,24 @@ packages = ["pcdiff", "voxelization"]
 Homepage = "https://pfriedri.github.io/pcdiff-implant-io/"
 Repository = "https://github.com/pfriedri/pcdiff-implant"
 "Paper (arXiv)" = "https://arxiv.org/abs/2303.08061"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = [
+    "E501",   # line too long — handled gradually
+    "F401",   # unused imports — common in research code __init__.py
+    "F403",   # star imports
+    "F405",   # may be undefined from star import
+    "E741",   # ambiguous variable names (l, O, I) — common in math code
+]
+
+[tool.ruff.lint.per-file-ignores]
+"pcdiff/modules/**" = ["E", "F"]  # CUDA extension bindings, leave as-is
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 

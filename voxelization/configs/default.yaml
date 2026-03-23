@@ -102,3 +102,15 @@ generation:
   use_sampling: false
   psr_resolution: 0
   psr_sigma: 0
+  defect_point_count: 3072
+  refinement:
+    strategy: legacy
+    occupancy_threshold: 0.5
+    symmetry_weight: 0.35
+    symmetry_axis: 0
+    symmetry_defect_only: true
+  postprocess:
+    method: bbox
+    bbox_margin_voxels: 12
+    radius_scale: 1.1
+    fallback: largest_component

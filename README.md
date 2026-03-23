@@ -8,6 +8,7 @@ This is the official PyTorch implementation of the MICCAI 2023 paper [Point Clou
 > **🚀 Quick Start**: Get running in minutes with Python 3.10, PyTorch 2.5, and `uv`! See **[INSTALL.md](./INSTALL.md)**
 > 
 > **📚 Wiki**: Comprehensive documentation including multi-GPU training guides available in **[wiki-home.md](./wiki-home.md)**
+> **📏 Evaluation**: Canonical benchmark artifact and audit flow available in **[EVALUATION.md](./EVALUATION.md)**
 
 If you find our work useful, please consider to :star: **star this repository** and :memo: **cite our paper**:
 ```bibtex

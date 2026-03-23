@@ -1,7 +1,17 @@
 import argparse
+import os
+import sys
+import time
+from pathlib import Path
+
 import torch.nn as nn
 import torch.utils.data
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from benchmarking.reporting import build_stage_report, summarize_numeric_fields, utc_now_iso, write_csv, write_json
 from torch.distributions import Normal
 from model.pvcnn_completion import PVCNN2Base
 from utils.file_utils import *
@@ -185,22 +195,11 @@ class GaussianDiffusion:
         sample = torch.cat([data[:, :, :self.sv_points], sample], dim=-1)
         return sample
 
-    def p_sample_loop(
-        self,
-        partial_x,
-        denoise_fn,
-        shape,
-        device,
-        noise_fn=torch.randn,
-        clip_denoised=True,
-        keep_running=False,
-        sampling_steps=None,
-        progress_callback=None,
-    ):
+    def p_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
+                      keep_running=False):
         """
         Generate samples
         keep_running: True if we run 2 x num_timesteps, False if we just run num_timesteps
-        progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
         """
 
         assert isinstance(shape, (tuple, list))
@@ -208,40 +207,10 @@ class GaussianDiffusion:
 
         img_t = torch.cat([partial_x, noise], dim=-1)
 
-        if sampling_steps is not None and sampling_steps > 0:
-            if keep_running:
-                max_steps = len(self.betas)
-            else:
-                max_steps = self.num_timesteps
-            sampling_steps = min(sampling_steps, max_steps)
-            timestep_range = np.linspace(
-                max_steps - 1,
-                0,
-                num=sampling_steps,
-                endpoint=True,
-            )
-            timestep_range = np.clip(np.round(timestep_range).astype(int), 0, max_steps - 1)
-            timestep_range = list(dict.fromkeys(timestep_range.tolist()))
-        else:
-            timestep_range = list(range(self.num_timesteps if not keep_running else len(self.betas)))
-
-        timestep_range = sorted(timestep_range)
-        total_steps = len(timestep_range)
-
-        import time
-        step_times = []
-        for i, t in enumerate(tqdm(reversed(timestep_range), total=total_steps)):
-            step_start = time.time()
+        for t in tqdm(reversed(range(0, self.num_timesteps if not keep_running else len(self.betas))), total=1000):
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                   clip_denoised=clip_denoised, return_pred_xstart=False)
-            step_time_ms = int((time.time() - step_start) * 1000)
-            step_times.append(step_time_ms)
-
-            # Report progress every 10 steps or on last step
-            if progress_callback and (i % 10 == 0 or i == total_steps - 1):
-                avg_step_time = sum(step_times[-10:]) / min(len(step_times), 10)
-                progress_callback(i + 1, total_steps, int(avg_step_time))
 
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
@@ -297,11 +266,8 @@ class GaussianDiffusion:
         return sample
 
     def ddim_sample_loop(self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, clip_denoised=True,
-                         sampling_steps=1000, progress_callback=None):
-        """
-        DDIM sampling loop with optional progress callback.
-        progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
-        """
+                         sampling_steps=1000):
+
         assert isinstance(shape, (tuple, list))
         noise = noise_fn(size=shape, dtype=torch.float, device=device)
 
@@ -309,22 +275,11 @@ class GaussianDiffusion:
 
         ts = np.linspace(0, 999, sampling_steps).round().astype('int')
         ts = np.unique(ts)[::-1]
-        total_steps = len(ts)
 
-        import time
-        step_times = []
-        for i, t in enumerate(tqdm(ts)):
-            step_start = time.time()
+        for t in tqdm(ts):
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.ddim_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                      clip_denoised=clip_denoised, return_pred_xstart=True)
-            step_time_ms = int((time.time() - step_start) * 1000)
-            step_times.append(step_time_ms)
-
-            # Report progress every 5 steps or on last step (DDIM has fewer steps)
-            if progress_callback and (i % 5 == 0 or i == total_steps - 1):
-                avg_step_time = sum(step_times[-5:]) / min(len(step_times), 5)
-                progress_callback(i + 1, total_steps, int(avg_step_time))
 
         assert img_t[:, :, self.sv_points:].shape == shape
         return img_t
@@ -509,30 +464,14 @@ class Model(nn.Module):
         return losses
 
     def gen_samples(self, partial_x, shape, device, noise_fn=torch.randn, clip_denoised=True, keep_running=False,
-                    sampling_method='ddpm', sampling_steps=1000, progress_callback=None):
-        """
-        Generate samples using DDPM or DDIM sampling.
-
-        Args:
-            progress_callback: Optional callable(current_step, total_steps, step_time_ms) for progress reporting
-        """
+                    sampling_method='ddpm', sampling_steps=1000):
         if sampling_method == 'ddpm':
-            return self.diffusion.p_sample_loop(
-                partial_x,
-                self._denoise,
-                shape=shape,
-                device=device,
-                noise_fn=noise_fn,
-                clip_denoised=clip_denoised,
-                keep_running=keep_running,
-                sampling_steps=sampling_steps,
-                progress_callback=progress_callback,
-            )
+            return self.diffusion.p_sample_loop(partial_x, self._denoise, shape=shape, device=device, noise_fn=noise_fn,
+                                                clip_denoised=clip_denoised, keep_running=keep_running)
         if sampling_method == 'ddim':
             return self.diffusion.ddim_sample_loop(partial_x, self._denoise, shape=shape, device=device,
                                                    noise_fn=noise_fn, clip_denoised=clip_denoised,
-                                                   sampling_steps=sampling_steps,
-                                                   progress_callback=progress_callback)
+                                                   sampling_steps=sampling_steps)
         else:
             raise NotImplementedError("Not implemented. Use 'ddpm' or 'ddim'.")
 
@@ -590,6 +529,7 @@ def evaluate_recon_mvr(opt, model, save_dir):
                                                   num_workers=int(opt.workers), drop_last=False)
 
     model.eval()
+    case_records = []
 
     for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Reconstructing Samples'):
         pc = data['train_points'].transpose(1, 2).to("cuda:" + str(opt.gpu))
@@ -599,11 +539,22 @@ def evaluate_recon_mvr(opt, model, save_dir):
 
         pc = pc.repeat(ensemble_num, 1, 1)
         noise_shape = torch.Size([ensemble_num, 3, opt.num_nn])
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats(opt.gpu)
+            torch.cuda.synchronize(opt.gpu)
+        case_start = time.perf_counter()
 
         with torch.no_grad():
             sample = model.gen_samples(pc, noise_shape, pc.device, clip_denoised=False,
                                        sampling_method=opt.sampling_method, sampling_steps=opt.sampling_steps)
             sample = sample.detach().cpu()
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize(opt.gpu)
+            peak_memory_mb = round(torch.cuda.max_memory_allocated(opt.gpu) / (1024 ** 2), 2)
+        else:
+            peak_memory_mb = None
+        runtime_sec = round(time.perf_counter() - case_start, 4)
 
         sample_np = np.asarray(sample)
         sample_np = sample_np.transpose(0, 2, 1)
@@ -615,13 +566,25 @@ def evaluate_recon_mvr(opt, model, save_dir):
         np.save(os.path.join(save_dir, name, 'sample.npy'), sample_np)  # save the sampled point clouds (implants)
         np.save(os.path.join(save_dir, name, 'shift.npy'), np.asarray(data['shift']))  # save shift
         np.save(os.path.join(save_dir, name, 'scale.npy'), np.asarray(data['scale']))  # save scale
-    return
+        case_records.append({
+            'case_name': name,
+            'case_dir': os.path.join(save_dir, name),
+            'input_points_path': os.path.join(save_dir, name, 'input.npy'),
+            'sample_points_path': os.path.join(save_dir, name, 'sample.npy'),
+            'shift_path': os.path.join(save_dir, name, 'shift.npy'),
+            'scale_path': os.path.join(save_dir, name, 'scale.npy'),
+            'num_generated_implants': ensemble_num,
+            'runtime_sec': runtime_sec,
+            'gpu_peak_memory_mb': peak_memory_mb,
+        })
+    return case_records
 
 
 def main(opt):
     output_dir = opt.eval_path
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
+    stage_started_at = utc_now_iso()
 
     logger = setup_logging(output_dir)
     outf_syn, = setup_output_subdirs(output_dir, 'syn')
@@ -633,6 +596,17 @@ def main(opt):
     def _transform_(m):
         return nn.parallel.DataParallel(m)
 
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            f"CUDA is not available. This script requires a GPU. "
+            f"torch.cuda.is_available() returned False. "
+            f"Check your CUDA installation and GPU drivers."
+        )
+    if opt.gpu >= torch.cuda.device_count():
+        raise RuntimeError(
+            f"Requested GPU {opt.gpu} but only {torch.cuda.device_count()} GPU(s) available. "
+            f"Use --gpu to select a valid device."
+        )
     torch.cuda.set_device(opt.gpu)
     model = model.cuda(opt.gpu)
 
@@ -644,24 +618,87 @@ def main(opt):
     with torch.no_grad():
         logger.info("Perform sampling with:%s" % opt.model)
 
-        resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
-        
-        # Handle DDP-saved checkpoints and torch.compile checkpoints
+        if not os.path.isfile(opt.model):
+            raise FileNotFoundError(
+                f"Model checkpoint not found: {opt.model}\n"
+                f"Provide a valid path via --model."
+            )
+        try:
+            resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load checkpoint '{opt.model}': {e}"
+            ) from e
+
+        if 'model_state' not in resumed_param:
+            raise KeyError(
+                f"Checkpoint '{opt.model}' does not contain 'model_state'. "
+                f"Available keys: {list(resumed_param.keys())}"
+            )
+        # Handle DDP-saved checkpoints (remove 'module.' prefix if present)
         state_dict = resumed_param['model_state']
-        if list(state_dict.keys())[0].startswith('model.module.'):
+        if state_dict and list(state_dict.keys())[0].startswith('model.module.'):
             # Checkpoint was saved with DistributedDataParallel
             state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
             logger.info("Loaded checkpoint from distributed training (removed 'module.' prefix)")
-        elif list(state_dict.keys())[0].startswith('model._orig_mod.'):
-            # Checkpoint was saved with torch.compile
-            state_dict = {k.replace('model._orig_mod.', 'model.'): v for k, v in state_dict.items()}
-            logger.info("Loaded checkpoint from compiled training (removed '_orig_mod.' prefix)")
-        
+
         model.load_state_dict(state_dict)
 
+        case_records = []
         if opt.eval_recon_mvr:
             # Evaluate generation
-            evaluate_recon_mvr(opt, model, outf_syn)
+            case_records = evaluate_recon_mvr(opt, model, outf_syn)
+
+    stage_finished_at = utc_now_iso()
+    case_records = sorted(case_records, key=lambda record: record['case_name'])
+    summary = summarize_numeric_fields(case_records, ['runtime_sec', 'gpu_peak_memory_mb'])
+    summary.update({
+        'case_count': len(case_records),
+        'ensemble_size': opt.num_ens,
+        'sampling_method': opt.sampling_method,
+        'sampling_steps': opt.sampling_steps,
+    })
+
+    cases_csv_path = Path(output_dir) / 'benchmark_cases.csv'
+    summary_json_path = Path(output_dir) / 'benchmark_summary.json'
+    report_json_path = Path(output_dir) / 'benchmark_stage_report.json'
+
+    write_csv(
+        cases_csv_path,
+        case_records,
+        fieldnames=[
+            'case_name',
+            'case_dir',
+            'input_points_path',
+            'sample_points_path',
+            'shift_path',
+            'scale_path',
+            'num_generated_implants',
+            'runtime_sec',
+            'gpu_peak_memory_mb',
+        ],
+    )
+    write_json(summary_json_path, summary)
+    write_json(
+        report_json_path,
+        build_stage_report(
+            stage_name='point-cloud-inference',
+            dataset=opt.dataset,
+            repo_root=REPO_ROOT,
+            started_at=stage_started_at,
+            finished_at=stage_finished_at,
+            command=sys.argv,
+            args=vars(opt),
+            outputs={
+                'syn_dir': str(Path(outf_syn)),
+                'cases_csv': str(cases_csv_path),
+                'summary_json': str(summary_json_path),
+            },
+            summary=summary,
+            extra={'model_checkpoint': opt.model},
+            device=opt.gpu if torch.cuda.is_available() else None,
+        ),
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser()

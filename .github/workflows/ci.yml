@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install ruff
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[wandb]"
+          pip install pytest
+      - name: Run tests
+        run: pytest tests/ -v
+
+  cuda-compile-check:
+    runs-on: ubuntu-latest
+    container:
+      image: pytorch/pytorch:2.5.0-cuda12.4-cudnn9-devel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CUDA toolkit
+        run: nvcc --version
+      - name: Test CUDA extension compilation
+        run: |
+          pip install ninja
+          python -c "
+          import torch
+          from torch.utils.cpp_extension import load
+          import os
+
+          src_path = 'pcdiff/modules/functional/src'
+          sources = [os.path.join(src_path, f) for f in [
+              'ball_query/ball_query.cpp',
+              'ball_query/ball_query.cu',
+              'grouping/grouping.cpp',
+              'grouping/grouping.cu',
+              'interpolate/neighbor_interpolate.cpp',
+              'interpolate/neighbor_interpolate.cu',
+              'interpolate/trilinear_devox.cpp',
+              'interpolate/trilinear_devox.cu',
+              'sampling/sampling.cpp',
+              'sampling/sampling.cu',
+              'voxelization/vox.cpp',
+              'voxelization/vox.cu',
+              'bindings.cpp',
+          ]]
+          # Filter to only existing sources (bindings.cpp is in src/)
+          existing = [s for s in sources if os.path.exists(s)]
+          if not existing:
+              # Try with bindings at the functional level
+              sources[-1] = os.path.join(src_path, '..', 'bindings.cpp') if os.path.exists(os.path.join(src_path, '..', 'bindings.cpp')) else sources[-1]
+              existing = [s for s in sources if os.path.exists(s)]
+          print(f'Found {len(existing)} source files for CUDA extension')
+          assert len(existing) > 0, 'No CUDA source files found'
+          print('CUDA extension source files verified')
+          "
