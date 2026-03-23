@@ -1,3 +1,5 @@
+import re
+
 import nrrd
 import scipy
 import torch
@@ -525,12 +527,37 @@ def load_pointcloud(in_file):
     return vertices
 
 # General config
-def load_config(path, default_path=None):
-    ''' Loads config file.
 
-    Args:  
+_ENV_VAR_PATTERN = re.compile(r'\$\{([^}]+)\}')
+
+
+def _interpolate_env_vars(obj):
+    '''Recursively replace ${VAR} and ${VAR:-default} placeholders with
+    environment variable values.  Works on nested dicts and lists.'''
+    if isinstance(obj, str):
+        def _replace(match):
+            expr = match.group(1)
+            if ':-' in expr:
+                var, default = expr.split(':-', 1)
+                return os.environ.get(var, default)
+            return os.environ.get(expr, match.group(0))
+        return _ENV_VAR_PATTERN.sub(_replace, obj)
+    if isinstance(obj, dict):
+        return {k: _interpolate_env_vars(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_interpolate_env_vars(item) for item in obj]
+    return obj
+
+
+def load_config(path, default_path=None):
+    ''' Loads config file with environment variable interpolation.
+
+    String values containing ``${VAR}`` are replaced by the corresponding
+    environment variable.  ``${VAR:-fallback}`` syntax is supported.
+
+    Args:
         path (str): path to config file
-        default_path (bool): whether to use default path
+        default_path (str): fallback config path when no inherit_from is set
     '''
     # Load configuration from file itself
     with open(path, 'r') as f:
@@ -551,6 +578,9 @@ def load_config(path, default_path=None):
 
     # Include main configuration
     update_recursive(cfg, cfg_special)
+
+    # Interpolate environment variables in the final merged config
+    cfg = _interpolate_env_vars(cfg)
 
     return cfg
 

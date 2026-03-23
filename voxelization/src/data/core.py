@@ -5,11 +5,11 @@ import open3d as o3d
 from torch.utils import data
 from pdb import set_trace as st
 from pathlib import Path
-import csv
 import trimesh
 import numpy as np
 import yaml
 from src.dpsr import DPSR
+from src.manifests import load_manifest_records
 
 logger = logging.getLogger(__name__)
 
@@ -97,33 +97,22 @@ class SkullDataset(data.Dataset):
     def __init__(self, path, split, noise_stddev=None, outlier_ratio=None):
         self.split = split
         self.path = Path(path).expanduser().resolve()
-        self.database = []
+        self.database = load_manifest_records(self.path)
         self.noise_stddev = noise_stddev
         self.outlier_ratio = outlier_ratio
 
-        with open(self.path, 'r', newline='') as file:
-            csvreader = csv.reader(file)
-            for row in csvreader:
-                if not row:
-                    continue
+        for record in self.database:
+            pointcloud_path = record.get('pointcloud_path')
+            if pointcloud_path is not None and not Path(pointcloud_path).exists():
+                raise FileNotFoundError(f"Point cloud file not found: {pointcloud_path}")
 
-                base_path = Path(row[0])
-                if not base_path.is_absolute():
-                    base_path = (self.path.parent / base_path).resolve()
+            if record["format"] == "generated_completion":
+                for key in ("sample_points_path", "shift_path", "scale_path"):
+                    if not Path(record[key]).exists():
+                        raise FileNotFoundError(f"Generated completion file not found: {record[key]}")
 
-                pointcloud_path = base_path.with_suffix('')  # ensure no accidental suffix
-                pointcloud_path = Path(str(pointcloud_path) + '_pc.npz')
-                psr_path = Path(str(base_path) + '_vox.npz')
-
-                if not pointcloud_path.exists():
-                    raise FileNotFoundError(f"Point cloud npz not found: {pointcloud_path}")
-                if not psr_path.exists():
-                    raise FileNotFoundError(f"Voxel npz not found: {psr_path}")
-
-                self.database.append({
-                    'pointcloud': pointcloud_path,
-                    'gt_psr': psr_path,
-                })
+            if not Path(record["gt_psr_path"]).exists():
+                raise FileNotFoundError(f"Voxel npz not found: {record['gt_psr_path']}")
 
     def __len__(self):
         return len(self.database)
@@ -132,10 +121,8 @@ class SkullDataset(data.Dataset):
         data_dir = self.database[item]
         data = dict()
 
-        pcd = np.load(data_dir['pointcloud'])
-        pc = pcd['points']
-
-        vox = np.load(data_dir['gt_psr'])
+        pc = self._load_pointcloud(data_dir)
+        vox = np.load(data_dir['gt_psr_path'])
         psr_gt = vox['psr']
 
         if self.noise_stddev:
@@ -148,6 +135,27 @@ class SkullDataset(data.Dataset):
         data['gt_psr'] = psr_gt
 
         return data
+
+    def _load_pointcloud(self, record):
+        if record["format"] in {"legacy", "explicit_npz"}:
+            pcd = np.load(record['pointcloud_path'])
+            return pcd['points']
+
+        if record["format"] == "generated_completion":
+            samples = np.load(record['sample_points_path'])
+            ensemble_index = int(record.get('ensemble_index', 0))
+            if ensemble_index >= len(samples):
+                raise IndexError(
+                    f"ensemble_index {ensemble_index} out of range for {record['sample_points_path']}"
+                )
+            sample = samples[ensemble_index]
+            scale = np.load(record['scale_path'])[0]
+            shift = np.load(record['shift_path'])[0]
+            sample = sample * scale + shift
+            sample /= 512
+            return sample.astype(np.float32)
+
+        raise ValueError(f"Unsupported manifest format: {record['format']}")
 
 
 class Shapes3dDataset(data.Dataset):

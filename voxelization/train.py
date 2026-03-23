@@ -14,9 +14,9 @@ from src.utils import load_config, initialize_logger, AverageMeter, load_model_m
 
 np.set_printoptions(precision=4)
 
-abspath = os.path.abspath(__file__)
-dname = os.path.dirname(abspath)
-os.chdir(dname)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_CONFIG = os.path.join(_SCRIPT_DIR, 'configs', 'default.yaml')
+os.chdir(_SCRIPT_DIR)
 
 
 def main():
@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--seed', type=int, default=1, metavar='S', help='Set a random seed (default: 1)')
     
     args = parser.parse_args()
-    cfg = load_config(args.config, 'configs/default.yaml')
+    cfg = load_config(args.config, _DEFAULT_CONFIG)
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     dev = "cuda:" + str(cfg['train']['gpu'])
     device = torch.device(dev if use_cuda else "cpu")

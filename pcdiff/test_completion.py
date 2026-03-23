@@ -1,7 +1,17 @@
 import argparse
+import os
+import sys
+import time
+from pathlib import Path
+
 import torch.nn as nn
 import torch.utils.data
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from benchmarking.reporting import build_stage_report, summarize_numeric_fields, utc_now_iso, write_csv, write_json
 from torch.distributions import Normal
 from model.pvcnn_completion import PVCNN2Base
 from utils.file_utils import *
@@ -519,6 +529,7 @@ def evaluate_recon_mvr(opt, model, save_dir):
                                                   num_workers=int(opt.workers), drop_last=False)
 
     model.eval()
+    case_records = []
 
     for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Reconstructing Samples'):
         pc = data['train_points'].transpose(1, 2).to("cuda:" + str(opt.gpu))
@@ -528,11 +539,22 @@ def evaluate_recon_mvr(opt, model, save_dir):
 
         pc = pc.repeat(ensemble_num, 1, 1)
         noise_shape = torch.Size([ensemble_num, 3, opt.num_nn])
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats(opt.gpu)
+            torch.cuda.synchronize(opt.gpu)
+        case_start = time.perf_counter()
 
         with torch.no_grad():
             sample = model.gen_samples(pc, noise_shape, pc.device, clip_denoised=False,
                                        sampling_method=opt.sampling_method, sampling_steps=opt.sampling_steps)
             sample = sample.detach().cpu()
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize(opt.gpu)
+            peak_memory_mb = round(torch.cuda.max_memory_allocated(opt.gpu) / (1024 ** 2), 2)
+        else:
+            peak_memory_mb = None
+        runtime_sec = round(time.perf_counter() - case_start, 4)
 
         sample_np = np.asarray(sample)
         sample_np = sample_np.transpose(0, 2, 1)
@@ -544,13 +566,25 @@ def evaluate_recon_mvr(opt, model, save_dir):
         np.save(os.path.join(save_dir, name, 'sample.npy'), sample_np)  # save the sampled point clouds (implants)
         np.save(os.path.join(save_dir, name, 'shift.npy'), np.asarray(data['shift']))  # save shift
         np.save(os.path.join(save_dir, name, 'scale.npy'), np.asarray(data['scale']))  # save scale
-    return
+        case_records.append({
+            'case_name': name,
+            'case_dir': os.path.join(save_dir, name),
+            'input_points_path': os.path.join(save_dir, name, 'input.npy'),
+            'sample_points_path': os.path.join(save_dir, name, 'sample.npy'),
+            'shift_path': os.path.join(save_dir, name, 'shift.npy'),
+            'scale_path': os.path.join(save_dir, name, 'scale.npy'),
+            'num_generated_implants': ensemble_num,
+            'runtime_sec': runtime_sec,
+            'gpu_peak_memory_mb': peak_memory_mb,
+        })
+    return case_records
 
 
 def main(opt):
     output_dir = opt.eval_path
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
+    stage_started_at = utc_now_iso()
 
     logger = setup_logging(output_dir)
     outf_syn, = setup_output_subdirs(output_dir, 'syn')
@@ -562,6 +596,17 @@ def main(opt):
     def _transform_(m):
         return nn.parallel.DataParallel(m)
 
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            f"CUDA is not available. This script requires a GPU. "
+            f"torch.cuda.is_available() returned False. "
+            f"Check your CUDA installation and GPU drivers."
+        )
+    if opt.gpu >= torch.cuda.device_count():
+        raise RuntimeError(
+            f"Requested GPU {opt.gpu} but only {torch.cuda.device_count()} GPU(s) available. "
+            f"Use --gpu to select a valid device."
+        )
     torch.cuda.set_device(opt.gpu)
     model = model.cuda(opt.gpu)
 
@@ -573,20 +618,87 @@ def main(opt):
     with torch.no_grad():
         logger.info("Perform sampling with:%s" % opt.model)
 
-        resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
-        
+        if not os.path.isfile(opt.model):
+            raise FileNotFoundError(
+                f"Model checkpoint not found: {opt.model}\n"
+                f"Provide a valid path via --model."
+            )
+        try:
+            resumed_param = torch.load(opt.model, map_location=("cuda:" + str(opt.gpu)))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load checkpoint '{opt.model}': {e}"
+            ) from e
+
+        if 'model_state' not in resumed_param:
+            raise KeyError(
+                f"Checkpoint '{opt.model}' does not contain 'model_state'. "
+                f"Available keys: {list(resumed_param.keys())}"
+            )
         # Handle DDP-saved checkpoints (remove 'module.' prefix if present)
         state_dict = resumed_param['model_state']
-        if list(state_dict.keys())[0].startswith('model.module.'):
+        if state_dict and list(state_dict.keys())[0].startswith('model.module.'):
             # Checkpoint was saved with DistributedDataParallel
             state_dict = {k.replace('model.module.', 'model.'): v for k, v in state_dict.items()}
             logger.info("Loaded checkpoint from distributed training (removed 'module.' prefix)")
-        
+
         model.load_state_dict(state_dict)
 
+        case_records = []
         if opt.eval_recon_mvr:
             # Evaluate generation
-            evaluate_recon_mvr(opt, model, outf_syn)
+            case_records = evaluate_recon_mvr(opt, model, outf_syn)
+
+    stage_finished_at = utc_now_iso()
+    case_records = sorted(case_records, key=lambda record: record['case_name'])
+    summary = summarize_numeric_fields(case_records, ['runtime_sec', 'gpu_peak_memory_mb'])
+    summary.update({
+        'case_count': len(case_records),
+        'ensemble_size': opt.num_ens,
+        'sampling_method': opt.sampling_method,
+        'sampling_steps': opt.sampling_steps,
+    })
+
+    cases_csv_path = Path(output_dir) / 'benchmark_cases.csv'
+    summary_json_path = Path(output_dir) / 'benchmark_summary.json'
+    report_json_path = Path(output_dir) / 'benchmark_stage_report.json'
+
+    write_csv(
+        cases_csv_path,
+        case_records,
+        fieldnames=[
+            'case_name',
+            'case_dir',
+            'input_points_path',
+            'sample_points_path',
+            'shift_path',
+            'scale_path',
+            'num_generated_implants',
+            'runtime_sec',
+            'gpu_peak_memory_mb',
+        ],
+    )
+    write_json(summary_json_path, summary)
+    write_json(
+        report_json_path,
+        build_stage_report(
+            stage_name='point-cloud-inference',
+            dataset=opt.dataset,
+            repo_root=REPO_ROOT,
+            started_at=stage_started_at,
+            finished_at=stage_finished_at,
+            command=sys.argv,
+            args=vars(opt),
+            outputs={
+                'syn_dir': str(Path(outf_syn)),
+                'cases_csv': str(cases_csv_path),
+                'summary_json': str(summary_json_path),
+            },
+            summary=summary,
+            extra={'model_checkpoint': opt.model},
+            device=opt.gpu if torch.cuda.is_available() else None,
+        ),
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser()

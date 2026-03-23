@@ -1,0 +1,15 @@
+.git
+.venv
+.uv
+__pycache__
+*.pyc
+datasets/
+*.nrrd
+*.ply
+*.npy
+*.npz
+*.obj
+wandb/
+.env
+.env.local
+.env.*.local

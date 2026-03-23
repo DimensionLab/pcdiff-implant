@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+import time
 from pathlib import Path
 
 import diplib as dip
@@ -9,15 +11,29 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import yaml
+from scipy import ndimage
+from tqdm import tqdm
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from benchmarking.reporting import build_stage_report, summarize_numeric_fields, utc_now_iso, write_csv, write_json
 from eval_metrics import bdc, dc, hd95
 from src import config
-from src.model import Encode2Points
 from src.data.core import SkullEval
-from src.utils import (load_config, load_model_manual, readCT, crop, padding,
-                       reverse_padding, reverse_crop, re_sample_shape,
-                       filter_voxels_within_radius)
-from tqdm import tqdm
-from scipy import ndimage
+from src.model import Encode2Points
+from src.postprocess import build_refined_complete_mask, select_implant_region
+from src.utils import (
+    crop,
+    load_config,
+    load_model_manual,
+    padding,
+    readCT,
+    re_sample_shape,
+    reverse_crop,
+    reverse_padding,
+)
 
 np.set_printoptions(precision=4)
 
@@ -33,9 +49,9 @@ def parse_args():
 
 
 def init_distributed(backend: str):
-    world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    rank = int(os.environ.get("RANK", "0"))
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    world_size = int(os.environ.get('WORLD_SIZE', '1'))
+    rank = int(os.environ.get('RANK', '0'))
+    local_rank = int(os.environ.get('LOCAL_RANK', '0'))
     is_dist = world_size > 1
     if is_dist:
         torch.cuda.set_device(local_rank)
@@ -48,24 +64,50 @@ def cleanup_distributed(is_dist: bool):
         dist.destroy_process_group()
 
 
+def gather_case_records(case_records, world_size, is_dist):
+    if not is_dist:
+        return case_records
+    gathered = [None] * world_size
+    dist.all_gather_object(gathered, case_records)
+    merged = []
+    for chunk in gathered:
+        merged.extend(chunk or [])
+    return merged
+
+
 def main():
     args = parse_args()
+    stage_started_at = utc_now_iso()
     is_dist, world_size, rank, local_rank = init_distributed(args.dist_backend)
 
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    cfg = load_config(args.config, 'voxelization/configs/default.yaml')
+    config_path = Path(args.config)
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            f"Config file not found: {args.config}\n"
+            f"Provide a valid YAML config path as the first argument."
+        )
+    default_config = str(REPO_ROOT / 'voxelization' / 'configs' / 'default.yaml')
+    cfg = load_config(args.config, default_config)
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device('cuda', local_rank) if use_cuda else torch.device('cpu')
-    vis_n_outputs = cfg['generation']['vis_n_outputs'] or -1
+    device_index = local_rank if use_cuda else None
 
     out_dir = Path(cfg['train']['out_dir'] or 'runs')
     out_dir.mkdir(parents=True, exist_ok=True)
     generation_dir = out_dir / cfg['generation']['generation_dir']
+    generation_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset = SkullEval(cfg['data']['path'])
+    data_path = cfg['data']['path']
+    if not Path(data_path).exists():
+        raise FileNotFoundError(
+            f"Dataset path does not exist: {data_path}\n"
+            f"Set the correct path in your config or via the PCDIFF_SKULL*_RESULTS env var."
+        )
+    dataset = SkullEval(data_path)
     sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=False) if is_dist else None
     loader = torch.utils.data.DataLoader(
         dataset,
@@ -84,10 +126,19 @@ def main():
         ddp_model = model
         module = model
 
-    print('\n---------- Load model----------') if rank == 0 else None
+    model_file = cfg['test']['model_file']
+    if not Path(model_file).is_file():
+        raise FileNotFoundError(
+            f"Model checkpoint not found: {model_file}\n"
+            f"Set the correct path in your config or via the PCDIFF_SKULL*_MODEL env var."
+        )
     if rank == 0:
-        print("Load best model from: " + cfg['test']['model_file'] + '\n')
-    state_dict = torch.load(cfg['test']['model_file'], map_location='cpu')
+        print('\n---------- Load model----------')
+        print('Load best model from: ' + model_file + '\n')
+    try:
+        state_dict = torch.load(model_file, map_location='cpu')
+    except Exception as e:
+        raise RuntimeError(f"Failed to load checkpoint '{model_file}': {e}") from e
     module = ddp_model.module if isinstance(ddp_model, DistributedDataParallel) else ddp_model
     load_model_manual(state_dict['state_dict'], module)
 
@@ -97,45 +148,58 @@ def main():
     if rank == 0:
         print('\n---------- Voxelizing point clouds ----------')
 
+    case_records = []
+
     for it, data in enumerate(loader):
-        if rank == 0 and it % max(1, len(loader)//10 or 1) == 0:
-            print(f"Sampling step [{it + 1}/{len(loader)}] ...")
+        if rank == 0 and it % max(1, len(loader) // 10 or 1) == 0:
+            print(f'Sampling step [{it + 1}/{len(loader)}] ...')
         name = data['name'][0]
+        if use_cuda:
+            torch.cuda.reset_peak_memory_stats(device_index)
+            torch.cuda.synchronize(device_index)
+        case_start = time.perf_counter()
 
         # ----- Get defective skull -----
-        # Simply load from SkullBreak dataset (no preprocessing)
         if cfg['data']['dset'] == 'SkullBreak':
-            defective_skull, header = nrrd.read(os.path.join(name.split('/results')[0], 'defective_skull',
-                                                name.split('syn/')[1][:-8], name.split('_surf')[0][-3:] + '.nrrd'))
+            defective_skull, header = nrrd.read(
+                os.path.join(
+                    name.split('/results')[0],
+                    'defective_skull',
+                    name.split('syn/')[1][:-8],
+                    name.split('_surf')[0][-3:] + '.nrrd',
+                )
+            )
 
-        # Load from SkullFix dataset with resampling, cropping and zero padding
         if cfg['data']['dset'] == 'SkullFix':
-            defective_skull = readCT(os.path.join(name.split('/results')[0], 'defective_skull',
-                                                  name.split('_surf')[0][-3:] + '.nrrd'))
+            defective_skull = readCT(
+                os.path.join(
+                    name.split('/results')[0],
+                    'defective_skull',
+                    name.split('_surf')[0][-3:] + '.nrrd',
+                )
+            )
             defective_skull, idx_x, idx_y, idx_z, shape = crop(defective_skull)
             defective_skull, dim_x, dim_y, dim_z = padding(defective_skull)
             defective_skull = defective_skull.astype(np.float32)
 
-        inputs = data['inputs'][0, :, :, :]  # Input point cloud
+        inputs = data['inputs'][0, :, :, :]
+        defect_point_count = int(cfg['generation'].get('defect_point_count', 3072))
+        defect_points = inputs[0, max(inputs.shape[1] - defect_point_count, 0) :, :].detach().cpu().numpy() * 512
         completes = np.zeros((512, 512, 512))
 
-        # Perform generation with ensembling method (requires to also run point cloud diffusion model with ensembling flag)
         if cfg['generation']['num_ensemble'] >= 2:
             for pc in tqdm(range(cfg['generation']['num_ensemble']), total=cfg['generation']['num_ensemble']):
-                # Generate a sample
                 vertices, faces, points, normals, psr_grid = generator.generate_mesh(inputs[pc, :, :].unsqueeze(dim=0))
 
-                # Generate binary segmentation mask
                 psr_grid = psr_grid.detach().cpu().numpy()
                 psr_grid = psr_grid[0, :, :, :]
                 out = np.zeros((512, 512, 512))
                 out[psr_grid <= 0] = 1
                 out = ndimage.binary_dilation(out)
 
-                completes += out  # Add to implant ensemble
+                completes += out
 
                 if cfg['generation']['save_ensemble_implants']:
-                    # Postprocess the single implants and save the implants of the ensemble
                     out = out - defective_skull
                     out = dip.MedianFilter(out, dip.Kernel(shape='rectangular', param=(3, 3, 3)))
                     out.Convert('BIN')
@@ -146,8 +210,13 @@ def main():
                     out = np.asarray(out, dtype=np.float32)
 
                     if cfg['data']['dset'] == 'SkullFix':
-                        util, header = nrrd.read(os.path.join(name.split('/results')[0], 'defective_skull',
-                                                              name.split('_surf')[0][-3:] + '.nrrd'))
+                        util, header = nrrd.read(
+                            os.path.join(
+                                name.split('/results')[0],
+                                'defective_skull',
+                                name.split('_surf')[0][-3:] + '.nrrd',
+                            )
+                        )
                         out = reverse_padding(out, dim_x, dim_y, dim_z)
                         out = reverse_crop(out, idx_x, idx_y, idx_z, shape)
 
@@ -159,59 +228,94 @@ def main():
 
                     if cfg['data']['dset'] == 'SkullBreak':
                         nrrd.write(str(name + '/impl_' + str(pc) + '.nrrd'), out, header)
-
-        # Performs generation without ensembling
         else:
-            # Generate a sample
             vertices, faces, points, normals, psr_grid = generator.generate_mesh(inputs[0, :, :].unsqueeze(dim=0))
 
-            # Generate binary segmentation mask
             psr_grid = psr_grid.detach().cpu().numpy()
             psr_grid = psr_grid[0, :, :, :]
             out = np.zeros((512, 512, 512))
             out[psr_grid <= 0] = 1
             out = ndimage.binary_dilation(out)
 
-            completes += out  # Add to implant ensemble
+            completes += out
 
-        # Compute mean implant
-        mean_complete = np.zeros((512, 512, 512))
-        mean_complete[completes >= np.ceil(cfg['generation']['num_ensemble']/2)] = 1
+        complete_prob = completes / max(1, cfg['generation']['num_ensemble'])
+        refinement_cfg = cfg['generation']['refinement']
+        if refinement_cfg['strategy'] == 'occupancy_symmetry':
+            mean_complete = build_refined_complete_mask(
+                complete_prob,
+                defect_points,
+                complete_prob.shape,
+                threshold=refinement_cfg['occupancy_threshold'],
+                symmetry_weight=refinement_cfg['symmetry_weight'],
+                symmetry_axis=refinement_cfg['symmetry_axis'],
+                symmetry_defect_only=refinement_cfg['symmetry_defect_only'],
+                defect_region_method=cfg['generation']['postprocess']['method'],
+                bbox_margin_voxels=cfg['generation']['postprocess']['bbox_margin_voxels'],
+                radius_scale=cfg['generation']['postprocess']['radius_scale'],
+            )
+        elif refinement_cfg['strategy'] == 'legacy':
+            mean_complete = np.zeros((512, 512, 512))
+            mean_complete[completes >= np.ceil(cfg['generation']['num_ensemble'] / 2)] = 1
+        else:
+            raise ValueError(f"Unsupported refinement strategy: {refinement_cfg['strategy']}")
 
         mean_implant = mean_complete - defective_skull
-        mean_implant = filter_voxels_within_radius(inputs[0, 30720-3072:, :], mean_implant)
+        mean_implant = select_implant_region(
+            defect_points,
+            mean_implant,
+            method=cfg['generation']['postprocess']['method'],
+            bbox_margin_voxels=cfg['generation']['postprocess']['bbox_margin_voxels'],
+            radius_scale=cfg['generation']['postprocess']['radius_scale'],
+            fallback=cfg['generation']['postprocess']['fallback'],
+        )
         mean_implant = mean_implant.astype(bool)
         mean_implant = dip.Opening(mean_implant, dip.SE((3, 3, 3)))
-        #mean_implant = dip.Opening(mean_implant, dip.SE((3, 3, 3)))
-        mean_implant = dip.Label(mean_implant, mode="largest")
+        mean_implant = dip.Label(mean_implant, mode='largest')
         mean_implant = dip.MedianFilter(mean_implant, dip.Kernel(shape='rectangular', param=(3, 3, 3)))
         mean_implant.Convert('BIN')
         mean_implant = dip.Closing(mean_implant, dip.SE((3, 3, 3)))
-        #mean_implant = dip.Closing(mean_implant, dip.SE((3, 3, 3)))
         mean_implant = dip.FillHoles(mean_implant)
 
         if cfg['data']['dset'] == 'SkullBreak':
             mean_implant = dip.Label(mean_implant, mode='largest')
             mean_implant = np.asarray(mean_implant, dtype=np.float32)
-            gt_implant, _ = nrrd.read(os.path.join(name.split('/results')[0], 'implant',
-                                                   name.split('syn/')[1][:-8], name.split('_surf')[0][-3:] + '.nrrd'))
-            defective_skull, header = nrrd.read(os.path.join(name.split('/results')[0], 'defective_skull',
-                                                             name.split('syn/')[1][:-8], name.split('_surf')[0][-3:] + '.nrrd'))
+            gt_implant, _ = nrrd.read(
+                os.path.join(
+                    name.split('/results')[0],
+                    'implant',
+                    name.split('syn/')[1][:-8],
+                    name.split('_surf')[0][-3:] + '.nrrd',
+                )
+            )
+            defective_skull, header = nrrd.read(
+                os.path.join(
+                    name.split('/results')[0],
+                    'defective_skull',
+                    name.split('syn/')[1][:-8],
+                    name.split('_surf')[0][-3:] + '.nrrd',
+                )
+            )
 
         if cfg['data']['dset'] == 'SkullFix':
             mean_implant = dip.Label(mean_implant, mode='largest')
             mean_implant = np.asarray(mean_implant, dtype=np.float32)
-            gt_implant, _ = nrrd.read(os.path.join(name.split('/results')[0], 'implant',
-                                                   name.split('_surf')[0][-3:] + '.nrrd'))
-            defective_skull, header = nrrd.read(os.path.join(name.split('/results')[0], 'defective_skull',
-                                                        name.split('_surf')[0][-3:] + '.nrrd'))
+            gt_implant, _ = nrrd.read(
+                os.path.join(name.split('/results')[0], 'implant', name.split('_surf')[0][-3:] + '.nrrd')
+            )
+            defective_skull, header = nrrd.read(
+                os.path.join(name.split('/results')[0], 'defective_skull', name.split('_surf')[0][-3:] + '.nrrd')
+            )
 
         new_shape = np.asarray(defective_skull.shape)
-        spacing = np.asarray([header['space directions'][0, 0],
-                              header['space directions'][1, 1],
-                              header['space directions'][2, 2]])
+        spacing = np.asarray(
+            [
+                header['space directions'][0, 0],
+                header['space directions'][1, 1],
+                header['space directions'][2, 2],
+            ]
+        )
 
-        # Rescale to original image size and voxel spacing
         if cfg['data']['dset'] == 'SkullFix':
             mean_implant = reverse_padding(mean_implant, dim_x, dim_y, dim_z)
             mean_implant = reverse_crop(mean_implant, idx_x, idx_y, idx_z, shape)
@@ -222,32 +326,121 @@ def main():
             mean_implant = dip.Label(mean_implant, mode='largest')
             mean_implant = np.asarray(mean_implant, dtype=np.float32)
 
-        # Finally save the mean implant
-        nrrd.write(str(name + '/mean_impl.nrrd'), mean_implant, header)
+        mean_implant_path = str(name + '/mean_impl.nrrd')
+        nrrd.write(mean_implant_path, mean_implant, header)
 
-        # Compute the evaluation metrics
+        metrics = {
+            'dice': None,
+            'bdice_10mm': None,
+            'hd95_mm': None,
+        }
+        eval_metrics_path = None
+
         if cfg['generation']['compute_eval_metrics']:
-            eval_mets = dict()
+            eval_metrics_path = str(name + '/eval_metrics.yaml')
+            eval_mets = {}
 
-            # Generate evaluation metrics
-            print("Compute eval metrics for: " + name)
-            print("Voxelspacing: " + str(spacing))
+            print('Compute eval metrics for: ' + name)
+            print('Voxelspacing: ' + str(spacing))
 
-            dice = dc(mean_implant, gt_implant)
+            dice = float(dc(mean_implant, gt_implant))
+            metrics['dice'] = dice
             eval_mets['dice'] = dice
-            print("Dice score: " + str(dice))
+            print('Dice score: ' + str(dice))
 
-            bdice = bdc(mean_implant, gt_implant, defective_skull, voxelspacing=spacing)
+            bdice = float(bdc(mean_implant, gt_implant, defective_skull, voxelspacing=spacing))
+            metrics['bdice_10mm'] = bdice
             eval_mets['bdice'] = bdice
-            print("Boundary dice (10mm): " + str(bdice))
+            eval_mets['bdice_10mm'] = bdice
+            print('Boundary dice (10mm): ' + str(bdice))
 
-            haussdorf95 = hd95(mean_implant, gt_implant, voxelspacing=spacing)
-            eval_mets['haussdorf95'] = float(haussdorf95)
-            print("95 percentile Haussdorf distance: " + str(haussdorf95) + '\n')
+            hausdorff95 = float(hd95(mean_implant, gt_implant, voxelspacing=spacing))
+            metrics['hd95_mm'] = hausdorff95
+            eval_mets['haussdorf95'] = hausdorff95
+            eval_mets['hd95_mm'] = hausdorff95
+            print('95 percentile Haussdorf distance: ' + str(hausdorff95) + '\n')
 
-            # Write scores to .yaml file
-            with open(name + '/eval_metrics.yaml', 'w') as file:
-                documents = yaml.dump(eval_mets, file)
+            with open(eval_metrics_path, 'w') as file:
+                yaml.safe_dump(eval_mets, file, sort_keys=True)
+
+        if use_cuda:
+            torch.cuda.synchronize(device_index)
+            peak_memory_mb = round(torch.cuda.max_memory_allocated(device_index) / (1024 ** 2), 2)
+        else:
+            peak_memory_mb = None
+        runtime_sec = round(time.perf_counter() - case_start, 4)
+
+        case_records.append(
+            {
+                'case_name': Path(name).name,
+                'case_dir': name,
+                'mean_implant_path': mean_implant_path,
+                'eval_metrics_path': eval_metrics_path,
+                'dice': metrics['dice'],
+                'bdice_10mm': metrics['bdice_10mm'],
+                'hd95_mm': metrics['hd95_mm'],
+                'runtime_sec': runtime_sec,
+                'gpu_peak_memory_mb': peak_memory_mb,
+            }
+        )
+
+    all_case_records = sorted(gather_case_records(case_records, world_size, is_dist), key=lambda record: record['case_name'])
+
+    if rank == 0:
+        summary = summarize_numeric_fields(
+            all_case_records,
+            ['dice', 'bdice_10mm', 'hd95_mm', 'runtime_sec', 'gpu_peak_memory_mb'],
+        )
+        summary.update(
+            {
+                'case_count': len(all_case_records),
+                'num_ensemble': cfg['generation']['num_ensemble'],
+                'compute_eval_metrics': cfg['generation']['compute_eval_metrics'],
+            }
+        )
+
+        cases_csv_path = generation_dir / 'benchmark_cases.csv'
+        summary_json_path = generation_dir / 'benchmark_summary.json'
+        report_json_path = generation_dir / 'benchmark_stage_report.json'
+
+        write_csv(
+            cases_csv_path,
+            all_case_records,
+            fieldnames=[
+                'case_name',
+                'case_dir',
+                'mean_implant_path',
+                'eval_metrics_path',
+                'dice',
+                'bdice_10mm',
+                'hd95_mm',
+                'runtime_sec',
+                'gpu_peak_memory_mb',
+            ],
+        )
+        write_json(summary_json_path, summary)
+        write_json(
+            report_json_path,
+            build_stage_report(
+                stage_name='voxelization-evaluation',
+                dataset=cfg['data']['dset'],
+                repo_root=REPO_ROOT,
+                started_at=stage_started_at,
+                finished_at=utc_now_iso(),
+                command=sys.argv,
+                config=cfg,
+                args=vars(args),
+                outputs={
+                    'generation_dir': str(generation_dir),
+                    'cases_csv': str(cases_csv_path),
+                    'summary_json': str(summary_json_path),
+                    'data_path': cfg['data']['path'],
+                },
+                summary=summary,
+                extra={'model_checkpoint': cfg['test']['model_file']},
+                device=device,
+            ),
+        )
 
     cleanup_distributed(is_dist)
 
