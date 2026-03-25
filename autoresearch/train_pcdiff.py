@@ -3,8 +3,9 @@ train_pcdiff.py — Self-contained PCDiff training for autoresearch.
 
 THIS IS THE AGENT-EDITABLE FILE. The AI research agent modifies this file
 to explore architectural and hyperparameter changes. Each experiment runs
-for a fixed time budget, then evaluates using Chamfer Distance on a
-validation subset.
+for a fixed time budget, then evaluates using validation loss as the
+primary metric (not generation quality — DDIM-50 is too low quality and
+even DDPM-1000 produces bulky meshes with current model).
 
 The file must remain self-contained: all model definitions, diffusion
 process, training loop, and evaluation call are in this single file.
@@ -36,7 +37,7 @@ from modules import SharedMLP, PVConv, PointNetSAModule, PointNetAModule, PointN
 
 # Autoresearch utilities
 from prepare_pcdiff import (
-    get_train_entries, get_eval_subset, evaluate_model,
+    get_train_entries, get_test_entries, evaluate_model_loss,
     load_point_cloud, normalize_point_cloud, _nrrd_to_npy_path,
     NUM_POINTS, NUM_NN, SV_POINTS, RESULTS_DIR,
 )
@@ -626,10 +627,15 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
     # Init noise
     noises_init = torch.randn(len(dataset), NUM_NN, 3)
 
-    # Eval entries (fixed)
-    eval_entries = get_eval_subset()
+    # Validation dataset (separate from training)
+    test_entries = get_test_entries()
+    val_dataset = SkullBreakDatasetSimple(test_entries[:50], augment=False)  # Use 50 test entries
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=BATCH_SIZE, shuffle=False,
+        num_workers=NUM_WORKERS, drop_last=False, pin_memory=True,
+    )
 
-    print(f"Training samples: {len(dataset)}, Batch size: {BATCH_SIZE}, Batches/epoch: {len(dataloader)}")
+    print(f"Training samples: {len(dataset)}, Val samples: {len(val_dataset)}, Batch size: {BATCH_SIZE}")
     print(f"Config: embed_dim={EMBED_DIM}, attention={USE_ATTENTION}, dropout={DROPOUT}")
     print(f"         width_mult={WIDTH_MULT}, vox_res_mult={VOX_RES_MULT}")
     print(f"         schedule={SCHEDULE_TYPE}, timesteps={NUM_TIMESTEPS}")
@@ -637,9 +643,9 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
 
     # If baseline mode, just evaluate current model
     if baseline:
-        print("\n=== BASELINE EVALUATION ===")
-        metrics = evaluate_model(model, device, eval_entries, DDIM_EVAL_STEPS)
-        print(f"Chamfer Distance: {metrics['chamfer_mean']:.6f} ± {metrics['chamfer_std']:.6f}")
+        print("\n=== BASELINE EVALUATION (validation loss) ===")
+        metrics = evaluate_model_loss(model, val_dataloader, device, num_batches=0)
+        print(f"Val Loss: {metrics['val_loss_mean']:.6f} ± {metrics['val_loss_std']:.6f}")
         print(f"Eval time: {metrics['eval_time_sec']:.1f}s")
         return {"metrics": metrics, "epochs": 0, "baseline": True}
 
@@ -704,11 +710,11 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
             print(f"Epoch {epoch:4d} | Loss: {epoch_mean_loss:.6f} | Best: {best_loss:.6f} | "
                   f"LR: {optimizer.param_groups[0]['lr']:.2e} | {time.time() - t_start:.0f}s")
 
-        # Periodic proxy evaluation
+        # Periodic proxy evaluation (validation loss — fast and reliable)
         if epoch > 0 and epoch % EVAL_EVERY_EPOCHS == 0:
-            metrics = evaluate_model(model, device, eval_entries, DDIM_EVAL_STEPS)
-            print(f"  >> Proxy eval: CD={metrics['chamfer_mean']:.6f} ± {metrics['chamfer_std']:.6f} "
-                  f"({metrics['eval_time_sec']:.1f}s)")
+            val_metrics = evaluate_model_loss(model, val_dataloader, device, num_batches=10)
+            print(f"  >> Val loss: {val_metrics['val_loss_mean']:.6f} ± {val_metrics['val_loss_std']:.6f} "
+                  f"({val_metrics['eval_time_sec']:.1f}s)")
             model.train()
 
         # NaN detection
@@ -718,10 +724,10 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
 
         epoch += 1
 
-    # Final evaluation
+    # Final evaluation (validation loss as primary metric)
     print(f"\n=== FINAL EVALUATION (after {epoch - start_epoch} epochs) ===")
-    metrics = evaluate_model(model, device, eval_entries, DDIM_EVAL_STEPS)
-    print(f"Chamfer Distance: {metrics['chamfer_mean']:.6f} ± {metrics['chamfer_std']:.6f}")
+    metrics = evaluate_model_loss(model, val_dataloader, device, num_batches=0)
+    print(f"Val Loss: {metrics['val_loss_mean']:.6f} ± {metrics['val_loss_std']:.6f}")
     print(f"Eval time: {metrics['eval_time_sec']:.1f}s")
     print(f"Total training time: {time.time() - t_start:.1f}s")
 
@@ -738,13 +744,13 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
     }, ckpt_path)
     print(f"Checkpoint saved: {ckpt_path}")
 
-    # Save best if this is the best run
-    best_metric_file = RESULTS_DIR / "best_chamfer.txt"
+    # Save best if this is the best run (using val_loss_mean — lower is better)
+    best_metric_file = RESULTS_DIR / "best_val_loss.txt"
     prev_best = float("inf")
     if best_metric_file.exists():
         prev_best = float(best_metric_file.read_text().strip())
 
-    if metrics["chamfer_mean"] < prev_best:
+    if metrics["val_loss_mean"] < prev_best:
         best_path = ckpt_dir / "best.pth"
         torch.save({
             'model_state': model.state_dict(),
@@ -753,7 +759,7 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
             'loss': best_loss,
             'metrics': metrics,
         }, best_path)
-        best_metric_file.write_text(str(metrics["chamfer_mean"]))
+        best_metric_file.write_text(str(metrics["val_loss_mean"]))
         print(f"NEW BEST! Saved to {best_path}")
 
     return {

@@ -8,7 +8,7 @@ This script runs the autoresearch loop:
   3. Ask LLM (via OpenRouter) to propose a modification
   4. Apply the modification to train_pcdiff.py
   5. Run training with fixed time budget
-  6. Evaluate and accept/reject based on Chamfer Distance improvement
+  6. Evaluate and accept/reject based on validation loss improvement
   7. If rejected, revert train_pcdiff.py; if accepted, keep changes
   8. Repeat
 
@@ -119,8 +119,8 @@ def format_history_summary(history: list, last_n: int = 10) -> str:
     lines = []
     for exp in recent:
         status = "ACCEPTED" if exp.get("accepted") else "REJECTED"
-        cd = exp.get("metrics", {}).get("chamfer_mean", "N/A")
-        lines.append(f"- [{status}] {exp.get('experiment_id', '?')}: CD={cd:.6f}" if isinstance(cd, float) else f"- [{status}] {exp.get('experiment_id', '?')}: CD={cd}")
+        cd = exp.get("metrics", {}).get("val_loss_mean", "N/A")
+        lines.append(f"- [{status}] {exp.get('experiment_id', '?')}: val_loss={cd:.6f}" if isinstance(cd, float) else f"- [{status}] {exp.get('experiment_id', '?')}: val_loss={cd}")
         if exp.get("diff"):
             # Show first 5 lines of diff
             diff_lines = exp["diff"].split("\n")[:5]
@@ -130,11 +130,11 @@ def format_history_summary(history: list, last_n: int = 10) -> str:
 
 
 def get_best_cd(history: list) -> float:
-    """Get best accepted Chamfer Distance."""
+    """Get best accepted validation loss."""
     best = float("inf")
     for exp in history:
         if exp.get("accepted"):
-            cd = exp.get("metrics", {}).get("chamfer_mean", float("inf"))
+            cd = exp.get("metrics", {}).get("val_loss_mean", float("inf"))
             if isinstance(cd, (int, float)) and cd < best:
                 best = cd
     return best
@@ -151,7 +151,7 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
             "role": "system",
             "content": (
                 "You are an ML research agent running autonomous experiments on a Point Cloud Diffusion model. "
-                "Your goal is to minimize Chamfer Distance on validation data by modifying the training script. "
+                "Your goal is to minimize validation loss (MSE on noise prediction) by modifying the training script. "
                 "You make ONE focused change per experiment. Respond with ONLY the complete modified train_pcdiff.py file, "
                 "nothing else — no explanations before or after the code. The code must be valid Python."
             ),
@@ -161,7 +161,7 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
             "content": f"""## Research Program
 {program}
 
-## Current Best Chamfer Distance
+## Current Best Validation Loss
 {best_cd if best_cd < float('inf') else 'Not yet established (first run)'}
 
 ## Recent Experiment History
@@ -303,7 +303,7 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
                 with open(RESULTS_DIR / "experiments.jsonl", "a") as f:
                     f.write(json.dumps(entry) + "\n")
                 history.append(entry)
-                print(f"Baseline CD: {baseline_result.get('metrics', {}).get('chamfer_mean', 'N/A')}")
+                print(f"Baseline val_loss: {baseline_result.get('metrics', {}).get('val_loss_mean', 'N/A')}")
             else:
                 print(f"Baseline failed: {baseline_result['error']}")
                 return
@@ -392,7 +392,7 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
                 "error": result["error"],
             }
         else:
-            new_cd = result.get("metrics", {}).get("chamfer_mean", float("inf"))
+            new_cd = result.get("metrics", {}).get("val_loss_mean", float("inf"))
             accepted = isinstance(new_cd, (int, float)) and new_cd < best_cd
 
             if accepted:

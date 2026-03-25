@@ -4,7 +4,9 @@ You are an AI research agent optimizing a Point Cloud Diffusion model (PCDiff) f
 
 ## Goal
 
-**Minimize Chamfer Distance** between generated and ground-truth implant point clouds on the SkullBreak validation set. Lower is better.
+**Minimize validation loss** (MSE on noise prediction) on the SkullBreak validation set. Lower is better.
+
+Note: We do NOT use generation-based metrics (Chamfer Distance) for per-experiment evaluation because DDIM-50 produces very low quality output and even DDPM-1000 yields bulky meshes. Validation loss is a faster and more reliable signal for comparing experimental changes. Full generation quality will be assessed on milestone checkpoints only.
 
 ## What You Can Modify
 
@@ -50,8 +52,8 @@ You may ONLY modify `train_pcdiff.py`. The file contains clearly marked hyperpar
 
 1. Make ONE change at a time (or a small coherent group of related changes).
 2. The training script must remain runnable: `python train_pcdiff.py --time-budget 900`
-3. After training, the script automatically evaluates and prints Chamfer Distance.
-4. If the metric improves, the change is ACCEPTED. If it worsens or the script crashes, REJECTED.
+3. After training, the script automatically evaluates and prints validation loss.
+4. If validation loss improves (decreases), the change is ACCEPTED. If it worsens or the script crashes, REJECTED.
 5. Always keep the file self-contained — do not add new imports or external dependencies.
 6. Preserve the `Model.gen_samples()` interface — it's used by the evaluation code.
 

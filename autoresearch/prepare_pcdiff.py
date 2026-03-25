@@ -198,10 +198,121 @@ def chamfer_distance_batch(preds: list, gts: list) -> dict:
 # Evaluation runner
 # ---------------------------------------------------------------------------
 
+def evaluate_model_loss(model, dataloader, device: torch.device,
+                        num_batches: int = 10) -> dict:
+    """
+    Evaluate model using validation loss (MSE on noise prediction).
+
+    This is the PRIMARY proxy metric for autoresearch. It's fast (~30s),
+    directly measures model quality, and doesn't depend on sampling method.
+
+    Note: DDIM-50 produces very low quality output and even DDPM-1000 yields
+    bulky meshes with the current model. Training loss is a more reliable
+    signal for comparing experimental changes.
+
+    Args:
+        model: The Model instance (from train_pcdiff.py)
+        dataloader: Validation data loader
+        device: CUDA device
+        num_batches: Number of batches to evaluate (0 = all)
+
+    Returns:
+        dict with val_loss_mean, val_loss_std, eval_time_sec
+    """
+    model.eval()
+    t0 = time.time()
+    losses = []
+
+    with torch.no_grad():
+        for i, data in enumerate(dataloader):
+            if num_batches > 0 and i >= num_batches:
+                break
+            pc_in = data['train_points'].transpose(1, 2)
+            if torch.cuda.is_available():
+                pc_in = pc_in.to(device, non_blocking=True)
+            batch_losses = model.get_loss_iter(pc_in)
+            losses.extend(batch_losses.detach().cpu().tolist())
+
+    metrics = {
+        "val_loss_mean": float(np.mean(losses)),
+        "val_loss_std": float(np.std(losses)),
+        "val_loss_median": float(np.median(losses)),
+        "val_loss_count": len(losses),
+        "eval_time_sec": time.time() - t0,
+    }
+
+    model.train()
+    return metrics
+
+
+def evaluate_model_noise_prediction(model, dataloader, device: torch.device,
+                                     timesteps_to_check: list = None,
+                                     num_batches: int = 5) -> dict:
+    """
+    Evaluate noise prediction accuracy at specific timesteps.
+
+    Measures how well the model predicts noise at different diffusion stages:
+    - Early timesteps (t~50): fine detail recovery
+    - Mid timesteps (t~500): structural prediction
+    - Late timesteps (t~950): coarse shape from noise
+
+    Args:
+        model: The Model instance
+        dataloader: Validation data loader
+        device: CUDA device
+        timesteps_to_check: specific timesteps to evaluate (default: [50, 250, 500, 750, 950])
+        num_batches: batches per timestep
+
+    Returns:
+        dict with per-timestep MSE and overall summary
+    """
+    if timesteps_to_check is None:
+        timesteps_to_check = [50, 250, 500, 750, 950]
+
+    model.eval()
+    t0 = time.time()
+    results = {}
+
+    with torch.no_grad():
+        for t_val in timesteps_to_check:
+            t_losses = []
+            for i, data in enumerate(dataloader):
+                if i >= num_batches:
+                    break
+                pc_in = data['train_points'].transpose(1, 2)
+                if torch.cuda.is_available():
+                    pc_in = pc_in.to(device, non_blocking=True)
+
+                B = pc_in.shape[0]
+                t = torch.full((B,), t_val, dtype=torch.int64, device=device)
+
+                # Get noise prediction loss at this specific timestep
+                noise = torch.randn(pc_in[:, :, SV_POINTS:].shape, device=device)
+                x_noisy = torch.cat([
+                    pc_in[:, :, :SV_POINTS],
+                    model.diffusion.q_sample(x_start=pc_in[:, :, SV_POINTS:], t=t, noise=noise)
+                ], dim=-1)
+                pred_noise = model._denoise(x_noisy, t)[:, :, SV_POINTS:]
+                mse = ((noise - pred_noise) ** 2).mean(dim=[1, 2])
+                t_losses.extend(mse.cpu().tolist())
+
+            results[f"t{t_val}_mse"] = float(np.mean(t_losses))
+
+    results["noise_pred_mean"] = float(np.mean([v for k, v in results.items() if k.endswith("_mse")]))
+    results["eval_time_sec"] = time.time() - t0
+
+    model.train()
+    return results
+
+
 def evaluate_model(model, device: torch.device, entries: list = None,
                    ddim_steps: int = DDIM_STEPS) -> dict:
     """
-    Run proxy evaluation: DDIM sampling on eval subset + Chamfer Distance.
+    Run generation-based evaluation (Chamfer Distance).
+
+    WARNING: Use sparingly! DDIM-50 produces low quality output. This should
+    only be used for milestone checks with DDPM-1000, not per-experiment eval.
+    For per-experiment eval, use evaluate_model_loss() instead.
 
     Args:
         model: The Model instance (from train_pcdiff.py)
@@ -222,7 +333,6 @@ def evaluate_model(model, device: torch.device, entries: list = None,
     B = partial_x.shape[0]
 
     with torch.no_grad():
-        # Generate implant point clouds using DDIM
         gen_shape = (B, 3, NUM_NN)
         generated = model.gen_samples(
             partial_x, gen_shape, device,
@@ -230,14 +340,12 @@ def evaluate_model(model, device: torch.device, entries: list = None,
             sampling_method='ddim',
             sampling_steps=ddim_steps,
         )
-        # Extract generated implant points: [B, 3, NUM_NN]
         gen_implant = generated[:, :, SV_POINTS:].detach().cpu().numpy()
 
-    # Denormalize and compute Chamfer Distance
     pred_list = []
     for i in range(B):
         shift, scale = shifts_scales[i]
-        pred_pc = gen_implant[i].T * scale + shift  # [NUM_NN, 3]
+        pred_pc = gen_implant[i].T * scale + shift
         pred_list.append(pred_pc)
 
     metrics = chamfer_distance_batch(pred_list, gt_list)
