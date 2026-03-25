@@ -34,9 +34,9 @@ else:
     DATASET_ROOT = PROJECT_ROOT / "pcdiff" / "datasets" / "SkullBreak"
 
 # Point cloud parameters (must match train_pcdiff.py)
-NUM_POINTS = 30720      # Total points (defective + implant)
-NUM_NN = 3072           # Implant points
-SV_POINTS = NUM_POINTS - NUM_NN  # 27648 skull points
+NUM_POINTS = 4096       # Total points (defective + implant) — reduced for fast experiments
+NUM_NN = 1024           # Implant points
+SV_POINTS = NUM_POINTS - NUM_NN  # 3072 skull points
 
 # Evaluation parameters
 EVAL_CASES = 10         # Number of validation cases for proxy eval
