@@ -75,7 +75,7 @@ def call_llm(messages: list, temperature: float = 0.7) -> str:
         "model": LLM_MODEL,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 32768,
+        "max_tokens": 8192,
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -144,18 +144,67 @@ def get_best_cd(history: list) -> float:
 # Code Modification
 # ---------------------------------------------------------------------------
 
+def apply_search_replace_blocks(original: str, blocks_text: str) -> str:
+    """Apply SEARCH/REPLACE edit blocks to the original code.
+
+    Format:
+        <<<<<<< SEARCH
+        exact lines to find
+        =======
+        replacement lines
+        >>>>>>> REPLACE
+    """
+    result = original
+    # Split into individual blocks
+    parts = blocks_text.split("<<<<<<< SEARCH")
+    for part in parts[1:]:  # skip text before first block
+        if "=======" not in part or ">>>>>>> REPLACE" not in part:
+            continue
+        search_section, rest = part.split("=======", 1)
+        replace_section = rest.split(">>>>>>> REPLACE", 1)[0]
+        search_text = search_section.strip("\n")
+        replace_text = replace_section.strip("\n")
+
+        if search_text not in result:
+            # Try with slightly relaxed whitespace matching
+            import re
+            # Normalize trailing whitespace per line for matching
+            search_lines = [l.rstrip() for l in search_text.splitlines()]
+            result_lines = [l.rstrip() for l in result.splitlines()]
+            search_joined = "\n".join(search_lines)
+            result_joined = "\n".join(result_lines)
+            if search_joined in result_joined:
+                result_joined = result_joined.replace(search_joined, replace_text.rstrip("\n"), 1)
+                result = result_joined + "\n"
+            else:
+                raise ValueError(f"SEARCH block not found in file:\n{search_text[:200]}...")
+        else:
+            result = result.replace(search_text, replace_text, 1)
+
+    return result
+
+
 def propose_modification(current_code: str, program: str, history_summary: str, best_cd: float) -> str:
-    """Ask LLM to propose a modification to train_pcdiff.py."""
+    """Ask LLM to propose a modification to train_pcdiff.py using SEARCH/REPLACE blocks."""
     messages = [
         {
             "role": "system",
             "content": (
                 "You are an ML research agent running autonomous experiments on a Point Cloud Diffusion model. "
                 "Your goal is to minimize validation loss (MSE on noise prediction) by modifying the training script. "
-                "You make ONE focused change per experiment. Respond with ONLY the complete modified train_pcdiff.py file, "
-                "nothing else — no explanations before or after the code. The code must be valid Python. "
-                "CRITICAL: You MUST output the ENTIRE file — every class, function, and the if __name__ == '__main__' block. "
-                "Do NOT truncate or omit any part of the file. The output must have at least as many lines as the input."
+                "You make ONE focused change per experiment.\n\n"
+                "Respond with SEARCH/REPLACE edit blocks that describe your change. Use this exact format:\n\n"
+                "<<<<<<< SEARCH\n"
+                "exact lines from the current file to find\n"
+                "=======\n"
+                "replacement lines\n"
+                ">>>>>>> REPLACE\n\n"
+                "Rules:\n"
+                "- The SEARCH block must match the current file EXACTLY (including indentation)\n"
+                "- Include enough context lines in SEARCH to be unambiguous\n"
+                "- You may use multiple SEARCH/REPLACE blocks for related changes\n"
+                "- Do NOT output the entire file — only the edit blocks\n"
+                "- Before the edit blocks, write a one-line comment explaining your change"
             ),
         },
         {
@@ -176,32 +225,17 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
 
 Based on the research program and experiment history, propose your next modification.
 Make ONE focused change (or a small coherent group of related changes).
-Respond with the COMPLETE modified train_pcdiff.py file.""",
+Respond with SEARCH/REPLACE edit blocks.""",
         },
     ]
 
     response = call_llm(messages, temperature=0.7)
 
-    # Extract code from response (handle markdown code blocks)
-    if "```python" in response:
-        code = response.split("```python")[1].split("```")[0]
-    elif "```" in response:
-        code = response.split("```")[1].split("```")[0]
-    else:
-        code = response
+    if "<<<<<<< SEARCH" not in response:
+        raise ValueError("LLM response does not contain SEARCH/REPLACE blocks")
 
-    code = code.strip()
-
-    # Guard against truncated LLM output
-    original_lines = len(current_code.splitlines())
-    proposed_lines = len(code.splitlines())
-    if proposed_lines < original_lines * 0.8:
-        raise ValueError(
-            f"Proposed code looks truncated ({proposed_lines} lines vs {original_lines} original). "
-            f"Rejecting to protect the training script."
-        )
-
-    return code
+    modified_code = apply_search_replace_blocks(current_code, response)
+    return modified_code
 
 
 def compute_diff(old_code: str, new_code: str) -> str:
