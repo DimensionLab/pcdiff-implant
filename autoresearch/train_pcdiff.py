@@ -49,7 +49,7 @@ from prepare_pcdiff import (
 # Diffusion process
 BETA_START = 0.0001
 BETA_END = 0.02
-SCHEDULE_TYPE = "linear"     # "linear", "cosine", "warm0.1"
+SCHEDULE_TYPE = "cosine"     # "linear", "cosine", "warm0.1"
 NUM_TIMESTEPS = 1000
 LOSS_TYPE = "mse"
 MODEL_MEAN_TYPE = "eps"      # "eps" (epsilon prediction)
@@ -63,11 +63,11 @@ WIDTH_MULT = 1.0
 VOX_RES_MULT = 1.0
 
 # Training
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 LEARNING_RATE = 2e-4
 BETA1 = 0.5
 WEIGHT_DECAY = 0.0
-GRAD_CLIP = None             # None or float (e.g., 1.0)
+GRAD_CLIP = 1.0              # None or float (e.g., 1.0)
 USE_AMP = False
 AMP_DTYPE = "float16"        # "float16" or "bfloat16"
 
@@ -592,7 +592,7 @@ def train_with_budget(time_budget: int, checkpoint_path: str = None, baseline: b
         print(f"Resumed from epoch {start_epoch}")
 
     # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(BETA1, 0.999), weight_decay=WEIGHT_DECAY)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, betas=(BETA1, 0.999), weight_decay=WEIGHT_DECAY)
     if checkpoint_path and os.path.exists(checkpoint_path):
         if 'optimizer_state' in ckpt:
             optimizer.load_state_dict(ckpt['optimizer_state'])

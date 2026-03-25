@@ -44,6 +44,7 @@ RESULTS_DIR = SCRIPT_DIR / "results"
 # LLM config
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_MODEL = "anthropic/claude-sonnet-4"  # Good balance of cost and capability
+MAX_RETRIES_PER_EXPERIMENT = 2  # Retry with error feedback on syntax/apply failures
 
 # Experiment config
 DEFAULT_TIME_BUDGET = 900    # 15 minutes per experiment
@@ -184,8 +185,18 @@ def apply_search_replace_blocks(original: str, blocks_text: str) -> str:
     return result
 
 
-def propose_modification(current_code: str, program: str, history_summary: str, best_cd: float) -> str:
+def propose_modification(current_code: str, program: str, history_summary: str, best_cd: float,
+                         previous_error: str = None) -> str:
     """Ask LLM to propose a modification to train_pcdiff.py using SEARCH/REPLACE blocks."""
+
+    error_context = ""
+    if previous_error:
+        error_context = (
+            f"\n\n## IMPORTANT — Your Previous Attempt Failed\n"
+            f"Error: {previous_error}\n"
+            f"Fix this issue or try a completely different modification."
+        )
+
     messages = [
         {
             "role": "system",
@@ -199,12 +210,15 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
                 "=======\n"
                 "replacement lines\n"
                 ">>>>>>> REPLACE\n\n"
-                "Rules:\n"
-                "- The SEARCH block must match the current file EXACTLY (including indentation)\n"
-                "- Include enough context lines in SEARCH to be unambiguous\n"
-                "- You may use multiple SEARCH/REPLACE blocks for related changes\n"
+                "CRITICAL RULES:\n"
+                "- The SEARCH block must match the current file EXACTLY — copy-paste the lines, preserving all whitespace and indentation\n"
+                "- Include 3-5 context lines around the change in each SEARCH block so it matches unambiguously\n"
+                "- You may use multiple SEARCH/REPLACE blocks for related changes across different parts of the file\n"
                 "- Do NOT output the entire file — only the edit blocks\n"
-                "- Before the edit blocks, write a one-line comment explaining your change"
+                "- If you add new functions/classes, make sure any code that calls them is also updated in a separate SEARCH/REPLACE block\n"
+                "- If you add imports, put them in their own SEARCH/REPLACE block targeting the import section\n"
+                "- Before the edit blocks, write a one-line comment explaining your change\n"
+                "- NEVER include ======= or <<<<<<< or >>>>>>> markers inside the code itself"
             ),
         },
         {
@@ -217,6 +231,7 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
 
 ## Recent Experiment History
 {history_summary}
+{error_context}
 
 ## Current train_pcdiff.py
 ```python
@@ -229,7 +244,7 @@ Respond with SEARCH/REPLACE edit blocks.""",
         },
     ]
 
-    response = call_llm(messages, temperature=0.7)
+    response = call_llm(messages, temperature=0.4)
 
     if "<<<<<<< SEARCH" not in response:
         raise ValueError("LLM response does not contain SEARCH/REPLACE blocks")
@@ -368,54 +383,75 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
         best_cd = get_best_cd(history)
         print(f"Current best CD: {best_cd:.6f}" if best_cd < float("inf") else "No best CD yet")
 
-        # Propose modification
-        print("\nAsking LLM for modification proposal...")
-        try:
-            proposed_code = propose_modification(current_code, program, history_summary, best_cd)
-        except Exception as e:
-            print(f"LLM call failed: {e}")
-            time.sleep(30)  # Back off before retry
-            continue
+        # Propose modification with retry on syntax/apply errors
+        proposed_code = None
+        diff = None
+        last_error = None
 
-        # Compute diff
-        diff = compute_diff(current_code, proposed_code)
-        if not diff.strip():
-            print("LLM proposed no changes. Skipping.")
-            continue
+        for attempt in range(MAX_RETRIES_PER_EXPERIMENT + 1):
+            if attempt > 0:
+                print(f"\n  Retry {attempt}/{MAX_RETRIES_PER_EXPERIMENT} (previous error: {last_error})")
 
-        print(f"\n--- Proposed diff ({len(diff.splitlines())} lines) ---")
-        for line in diff.splitlines()[:40]:
-            print(f"  {line}")
-        if len(diff.splitlines()) > 40:
-            print(f"  ... ({len(diff.splitlines()) - 40} more lines)")
+            print("\nAsking LLM for modification proposal...")
+            try:
+                proposed_code = propose_modification(
+                    current_code, program, history_summary, best_cd,
+                    previous_error=last_error if attempt > 0 else None,
+                )
+            except Exception as e:
+                last_error = str(e)
+                print(f"LLM/apply failed: {e}")
+                time.sleep(10)
+                continue
 
-        if dry_run:
-            print("[DRY RUN] Would apply this change and run experiment")
-            continue
+            # Compute diff
+            diff = compute_diff(current_code, proposed_code)
+            if not diff.strip():
+                print("LLM proposed no changes. Skipping.")
+                last_error = "No changes proposed"
+                continue
 
-        # Apply modification
-        TRAIN_FILE.write_text(proposed_code)
-        print(f"\nApplied modification to {TRAIN_FILE}")
+            print(f"\n--- Proposed diff ({len(diff.splitlines())} lines) ---")
+            for line in diff.splitlines()[:40]:
+                print(f"  {line}")
+            if len(diff.splitlines()) > 40:
+                print(f"  ... ({len(diff.splitlines()) - 40} more lines)")
 
-        # Verify syntax
-        try:
-            compile(proposed_code, str(TRAIN_FILE), "exec")
-        except SyntaxError as e:
-            print(f"Syntax error in proposed code: {e}")
-            TRAIN_FILE.write_text(current_code)
+            # Verify syntax before writing
+            try:
+                compile(proposed_code, str(TRAIN_FILE), "exec")
+            except SyntaxError as e:
+                last_error = f"Syntax error: {e}"
+                print(f"  {last_error}")
+                proposed_code = None
+                continue
+
+            # Syntax OK — break out of retry loop
+            break
+
+        if proposed_code is None or diff is None or not diff.strip():
+            print(f"All attempts failed for experiment {exp_idx + 1}. Logging and moving on.")
             entry = {
                 "experiment_id": f"exp_{exp_idx + 1:04d}",
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "metrics": {},
                 "config_summary": {},
                 "accepted": False,
-                "diff": diff,
-                "error": f"Syntax error: {e}",
+                "diff": diff or "",
+                "error": last_error or "All retries exhausted",
             }
             with open(RESULTS_DIR / "experiments.jsonl", "a") as f:
                 f.write(json.dumps(entry) + "\n")
             history.append(entry)
             continue
+
+        if dry_run:
+            print("[DRY RUN] Would apply this change and run experiment")
+            continue
+
+        # Apply verified modification
+        TRAIN_FILE.write_text(proposed_code)
+        print(f"\nApplied modification to {TRAIN_FILE}")
 
         # Run experiment
         # Use latest checkpoint for incremental training
