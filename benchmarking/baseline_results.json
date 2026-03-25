@@ -1,0 +1,196 @@
+{
+  "total_jobs": 115,
+  "completed": 19,
+  "results": [
+    {
+      "case": "094",
+      "defect": "frontoorbital",
+      "job_id": "7e508fc2-d224-4c8a-b0f6-0c322836af4d-e1",
+      "processing_time": 57.456562,
+      "mesh_vertices": 1176022,
+      "mesh_faces": 2346561,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_frontoorbital/20260325_005646/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_frontoorbital/20260325_005646/implant_only.stl"
+    },
+    {
+      "case": "094",
+      "defect": "parietotemporal",
+      "job_id": "ca1fffbe-01b8-49eb-b1c5-e50ec9fd4331-e1",
+      "processing_time": 56.058863,
+      "mesh_vertices": 1177733,
+      "mesh_faces": 2350060,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_parietotemporal/20260325_005743/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_parietotemporal/20260325_005743/implant_only.stl"
+    },
+    {
+      "case": "094",
+      "defect": "random_1",
+      "job_id": "bfa367e5-1c52-4e3e-b549-ebb271e47ea1-e1",
+      "processing_time": 57.628042,
+      "mesh_vertices": 1213306,
+      "mesh_faces": 2421631,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_random_1/20260325_005746/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_random_1/20260325_005746/implant_only.stl"
+    },
+    {
+      "case": "094",
+      "defect": "random_2",
+      "job_id": "3c947dbf-d362-4477-ac41-9e6172bc61c0-e2",
+      "processing_time": 56.161285,
+      "mesh_vertices": 1201713,
+      "mesh_faces": 2398116,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_random_2/20260325_005841/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/094_random_2/20260325_005841/implant_only.stl"
+    },
+    {
+      "case": "003",
+      "defect": "bilateral",
+      "job_id": "af56e2b7-0f7f-45a1-81ff-0d3a5dedb92d-e2",
+      "processing_time": 57.347525,
+      "mesh_vertices": 1127355,
+      "mesh_faces": 2249712,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_bilateral/20260325_005846/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_bilateral/20260325_005846/implant_only.stl"
+    },
+    {
+      "case": "003",
+      "defect": "frontoorbital",
+      "job_id": "4e6d381e-4cc5-4b0d-8b5f-692c0e7e0961-e1",
+      "processing_time": 56.234476,
+      "mesh_vertices": 1133518,
+      "mesh_faces": 2261629,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_frontoorbital/20260325_005939/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_frontoorbital/20260325_005939/implant_only.stl"
+    },
+    {
+      "case": "003",
+      "defect": "parietotemporal",
+      "job_id": "6422a772-69a6-4f71-8956-3be897b345e6-e1",
+      "processing_time": 57.125433,
+      "mesh_vertices": 1103942,
+      "mesh_faces": 2202738,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_parietotemporal/20260325_005945/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_parietotemporal/20260325_005945/implant_only.stl"
+    },
+    {
+      "case": "003",
+      "defect": "random_1",
+      "job_id": "c938b23f-1104-4f5d-a50f-c62ba65a6c6c-e2",
+      "processing_time": 55.964449,
+      "mesh_vertices": 1084257,
+      "mesh_faces": 2163586,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_random_1/20260325_010037/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_random_1/20260325_010037/implant_only.stl"
+    },
+    {
+      "case": "003",
+      "defect": "random_2",
+      "job_id": "16002604-40c2-4307-8066-5485a271a8aa-e2",
+      "processing_time": 57.007702,
+      "mesh_vertices": 1082301,
+      "mesh_faces": 2159385,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_random_2/20260325_010044/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/003_random_2/20260325_010044/implant_only.stl"
+    },
+    {
+      "case": "014",
+      "defect": "bilateral",
+      "job_id": "470f7c10-088d-4796-94e2-69e22947c603-e2",
+      "processing_time": 56.306491,
+      "mesh_vertices": 1199692,
+      "mesh_faces": 2393286,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_bilateral/20260325_010135/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_bilateral/20260325_010135/implant_only.stl"
+    },
+    {
+      "case": "014",
+      "defect": "frontoorbital",
+      "job_id": "eed3a60d-8a19-4e55-afd3-3c03c9263213-e1",
+      "processing_time": 57.817281,
+      "mesh_vertices": 1270902,
+      "mesh_faces": 2535189,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_frontoorbital/20260325_010144/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_frontoorbital/20260325_010144/implant_only.stl"
+    },
+    {
+      "case": "014",
+      "defect": "parietotemporal",
+      "job_id": "59cbdb34-b5c1-4b9d-b33c-9d9eec0a7aa8-e2",
+      "processing_time": 56.331965,
+      "mesh_vertices": 1213380,
+      "mesh_faces": 2420602,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_parietotemporal/20260325_010233/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_parietotemporal/20260325_010233/implant_only.stl"
+    },
+    {
+      "case": "014",
+      "defect": "random_1",
+      "job_id": "9de1ecf9-0254-4e6a-8696-05c62851517d-e2",
+      "processing_time": 57.656762,
+      "mesh_vertices": 1221119,
+      "mesh_faces": 2435996,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_random_1/20260325_010244/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_random_1/20260325_010244/implant_only.stl"
+    },
+    {
+      "case": "014",
+      "defect": "random_2",
+      "job_id": "db898139-db64-48bb-9510-dd83aff68067-e2",
+      "processing_time": 56.19158,
+      "mesh_vertices": 1033901,
+      "mesh_faces": 2061782,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_random_2/20260325_010332/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/014_random_2/20260325_010332/implant_only.stl"
+    },
+    {
+      "case": "081",
+      "defect": "bilateral",
+      "job_id": "58776d47-6a7c-457c-b256-1fc2c72bd75c-e2",
+      "processing_time": 57.207134,
+      "mesh_vertices": 1015744,
+      "mesh_faces": 2025552,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_bilateral/20260325_010344/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_bilateral/20260325_010344/implant_only.stl"
+    },
+    {
+      "case": "081",
+      "defect": "frontoorbital",
+      "job_id": "2e8c52c8-e4a1-4d9c-b40f-01c9aac78bef-e2",
+      "processing_time": 55.914842,
+      "mesh_vertices": 1151269,
+      "mesh_faces": 2296459,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_frontoorbital/20260325_010429/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_frontoorbital/20260325_010429/implant_only.stl"
+    },
+    {
+      "case": "081",
+      "defect": "parietotemporal",
+      "job_id": "1f5c43a7-d711-402f-93f5-fb648b34daba-e1",
+      "processing_time": 56.738849,
+      "mesh_vertices": 1055578,
+      "mesh_faces": 2105089,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_parietotemporal/20260325_010443/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_parietotemporal/20260325_010443/implant_only.stl"
+    },
+    {
+      "case": "081",
+      "defect": "random_1",
+      "job_id": "96852fa5-ec7c-475f-abd7-a1bef66ff1fe-e2",
+      "processing_time": 55.834483,
+      "mesh_vertices": 1060671,
+      "mesh_faces": 2115213,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_random_1/20260325_010527/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_random_1/20260325_010527/implant_only.stl"
+    },
+    {
+      "case": "081",
+      "defect": "random_2",
+      "job_id": "17234873-3866-4b4d-bf23-92ab56443924-e1",
+      "processing_time": 56.910279,
+      "mesh_vertices": 1062886,
+      "mesh_faces": 2119807,
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_random_2/20260325_010541/implant.npy",
+      "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/baseline_full/081_random_2/20260325_010541/implant_only.stl"
+    }
+  ]
+}
