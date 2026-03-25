@@ -75,7 +75,7 @@ def call_llm(messages: list, temperature: float = 0.7) -> str:
         "model": LLM_MODEL,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 8192,
+        "max_tokens": 32768,
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -153,7 +153,9 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
                 "You are an ML research agent running autonomous experiments on a Point Cloud Diffusion model. "
                 "Your goal is to minimize validation loss (MSE on noise prediction) by modifying the training script. "
                 "You make ONE focused change per experiment. Respond with ONLY the complete modified train_pcdiff.py file, "
-                "nothing else — no explanations before or after the code. The code must be valid Python."
+                "nothing else — no explanations before or after the code. The code must be valid Python. "
+                "CRITICAL: You MUST output the ENTIRE file — every class, function, and the if __name__ == '__main__' block. "
+                "Do NOT truncate or omit any part of the file. The output must have at least as many lines as the input."
             ),
         },
         {
@@ -188,7 +190,18 @@ Respond with the COMPLETE modified train_pcdiff.py file.""",
     else:
         code = response
 
-    return code.strip()
+    code = code.strip()
+
+    # Guard against truncated LLM output
+    original_lines = len(current_code.splitlines())
+    proposed_lines = len(code.splitlines())
+    if proposed_lines < original_lines * 0.8:
+        raise ValueError(
+            f"Proposed code looks truncated ({proposed_lines} lines vs {original_lines} original). "
+            f"Rejecting to protect the training script."
+        )
+
+    return code
 
 
 def compute_diff(old_code: str, new_code: str) -> str:
