@@ -111,19 +111,46 @@ def load_history() -> list:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def format_history_summary(history: list, last_n: int = 10) -> str:
+def format_history_summary(history: list, last_n: int = 15) -> str:
     """Format recent experiment history for the LLM prompt."""
     if not history:
         return "No experiments run yet."
 
-    recent = history[-last_n:]
+    # Track repeated failure patterns to warn LLM
+    failure_patterns = {}
+    for exp in history:
+        err = exp.get("error", "")
+        if err:
+            # Extract what the experiment tried from diff
+            diff = exp.get("diff", "")
+            adds = [l.lstrip("+").strip() for l in diff.split("\n")
+                    if l.startswith("+") and not l.startswith("+++")][:3]
+            key = " | ".join(adds)[:80] if adds else "unknown"
+            failure_patterns[key] = failure_patterns.get(key, 0) + 1
+
     lines = []
+
+    # Show repeated failures as a warning
+    repeated = {k: v for k, v in failure_patterns.items() if v >= 3}
+    if repeated:
+        lines.append("⚠️ REPEATEDLY FAILED APPROACHES (DO NOT retry these):")
+        for pattern, count in sorted(repeated.items(), key=lambda x: -x[1]):
+            lines.append(f"  - Failed {count}x: {pattern}")
+        lines.append("")
+
+    recent = history[-last_n:]
     for exp in recent:
-        status = "ACCEPTED" if exp.get("accepted") else "REJECTED"
+        err = exp.get("error", "")
+        if err:
+            status = f"ERROR: {err[:80]}"
+        elif exp.get("accepted"):
+            status = "ACCEPTED"
+        else:
+            status = "REJECTED"
         cd = exp.get("metrics", {}).get("val_loss_mean", "N/A")
-        lines.append(f"- [{status}] {exp.get('experiment_id', '?')}: val_loss={cd:.6f}" if isinstance(cd, float) else f"- [{status}] {exp.get('experiment_id', '?')}: val_loss={cd}")
-        if exp.get("diff"):
-            # Show first 5 lines of diff
+        cd_str = f"{cd:.6f}" if isinstance(cd, float) else str(cd)
+        lines.append(f"- [{status}] {exp.get('experiment_id', '?')}: val_loss={cd_str}")
+        if exp.get("diff") and not err:
             diff_lines = exp["diff"].split("\n")[:5]
             for dl in diff_lines:
                 lines.append(f"    {dl}")
