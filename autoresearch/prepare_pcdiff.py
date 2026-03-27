@@ -69,20 +69,18 @@ def load_csv_entries(csv_path: str) -> list:
     entries = []
     with open(csv_path, 'r') as f:
         reader = csv.reader(f)
+        header = next(reader, None)
         for row in reader:
-            entry = row[0]
-            base_path = entry.split('complete_skull')[0]
-            filename = entry.split('/')[-1]
-            for defect in DEFECT_TYPES:
-                defective = base_path + 'defective_skull/' + defect + '/' + filename
-                implant = base_path + 'implant/' + defect + '/' + filename
-                if not os.path.isabs(defective):
-                    defective = os.path.join(csv_base_dir, defective)
-                    implant = os.path.join(csv_base_dir, implant)
-                # Handle .nrrd -> _surf.npy conversion from preprocessing
-                defective = _nrrd_to_npy_path(defective)
-                implant = _nrrd_to_npy_path(implant)
-                entries.append((defective, implant))
+            if len(row) < 2:
+                continue
+            defective = row[0].strip()
+            implant = row[1].strip()
+            if not os.path.isabs(defective):
+                defective = os.path.join(csv_base_dir, defective)
+                implant = os.path.join(csv_base_dir, implant)
+            defective = _nrrd_to_npy_path(defective)
+            implant = _nrrd_to_npy_path(implant)
+            entries.append((defective, implant))
     return entries
 
 
