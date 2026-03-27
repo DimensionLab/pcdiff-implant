@@ -3,17 +3,18 @@
 setup_runpod.py — Create and configure a RunPod pod for autoresearch experiments.
 
 This script:
-  1. Creates a RunPod pod (A40, CA-MTL-3) with networked storage
+  1. Creates a RunPod pod on SECURE cloud (required for SSH TCP access)
   2. Adds SSH key for access
   3. Waits for pod to be ready
   4. Prints SSH connection info
 
 Usage:
-    python setup_runpod.py                # Create pod
+    python setup_runpod.py                # Create pod (secure cloud, no network volume)
     python setup_runpod.py --stop         # Stop running pods
     python setup_runpod.py --status       # Show pod status
 
 Requires RUNPOD_API_KEY in environment or web_viewer/.env
+See RUNPOD_RUNBOOK.md for operational knowledge.
 """
 
 import json
@@ -115,15 +116,14 @@ def create_pod(gpu_id: str = None) -> dict:
                     "imageName": docker_image,
                     "gpuTypeId": gid,
                     "gpuCount": 1,
-                    "volumeInGb": 20,
+                    "volumeInGb": 50,
                     "containerDiskInGb": 30,
-                    "networkVolumeId": NETWORK_VOLUME_ID,
+                    "cloudType": "SECURE",
                     "minVcpuCount": 4,
                     "minMemoryInGb": 32,
                     "ports": "22/tcp,8888/http",
                     "dockerArgs": docker_args,
                     "startSsh": True,
-                    "dataCenterId": "CA-MTL-3",
                     "env": [
                         {"key": "PUBLIC_KEY", "value": ssh_key},
                     ] if ssh_key else [],
