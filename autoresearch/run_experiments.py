@@ -43,7 +43,7 @@ RESULTS_DIR = SCRIPT_DIR / "results"
 
 # LLM config
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-LLM_MODEL = "anthropic/claude-sonnet-4"  # Good balance of cost and capability
+LLM_MODEL = "openai/gpt-5.3-codex"  # Coding-optimized model, fewer syntax errors
 MAX_RETRIES_PER_EXPERIMENT = 4  # Retry with error feedback on syntax/apply failures
 
 # Experiment config
