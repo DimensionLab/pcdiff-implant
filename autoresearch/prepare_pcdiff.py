@@ -64,8 +64,11 @@ def _nrrd_to_npy_path(path: str) -> str:
 
 
 def load_csv_entries(csv_path: str) -> list:
-    """Load SkullBreak CSV and return list of (defective_path, implant_path) tuples."""
-    csv_base_dir = os.path.dirname(os.path.abspath(csv_path))
+    """Load SkullBreak CSV and return list of (defective_path, implant_path) tuples.
+
+    CSV paths are relative to PROJECT_ROOT/pcdiff/ (e.g. 'datasets/SkullBreak/...').
+    """
+    pcdiff_dir = str(PROJECT_ROOT / "pcdiff")
     entries = []
     with open(csv_path, 'r') as f:
         reader = csv.reader(f)
@@ -76,8 +79,8 @@ def load_csv_entries(csv_path: str) -> list:
             defective = row[0].strip()
             implant = row[1].strip()
             if not os.path.isabs(defective):
-                defective = os.path.join(csv_base_dir, defective)
-                implant = os.path.join(csv_base_dir, implant)
+                defective = os.path.join(pcdiff_dir, defective)
+                implant = os.path.join(pcdiff_dir, implant)
             defective = _nrrd_to_npy_path(defective)
             implant = _nrrd_to_npy_path(implant)
             entries.append((defective, implant))
