@@ -44,7 +44,7 @@ RESULTS_DIR = SCRIPT_DIR / "results"
 # LLM config
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_MODEL = "anthropic/claude-sonnet-4"  # Good balance of cost and capability
-MAX_RETRIES_PER_EXPERIMENT = 2  # Retry with error feedback on syntax/apply failures
+MAX_RETRIES_PER_EXPERIMENT = 4  # Retry with error feedback on syntax/apply failures
 
 # Experiment config
 DEFAULT_TIME_BUDGET = 900    # 15 minutes per experiment
@@ -448,8 +448,18 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
             try:
                 compile(proposed_code, str(TRAIN_FILE), "exec")
             except SyntaxError as e:
-                last_error = f"Syntax error: {e}"
-                print(f"  {last_error}")
+                # Show context around the error line so LLM can fix it
+                code_lines = proposed_code.splitlines()
+                lineno = e.lineno or 0
+                start = max(0, lineno - 3)
+                end = min(len(code_lines), lineno + 2)
+                context_lines = []
+                for i in range(start, end):
+                    marker = ">>>" if i == lineno - 1 else "   "
+                    context_lines.append(f"{marker} {i+1}: {code_lines[i]}")
+                context_str = "\n".join(context_lines)
+                last_error = f"Syntax error at line {lineno}: {e.msg}\n{context_str}"
+                print(f"  Syntax error: {e}")
                 proposed_code = None
                 continue
 
