@@ -25,13 +25,13 @@ import torch
 # Auto-detect environment
 if os.path.exists("/workspace/pcdiff-implant"):
     PROJECT_ROOT = Path("/workspace/pcdiff-implant")
-    DATASET_ROOT = PROJECT_ROOT / "pcdiff" / "datasets" / "SkullBreak"
+    DATASET_ROOT = PROJECT_ROOT / "datasets" / "SkullBreak"
 elif os.path.exists("/home/mike/pcdiff-implant"):
     PROJECT_ROOT = Path("/home/mike/pcdiff-implant")
-    DATASET_ROOT = PROJECT_ROOT / "pcdiff" / "datasets" / "SkullBreak"
+    DATASET_ROOT = PROJECT_ROOT / "datasets" / "SkullBreak"
 else:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    DATASET_ROOT = PROJECT_ROOT / "pcdiff" / "datasets" / "SkullBreak"
+    DATASET_ROOT = PROJECT_ROOT / "datasets" / "SkullBreak"
 
 # Point cloud parameters (must match train_pcdiff.py)
 NUM_POINTS = 4096       # Total points (defective + implant) — reduced for fast experiments
@@ -68,7 +68,7 @@ def load_csv_entries(csv_path: str) -> list:
 
     CSV paths are relative to PROJECT_ROOT/pcdiff/ (e.g. 'datasets/SkullBreak/...').
     """
-    pcdiff_dir = str(PROJECT_ROOT / "pcdiff")
+    pcdiff_dir = str(PROJECT_ROOT)
     entries = []
     with open(csv_path, 'r') as f:
         reader = csv.reader(f)
