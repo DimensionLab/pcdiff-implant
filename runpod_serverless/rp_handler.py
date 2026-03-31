@@ -345,7 +345,7 @@ def get_voxelization_generator(resolution=512):
     return generator
 
 
-def run_pcdiff_inference(input_points, num_ens=1, sampling_steps=1000):
+def run_pcdiff_inference(input_points, num_ens=1, sampling_steps=1000, sampling_method='ddpm'):
     """Run PCDiff to generate implant point cloud."""
     global pcdiff_model, device
     
@@ -385,7 +385,7 @@ def run_pcdiff_inference(input_points, num_ens=1, sampling_steps=1000):
         sample = pcdiff_model.gen_samples(
             pc_input, noise_shape, device,
             clip_denoised=False,
-            sampling_method='ddpm',
+            sampling_method=sampling_method,
             sampling_steps=sampling_steps
         )
         sample = sample.detach().cpu().numpy()
@@ -786,6 +786,9 @@ def handler(event):
                 defective_skull_data = job_input.get('defective_skull')
                 num_ensemble = job_input.get('num_ensemble', 1)
                 sampling_steps = job_input.get('sampling_steps', 1000)
+                sampling_method = job_input.get('sampling_method', 'ddpm')
+                if sampling_method not in ('ddpm', 'ddim'):
+                    return {"error": f"Invalid sampling_method: {sampling_method}. Must be 'ddpm' or 'ddim'."}
                 requested_pcdiff_model = job_input.get('pcdiff_model', DEFAULT_PCDIFF_MODEL)
                 
                 # Ensure models are loaded
@@ -822,7 +825,8 @@ def handler(event):
                 implant_points, defective_points, shift, scale, implant_normalized = run_pcdiff_inference(
                     input_points, 
                     num_ens=num_ensemble,
-                    sampling_steps=sampling_steps
+                    sampling_steps=sampling_steps,
+                    sampling_method=sampling_method
                 )
                 print(f"Generated implant: {implant_points.shape}")
                 
@@ -872,6 +876,7 @@ def handler(event):
                         "job_type": "full",
                         "num_implant_points": implant_pc.shape[0],
                         "num_ensemble": num_ensemble,
+                        "sampling_method": sampling_method,
                         "sampling_steps": sampling_steps,
                         "voxelization_resolution": voxelization_resolution,
                         "smoothing_iterations": smoothing_iterations,
