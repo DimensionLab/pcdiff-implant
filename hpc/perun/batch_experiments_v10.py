@@ -131,14 +131,14 @@ EXPERIMENTS = [
 
 def main():
     EXPERIMENT_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     for exp in EXPERIMENTS:
         config_path = EXPERIMENT_DIR / f"{exp['id']}.json"
         config_path.write_text(json.dumps(exp, indent=2))
         print(f"  {exp['id']}: {exp['name']} — {exp['desc']}")
 
     # Generate Slurm array script
-    exp_ids = ' '.join(e['id'] for e in EXPERIMENTS)
+    exp_ids = " ".join(e["id"] for e in EXPERIMENTS)
     slurm_script = SCRIPT_DIR / "run_v10_experiments.sh"
     slurm_script.write_text(f"""#!/bin/bash
 #SBATCH --job-name=pcdiff-v10
@@ -185,7 +185,7 @@ echo "=== Experiment $EXP_ID Complete ==="
 echo "End: $(date)"
 """)
     os.chmod(slurm_script, 0o755)
-    
+
     print(f"\nGenerated {len(EXPERIMENTS)} experiments (all 1h budget)")
     print(f"Submit: sbatch {slurm_script}")
 

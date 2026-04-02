@@ -52,7 +52,7 @@ def setup_logging(output_dir: str, rank: int) -> logging.Logger:
     # Console handler (rank 0 only shows INFO+, others show WARNING+)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO if rank == 0 else logging.WARNING)
-    console_formatter = logging.Formatter(f'[Rank {rank}] %(asctime)s - %(levelname)s - %(message)s')
+    console_formatter = logging.Formatter(f"[Rank {rank}] %(asctime)s - %(levelname)s - %(message)s")
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
@@ -63,7 +63,7 @@ def setup_logging(output_dir: str, rank: int) -> logging.Logger:
         log_file = os.path.join(output_dir, f"inference_rank{rank}.log")
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
@@ -130,7 +130,7 @@ def save_sample_outputs(
     sample_points: np.ndarray,
     shift: np.ndarray,
     scale: np.ndarray,
-    rank: int
+    rank: int,
 ) -> None:
     """
     Save inference outputs for a single sample.
@@ -142,38 +142,26 @@ def save_sample_outputs(
         scale.npy: Normalization scale value
         metadata.json: Inference metadata (rank, timestamp)
     """
-    np.save(os.path.join(output_dir, 'input.npy'), input_points)
-    np.save(os.path.join(output_dir, 'sample.npy'), sample_points)
-    np.save(os.path.join(output_dir, 'shift.npy'), shift)
-    np.save(os.path.join(output_dir, 'scale.npy'), scale)
+    np.save(os.path.join(output_dir, "input.npy"), input_points)
+    np.save(os.path.join(output_dir, "sample.npy"), sample_points)
+    np.save(os.path.join(output_dir, "shift.npy"), shift)
+    np.save(os.path.join(output_dir, "scale.npy"), scale)
 
     # Save metadata for debugging/auditing
     metadata = {
         "processed_by_rank": rank,
         "timestamp": datetime.now().isoformat(),
     }
-    with open(os.path.join(output_dir, 'metadata.json'), 'w') as f:
+    with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
 
 
 def get_dataset(path: str, num_points: int, num_nn: int, dataset: str) -> torch.utils.data.Dataset:
     """Load the appropriate dataset based on dataset name."""
-    if dataset == 'SkullBreak':
-        return SkullBreakDataset(
-            path=path,
-            num_points=num_points,
-            num_nn=num_nn,
-            norm_mode='shape_bbox',
-            eval=True
-        )
+    if dataset == "SkullBreak":
+        return SkullBreakDataset(path=path, num_points=num_points, num_nn=num_nn, norm_mode="shape_bbox", eval=True)
     else:
-        return SkullFixDataset(
-            path=path,
-            num_points=num_points,
-            num_nn=num_nn,
-            norm_mode='shape_bbox',
-            eval=True
-        )
+        return SkullFixDataset(path=path, num_points=num_points, num_nn=num_nn, norm_mode="shape_bbox", eval=True)
 
 
 def run_distributed_inference(opt, logger: logging.Logger) -> dict:
@@ -189,9 +177,9 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
     # Set CUDA device
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
-        device = torch.device(f'cuda:{local_rank}')
+        device = torch.device(f"cuda:{local_rank}")
     else:
-        device = torch.device('cpu')
+        device = torch.device("cpu")
 
     logger.info(f"Using device: {device}")
 
@@ -199,7 +187,7 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
     if is_distributed:
         dist.init_process_group(
             backend=opt.dist_backend,
-            init_method='env://',
+            init_method="env://",
         )
         logger.info(f"Initialized distributed inference: world_size={world_size}, rank={rank}, local_rank={local_rank}")
 
@@ -230,15 +218,20 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
     # Load model
     betas = get_betas(opt.schedule_type, opt.beta_start, opt.beta_end, opt.time_num)
     model = Model(
-        opt, betas, opt.loss_type, opt.model_mean_type, opt.model_var_type,
-        width_mult=opt.width_mult, vox_res_mult=opt.vox_res_mult
+        opt,
+        betas,
+        opt.loss_type,
+        opt.model_mean_type,
+        opt.model_var_type,
+        width_mult=opt.width_mult,
+        vox_res_mult=opt.vox_res_mult,
     )
     model = model.to(device)
     model.eval()
 
     # Load checkpoint
     checkpoint = torch.load(opt.model, map_location=device, weights_only=False)
-    state_dict = checkpoint['model_state']
+    state_dict = checkpoint["model_state"]
 
     # Handle various checkpoint formats (DDP, torch.compile, or both)
     first_key = list(state_dict.keys())[0]
@@ -247,14 +240,14 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
     for k, v in state_dict.items():
         new_key = k
         # Handle DDP + torch.compile (model.module._orig_mod.*)
-        if 'module._orig_mod.' in new_key:
-            new_key = new_key.replace('module._orig_mod.', '')
+        if "module._orig_mod." in new_key:
+            new_key = new_key.replace("module._orig_mod.", "")
         # Handle DDP only (model.module.*)
-        elif '.module.' in new_key:
-            new_key = new_key.replace('.module.', '.')
+        elif ".module." in new_key:
+            new_key = new_key.replace(".module.", ".")
         # Handle torch.compile only (model._orig_mod.*)
-        elif '._orig_mod.' in new_key:
-            new_key = new_key.replace('._orig_mod.', '.')
+        elif "._orig_mod." in new_key:
+            new_key = new_key.replace("._orig_mod.", ".")
         new_state_dict[new_key] = v
 
     state_dict = new_state_dict
@@ -266,7 +259,7 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
     logger.info(f"Loaded model checkpoint from: {opt.model}")
 
     # Create output directory structure
-    output_base = os.path.join(opt.eval_path, 'syn')
+    output_base = os.path.join(opt.eval_path, "syn")
     os.makedirs(output_base, exist_ok=True)
 
     # Run inference
@@ -297,21 +290,21 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
 
             try:
                 # Get sample data
-                pc = data['train_points'].transpose(1, 2).to(device)
-                name = data['name'][0]
+                pc = data["train_points"].transpose(1, 2).to(device)
+                name = data["name"][0]
 
                 # Extract sample name from path
                 # e.g., "datasets/SkullBreak/defective_skull/bilateral/086_surf.npy" -> "bilateral086_surf"
-                path_parts = name.split('/')
+                path_parts = name.split("/")
                 defect_type = path_parts[-2]
-                skull_id = path_parts[-1].split('.')[0]
+                skull_id = path_parts[-1].split(".")[0]
                 sample_name = f"{defect_type}{skull_id}"
 
                 # Create output directory (concurrency-safe)
                 sample_output_dir = create_output_directory(output_base, sample_name, rank)
 
                 # Skip if already processed (allows for resume)
-                sample_file = os.path.join(sample_output_dir, 'sample.npy')
+                sample_file = os.path.join(sample_output_dir, "sample.npy")
                 if os.path.exists(sample_file) and not opt.overwrite:
                     logger.debug(f"Skipping {sample_name} (already processed)")
                     inference_stats["samples_processed"] += 1
@@ -339,10 +332,10 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
                 # Save outputs
                 save_sample_outputs(
                     sample_output_dir,
-                    input_points=data['train_points'].numpy(),
+                    input_points=data["train_points"].numpy(),
                     sample_points=sample_np,
-                    shift=data['shift'].numpy(),
-                    scale=data['scale'].numpy(),
+                    shift=data["shift"].numpy(),
+                    scale=data["scale"].numpy(),
                     rank=rank,
                 )
 
@@ -351,18 +344,22 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
                 inference_stats["samples_processed"] += 1
 
                 if rank == 0:
-                    progress_bar.set_postfix({
-                        'sample': sample_name,
-                        'time': f'{sample_time:.1f}s',
-                    })
+                    progress_bar.set_postfix(
+                        {
+                            "sample": sample_name,
+                            "time": f"{sample_time:.1f}s",
+                        }
+                    )
 
             except Exception as e:
                 logger.error(f"Failed to process sample {batch_idx}: {e}")
                 inference_stats["samples_failed"] += 1
-                inference_stats["failed_samples"].append({
-                    "batch_idx": batch_idx,
-                    "error": str(e),
-                })
+                inference_stats["failed_samples"].append(
+                    {
+                        "batch_idx": batch_idx,
+                        "error": str(e),
+                    }
+                )
 
     inference_stats["total_time_seconds"] = time.time() - start_time
 
@@ -412,12 +409,12 @@ def run_distributed_inference(opt, logger: logging.Logger) -> dict:
         summary["throughput_samples_per_second"] = total_processed / total_time if total_time > 0 else 0
 
         summary_file = os.path.join(opt.eval_path, "inference_summary.json")
-        with open(summary_file, 'w') as f:
+        with open(summary_file, "w") as f:
             json.dump(summary, f, indent=2)
 
-        logger.info(f"="*60)
-        logger.info(f"INFERENCE COMPLETE")
-        logger.info(f"="*60)
+        logger.info("=" * 60)
+        logger.info("INFERENCE COMPLETE")
+        logger.info("=" * 60)
         logger.info(f"Total samples processed: {total_processed}/{total_samples}")
         logger.info(f"Total failed: {total_failed}")
         logger.info(f"Wall clock time: {total_time:.1f}s")
@@ -439,7 +436,7 @@ def verify_outputs(eval_path: str, expected_samples: int, logger: logging.Logger
     Returns:
         True if all outputs exist, False otherwise
     """
-    output_base = os.path.join(eval_path, 'syn')
+    output_base = os.path.join(eval_path, "syn")
 
     if not os.path.exists(output_base):
         logger.error(f"Output directory does not exist: {output_base}")
@@ -452,7 +449,7 @@ def verify_outputs(eval_path: str, expected_samples: int, logger: logging.Logger
 
     for sample_dir in sample_dirs:
         sample_path = os.path.join(output_base, sample_dir)
-        required_files = ['input.npy', 'sample.npy', 'shift.npy', 'scale.npy']
+        required_files = ["input.npy", "sample.npy", "shift.npy", "scale.npy"]
 
         for required_file in required_files:
             if not os.path.exists(os.path.join(sample_path, required_file)):
@@ -462,7 +459,9 @@ def verify_outputs(eval_path: str, expected_samples: int, logger: logging.Logger
         logger.warning(f"Only {len(sample_dirs)}/{expected_samples} samples have output directories")
 
     if incomplete:
-        logger.warning(f"Incomplete samples: {incomplete[:10]}..." if len(incomplete) > 10 else f"Incomplete samples: {incomplete}")
+        logger.warning(
+            f"Incomplete samples: {incomplete[:10]}..." if len(incomplete) > 10 else f"Incomplete samples: {incomplete}"
+        )
 
     logger.info(f"Verification: {len(sample_dirs)} sample directories found")
 
@@ -470,54 +469,55 @@ def verify_outputs(eval_path: str, expected_samples: int, logger: logging.Logger
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Multi-GPU distributed PCDiff inference')
+    parser = argparse.ArgumentParser(description="Multi-GPU distributed PCDiff inference")
 
     # Data paths
-    parser.add_argument('--path', type=str, required=True, help='Path to test CSV file')
-    parser.add_argument('--dataset', type=str, required=True, choices=['SkullBreak', 'SkullFix'],
-                        help='Dataset name')
-    parser.add_argument('--model', type=str, required=True, help='Path to model checkpoint')
-    parser.add_argument('--eval_path', type=str, required=True, help='Output directory for results')
+    parser.add_argument("--path", type=str, required=True, help="Path to test CSV file")
+    parser.add_argument("--dataset", type=str, required=True, choices=["SkullBreak", "SkullFix"], help="Dataset name")
+    parser.add_argument("--model", type=str, required=True, help="Path to model checkpoint")
+    parser.add_argument("--eval_path", type=str, required=True, help="Output directory for results")
 
     # Sampling parameters
-    parser.add_argument('--sampling_method', type=str, default='ddim', choices=['ddpm', 'ddim'],
-                        help='Sampling method (ddim for fast, ddpm for full)')
-    parser.add_argument('--sampling_steps', type=int, default=50,
-                        help='Number of sampling steps (50 for DDIM, 1000 for DDPM)')
-    parser.add_argument('--num_ens', type=int, default=5, help='Number of ensemble samples')
+    parser.add_argument(
+        "--sampling_method",
+        type=str,
+        default="ddim",
+        choices=["ddpm", "ddim"],
+        help="Sampling method (ddim for fast, ddpm for full)",
+    )
+    parser.add_argument(
+        "--sampling_steps", type=int, default=50, help="Number of sampling steps (50 for DDIM, 1000 for DDPM)"
+    )
+    parser.add_argument("--num_ens", type=int, default=5, help="Number of ensemble samples")
 
     # Model parameters (must match training)
-    parser.add_argument('--num_points', type=int, default=30720,
-                        help='Total points (skull + implant)')
-    parser.add_argument('--num_nn', type=int, default=3072,
-                        help='Number of implant points to generate')
-    parser.add_argument('--nc', type=int, default=3, help='Point dimension (3 for x,y,z)')
-    parser.add_argument('--beta_start', type=float, default=0.0001)
-    parser.add_argument('--beta_end', type=float, default=0.02)
-    parser.add_argument('--schedule_type', type=str, default='linear')
-    parser.add_argument('--time_num', type=int, default=1000)
-    parser.add_argument('--attention', type=eval, default=True)
-    parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--embed_dim', type=int, default=64)
-    parser.add_argument('--loss_type', type=str, default='mse')
-    parser.add_argument('--model_mean_type', type=str, default='eps')
-    parser.add_argument('--model_var_type', type=str, default='fixedsmall')
-    parser.add_argument('--vox_res_mult', type=float, default=1.0)
-    parser.add_argument('--width_mult', type=float, default=1.0)
+    parser.add_argument("--num_points", type=int, default=30720, help="Total points (skull + implant)")
+    parser.add_argument("--num_nn", type=int, default=3072, help="Number of implant points to generate")
+    parser.add_argument("--nc", type=int, default=3, help="Point dimension (3 for x,y,z)")
+    parser.add_argument("--beta_start", type=float, default=0.0001)
+    parser.add_argument("--beta_end", type=float, default=0.02)
+    parser.add_argument("--schedule_type", type=str, default="linear")
+    parser.add_argument("--time_num", type=int, default=1000)
+    parser.add_argument("--attention", type=eval, default=True)
+    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--embed_dim", type=int, default=64)
+    parser.add_argument("--loss_type", type=str, default="mse")
+    parser.add_argument("--model_mean_type", type=str, default="eps")
+    parser.add_argument("--model_var_type", type=str, default="fixedsmall")
+    parser.add_argument("--vox_res_mult", type=float, default=1.0)
+    parser.add_argument("--width_mult", type=float, default=1.0)
 
     # Distributed parameters
-    parser.add_argument('--dist-backend', type=str, default='nccl',
-                        help='Distributed backend (nccl for GPU, gloo for CPU)')
-    parser.add_argument('--workers', type=int, default=4, help='Number of data loading workers')
+    parser.add_argument(
+        "--dist-backend", type=str, default="nccl", help="Distributed backend (nccl for GPU, gloo for CPU)"
+    )
+    parser.add_argument("--workers", type=int, default=4, help="Number of data loading workers")
 
     # Runtime options
-    parser.add_argument('--overwrite', action='store_true',
-                        help='Overwrite existing outputs')
-    parser.add_argument('--verbose', action='store_true',
-                        help='Show progress on all ranks')
-    parser.add_argument('--verify', action='store_true',
-                        help='Verify outputs after inference')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs")
+    parser.add_argument("--verbose", action="store_true", help="Show progress on all ranks")
+    parser.add_argument("--verify", action="store_true", help="Verify outputs after inference")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     return parser.parse_args()
 
@@ -540,16 +540,16 @@ def main():
     logger = setup_logging(opt.eval_path, rank)
 
     if rank == 0:
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("PCDiff Multi-GPU Distributed Inference")
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info(f"Model: {opt.model}")
         logger.info(f"Dataset: {opt.path}")
         logger.info(f"Output: {opt.eval_path}")
         logger.info(f"Sampling: {opt.sampling_method} ({opt.sampling_steps} steps)")
         logger.info(f"Ensemble: {opt.num_ens} samples")
         logger.info(f"World size: {world_size}")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
     # Set random seed for reproducibility
     torch.manual_seed(opt.seed)
@@ -575,5 +575,5 @@ def main():
         raise
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

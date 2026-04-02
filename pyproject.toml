@@ -77,9 +77,17 @@ target-version = "py310"
 select = ["E", "F", "I"]
 ignore = [
     "E501",   # line too long — handled gradually
+    "E402",   # module-import-not-at-top-of-file — common in research scripts with sys.path manipulation
+    "E711",   # none-comparison — SQLAlchemy uses `== None`
+    "E712",   # true-false-comparison — SQLAlchemy uses `== True/False`
+    "E721",   # type-comparison — intentional in some cases
+    "E722",   # bare-except — legacy research code
     "F401",   # unused imports — common in research code __init__.py
     "F403",   # star imports
     "F405",   # may be undefined from star import
+    "F811",   # redefined-while-unused — common in notebook-style research code
+    "F821",   # undefined-name — dynamic imports and conditional definitions
+    "F841",   # unused-variable — common in research code (computed for debugging)
     "E741",   # ambiguous variable names (l, O, I) — common in math code
 ]
 

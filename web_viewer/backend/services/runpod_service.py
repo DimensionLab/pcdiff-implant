@@ -41,20 +41,21 @@ RUNPOD_API_BASE = "https://api.runpod.ai/v2"
 
 class RunpodError(Exception):
     """Exception raised for Runpod API errors."""
+
     pass
 
 
 class RunpodService:
     """
     Service for interacting with Runpod serverless GPU endpoints.
-    
+
     Usage:
         service = RunpodService(endpoint_id="6on3tc0nzlyt42", api_key="your_key")
-        
+
         # Async usage
         job_id = await service.submit_job(points, num_ensemble=1)
         result = await service.wait_for_completion(job_id)
-        
+
         # Sync usage (for background tasks)
         job_id = service.submit_job_sync(points, num_ensemble=1)
         result = service.wait_for_completion_sync(job_id)
@@ -94,7 +95,7 @@ class RunpodService:
         buffer = io.BytesIO()
         np.save(buffer, points.astype(np.float32))
         buffer.seek(0)
-        return base64.b64encode(buffer.read()).decode('utf-8')
+        return base64.b64encode(buffer.read()).decode("utf-8")
 
     async def submit_job(
         self,
@@ -141,7 +142,7 @@ class RunpodService:
             # Set execution timeout to 60 minutes (3600000ms) for DDPM with 1000 steps
             "policy": {
                 "executionTimeout": 3600000,
-            }
+            },
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -158,9 +159,7 @@ class RunpodService:
             if response.status_code == 429:
                 raise RunpodError("Rate limited - too many requests")
             if response.status_code != 200:
-                raise RunpodError(
-                    f"Failed to submit job: {response.status_code} - {response.text}"
-                )
+                raise RunpodError(f"Failed to submit job: {response.status_code} - {response.text}")
 
             result = response.json()
             job_id = result.get("id")
@@ -212,7 +211,7 @@ class RunpodService:
             # Re-voxelization is fast, 5 minute timeout should be plenty
             "policy": {
                 "executionTimeout": 300000,
-            }
+            },
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -229,9 +228,7 @@ class RunpodService:
             if response.status_code == 429:
                 raise RunpodError("Rate limited - too many requests")
             if response.status_code != 200:
-                raise RunpodError(
-                    f"Failed to submit revox job: {response.status_code} - {response.text}"
-                )
+                raise RunpodError(f"Failed to submit revox job: {response.status_code} - {response.text}")
 
             result = response.json()
             job_id = result.get("id")
@@ -240,7 +237,9 @@ class RunpodService:
             if not job_id:
                 raise RunpodError(f"No job ID in response: {result}")
 
-            logger.info(f"Submitted Runpod re-voxelization job: {job_id} (status: {status}, resolution: {voxelization_resolution})")
+            logger.info(
+                f"Submitted Runpod re-voxelization job: {job_id} (status: {status}, resolution: {voxelization_resolution})"
+            )
             return job_id
 
     async def get_job_status(self, job_id: str) -> dict:
@@ -267,9 +266,7 @@ class RunpodService:
             if response.status_code == 404:
                 raise RunpodError(f"Job not found: {job_id}")
             if response.status_code != 200:
-                raise RunpodError(
-                    f"Failed to get job status: {response.status_code} - {response.text}"
-                )
+                raise RunpodError(f"Failed to get job status: {response.status_code} - {response.text}")
 
             return response.json()
 
@@ -301,7 +298,7 @@ class RunpodService:
             elapsed = time.time() - start_time
             if elapsed > timeout:
                 raise RunpodError(f"Job {job_id} timed out after {timeout}s")
-            
+
             # Check if we should cancel
             if should_cancel_callback and should_cancel_callback():
                 logger.info(f"Cancellation requested for job {job_id}")
@@ -368,9 +365,7 @@ class RunpodService:
                 logger.info(f"Cancelled job {job_id}: {result.get('status')}")
                 return True
             else:
-                logger.warning(
-                    f"Failed to cancel job {job_id}: {response.status_code}"
-                )
+                logger.warning(f"Failed to cancel job {job_id}: {response.status_code}")
                 return False
 
     async def get_health(self) -> dict:
@@ -387,9 +382,7 @@ class RunpodService:
             )
 
             if response.status_code != 200:
-                raise RunpodError(
-                    f"Failed to get health: {response.status_code} - {response.text}"
-                )
+                raise RunpodError(f"Failed to get health: {response.status_code} - {response.text}")
 
             return response.json()
 
@@ -404,6 +397,7 @@ class RunpodService:
             if loop.is_running():
                 # If we're in an async context, create a new loop in a thread
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, coro)
                     return future.result()
@@ -465,14 +459,14 @@ class RunpodService:
 
 
 def download_from_s3_url(
-    s3_url: str, 
+    s3_url: str,
     local_path: Path,
     aws_access_key_id: str | None = None,
     aws_secret_access_key: str | None = None,
 ) -> Path:
     """
     Download a file from S3 HTTPS URL to local path.
-    
+
     Uses boto3 with credentials if provided, otherwise falls back to
     environment variables or public HTTP GET.
 
@@ -487,55 +481,55 @@ def download_from_s3_url(
     """
     import os
     import re
-    
+
     local_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Parse S3 URL to extract bucket and key
     # Format: https://bucket.s3.region.amazonaws.com/key
     # or: https://s3.region.amazonaws.com/bucket/key
     parsed = urlparse(s3_url)
     host = parsed.netloc
-    path = parsed.path.lstrip('/')
-    
+    path = parsed.path.lstrip("/")
+
     # Try to extract bucket and key from URL
     bucket = None
     key = None
     region = None
-    
+
     # Pattern 1: bucket.s3.region.amazonaws.com/key
-    match = re.match(r'^([^.]+)\.s3\.([^.]+)\.amazonaws\.com$', host)
+    match = re.match(r"^([^.]+)\.s3\.([^.]+)\.amazonaws\.com$", host)
     if match:
         bucket = match.group(1)
         region = match.group(2)
         key = path
     else:
         # Pattern 2: s3.region.amazonaws.com/bucket/key
-        match = re.match(r'^s3\.([^.]+)\.amazonaws\.com$', host)
+        match = re.match(r"^s3\.([^.]+)\.amazonaws\.com$", host)
         if match:
             region = match.group(1)
-            parts = path.split('/', 1)
+            parts = path.split("/", 1)
             if len(parts) == 2:
                 bucket, key = parts
-    
+
     if bucket and key:
         # Use boto3 for authenticated download
         try:
             import boto3
             from botocore.config import Config
-            
+
             # Get credentials from params, env vars, or AWS config
-            access_key = aws_access_key_id or os.environ.get('AWS_ACCESS_KEY_ID')
-            secret_key = aws_secret_access_key or os.environ.get('AWS_SECRET_ACCESS_KEY')
-            
+            access_key = aws_access_key_id or os.environ.get("AWS_ACCESS_KEY_ID")
+            secret_key = aws_secret_access_key or os.environ.get("AWS_SECRET_ACCESS_KEY")
+
             if access_key and secret_key:
                 s3_client = boto3.client(
-                    's3',
+                    "s3",
                     region_name=region,
                     aws_access_key_id=access_key,
                     aws_secret_access_key=secret_key,
-                    config=Config(signature_version='s3v4'),
+                    config=Config(signature_version="s3v4"),
                 )
-                
+
                 logger.info(f"Downloading s3://{bucket}/{key} using boto3...")
                 s3_client.download_file(bucket, key, str(local_path))
                 logger.info(f"Downloaded {s3_url} to {local_path}")
@@ -546,13 +540,13 @@ def download_from_s3_url(
             logger.warning("boto3 not installed, falling back to HTTP GET")
         except Exception as e:
             logger.warning(f"boto3 download failed: {e}, falling back to HTTP GET")
-    
+
     # Fallback: simple HTTP GET (only works for public buckets)
     with httpx.Client(timeout=120.0, follow_redirects=True) as client:
         response = client.get(s3_url)
         response.raise_for_status()
 
-        with open(local_path, 'wb') as f:
+        with open(local_path, "wb") as f:
             f.write(response.content)
 
     logger.info(f"Downloaded {s3_url} to {local_path}")

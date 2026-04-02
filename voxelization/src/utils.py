@@ -1,27 +1,30 @@
+import io
+import logging
+import math
+import numbers
+import os
 import re
+import time
+import urllib
+from collections import OrderedDict
 
+import diplib as dip
+import imageio
 import nrrd
+import numpy as np
+import open3d as o3d
 import scipy
 import torch
-import io, os, logging, urllib
-import yaml
 import trimesh
-import imageio
-import numbers
-import math
-import numpy as np
-from collections import OrderedDict
+import yaml
+from igl import adjacency_matrix, connected_components
 from plyfile import PlyData
+from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
+from pytorch3d.structures import Meshes
+from skimage import img_as_float32, measure
 from torch import nn
 from torch.nn import functional as F
 from torch.utils import model_zoo
-from skimage import measure, img_as_float32
-from pytorch3d.structures import Meshes
-from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
-from igl import adjacency_matrix, connected_components
-import open3d as o3d
-import diplib as dip
-import time
 
 ##################################################
 # Below are functions for DPSR
@@ -38,13 +41,13 @@ def fftfreqs(res, dtype=torch.float32, exact=True):
     freqs = []
     for dim in range(n_dims - 1):
         r_ = res[dim]
-        freq = np.fft.fftfreq(r_, d=1/r_)
+        freq = np.fft.fftfreq(r_, d=1 / r_)
         freqs.append(torch.tensor(freq, dtype=dtype))
     r_ = res[-1]
     if exact:
-        freqs.append(torch.tensor(np.fft.rfftfreq(r_, d=1/r_), dtype=dtype))
+        freqs.append(torch.tensor(np.fft.rfftfreq(r_, d=1 / r_), dtype=dtype))
     else:
-        freqs.append(torch.tensor(np.fft.rfftfreq(r_, d=1/r_)[:-1], dtype=dtype))
+        freqs.append(torch.tensor(np.fft.rfftfreq(r_, d=1 / r_)[:-1], dtype=dtype))
     omega = torch.meshgrid(freqs)
     omega = list(omega)
     omega = torch.stack(omega, dim=-1)
@@ -52,7 +55,7 @@ def fftfreqs(res, dtype=torch.float32, exact=True):
     return omega
 
 
-def img(x, deg=1): # imaginary of tensor (assume last dim: real/imag)
+def img(x, deg=1):  # imaginary of tensor (assume last dim: real/imag)
     """
     multiply tensor x by i ** deg
     """
@@ -71,9 +74,9 @@ def img(x, deg=1): # imaginary of tensor (assume last dim: real/imag)
 
 
 def spec_gaussian_filter(res, sig):
-    omega = fftfreqs(res, dtype=torch.float64) # [dim0, dim1, dim2, d]
-    dis = torch.sqrt(torch.sum(omega ** 2, dim=-1))
-    filter_ = torch.exp(-0.5*((sig*2*dis/res[0])**2)).unsqueeze(-1).unsqueeze(-1)
+    omega = fftfreqs(res, dtype=torch.float64)  # [dim0, dim1, dim2, d]
+    dis = torch.sqrt(torch.sum(omega**2, dim=-1))
+    filter_ = torch.exp(-0.5 * ((sig * 2 * dis / res[0]) ** 2)).unsqueeze(-1).unsqueeze(-1)
     filter_.requires_grad = False
 
     return filter_
@@ -92,35 +95,37 @@ def grid_interp(grid, pts, batched=True):
     bs = grid.shape[0]
     size = torch.tensor(grid.shape[1:-1]).to(grid.device).type(pts.dtype)
     cubesize = 1.0 / size
-    
+
     ind0 = torch.floor(pts / cubesize).long()  # (batch, num_points, dim)
-    ind1 = torch.fmod(torch.ceil(pts / cubesize), size).long() # periodic wrap-around
-    ind01 = torch.stack((ind0, ind1), dim=0) # (2, batch, num_points, dim)
-    tmp = torch.tensor([0,1],dtype=torch.long)
+    ind1 = torch.fmod(torch.ceil(pts / cubesize), size).long()  # periodic wrap-around
+    ind01 = torch.stack((ind0, ind1), dim=0)  # (2, batch, num_points, dim)
+    tmp = torch.tensor([0, 1], dtype=torch.long)
     com_ = torch.stack(torch.meshgrid(tuple([tmp] * dim)), dim=-1).view(-1, dim)
-    dim_ = torch.arange(dim).repeat(com_.shape[0], 1) # (2**dim, dim)
-    ind_ = ind01[com_, ..., dim_]   # (2**dim, dim, batch, num_points)
-    ind_n = ind_.permute(2, 3, 0, 1) # (batch, num_points, 2**dim, dim)
-    ind_b = torch.arange(bs).expand(ind_n.shape[1], ind_n.shape[2], bs).permute(2, 0, 1) # (batch, num_points, 2**dim)
+    dim_ = torch.arange(dim).repeat(com_.shape[0], 1)  # (2**dim, dim)
+    ind_ = ind01[com_, ..., dim_]  # (2**dim, dim, batch, num_points)
+    ind_n = ind_.permute(2, 3, 0, 1)  # (batch, num_points, 2**dim, dim)
+    ind_b = torch.arange(bs).expand(ind_n.shape[1], ind_n.shape[2], bs).permute(2, 0, 1)  # (batch, num_points, 2**dim)
     # latent code on neighbor nodes
     if dim == 2:
-        lat = grid.clone()[ind_b, ind_n[..., 0], ind_n[..., 1]] # (batch, num_points, 2**dim, in_features)
+        lat = grid.clone()[ind_b, ind_n[..., 0], ind_n[..., 1]]  # (batch, num_points, 2**dim, in_features)
     else:
-        lat = grid.clone()[ind_b, ind_n[..., 0], ind_n[..., 1], ind_n[..., 2]] # (batch, num_points, 2**dim, in_features)
+        lat = grid.clone()[
+            ind_b, ind_n[..., 0], ind_n[..., 1], ind_n[..., 2]
+        ]  # (batch, num_points, 2**dim, in_features)
 
     # weights of neighboring nodes
-    xyz0 = ind0.type(cubesize.dtype) * cubesize        # (batch, num_points, dim)
+    xyz0 = ind0.type(cubesize.dtype) * cubesize  # (batch, num_points, dim)
     xyz1 = (ind0.type(cubesize.dtype) + 1) * cubesize  # (batch, num_points, dim)
-    xyz01 = torch.stack((xyz0, xyz1), dim=0) # (2, batch, num_points, dim)
-    pos = xyz01[com_, ..., dim_].permute(2,3,0,1)   # (batch, num_points, 2**dim, dim)
-    pos_ = xyz01[1-com_, ..., dim_].permute(2,3,0,1)   # (batch, num_points, 2**dim, dim)
+    xyz01 = torch.stack((xyz0, xyz1), dim=0)  # (2, batch, num_points, dim)
+    pos = xyz01[com_, ..., dim_].permute(2, 3, 0, 1)  # (batch, num_points, 2**dim, dim)
+    pos_ = xyz01[1 - com_, ..., dim_].permute(2, 3, 0, 1)  # (batch, num_points, 2**dim, dim)
     pos_ = pos_.type(pts.dtype)
-    dxyz_ = torch.abs(pts.unsqueeze(-2) - pos_) / cubesize # (batch, num_points, 2**dim, dim)
-    weights = torch.prod(dxyz_, dim=-1, keepdim=False) # (batch, num_points, 2**dim)
+    dxyz_ = torch.abs(pts.unsqueeze(-2) - pos_) / cubesize  # (batch, num_points, 2**dim, dim)
+    weights = torch.prod(dxyz_, dim=-1, keepdim=False)  # (batch, num_points, 2**dim)
     query_values = torch.sum(lat * weights.unsqueeze(-1), dim=-2)  # (batch, num_points, in_features)
     if not batched:
         query_values = query_values.squeeze(0)
-        
+
     return query_values
 
 
@@ -132,16 +137,16 @@ def scatter_to_grid(inds, vals, size):
     :param size: tuple for size. len(size)=dims
     """
     dims = inds.shape[1]
-    assert(inds.shape[0] == vals.shape[0])
-    assert(len(size) == dims)
+    assert inds.shape[0] == vals.shape[0]
+    assert len(size) == dims
     dev = vals.device
     # result = torch.zeros(*size).view(-1).to(dev).type(vals.dtype)  # flatten
     # # flatten inds
     result = torch.zeros(*size, device=dev).view(-1).type(vals.dtype)  # flatten
     # flatten inds
-    fac = [np.prod(size[i+1:]) for i in range(len(size)-1)] + [1]
+    fac = [np.prod(size[i + 1 :]) for i in range(len(size) - 1)] + [1]
     fac = torch.tensor(fac, device=dev).type(inds.dtype)
-    inds_fold = torch.sum(inds*fac, dim=-1)  # [#values,]
+    inds_fold = torch.sum(inds * fac, dim=-1)  # [#values,]
     result.scatter_add_(0, inds_fold, vals)
     result = result.view(*size)
     return result
@@ -155,8 +160,8 @@ def point_rasterize(pts, vals, size):
     :return rasterized values (batch, features, res0, res1, res2)
     """
     dim = pts.shape[-1]
-    assert(pts.shape[:2] == vals.shape[:2])
-    assert(pts.shape[2] == dim)
+    assert pts.shape[:2] == vals.shape[:2]
+    assert pts.shape[2] == dim
     size_list = list(size)
     size = torch.tensor(size).to(pts.device).float()
     cubesize = 1.0 / size
@@ -164,46 +169,48 @@ def point_rasterize(pts, vals, size):
     nf = vals.shape[-1]
     npts = pts.shape[1]
     dev = pts.device
-    
+
     ind0 = torch.floor(pts / cubesize).long()  # (batch, num_points, dim)
-    ind1 = torch.fmod(torch.ceil(pts / cubesize), size).long() # periodic wrap-around
-    ind01 = torch.stack((ind0, ind1), dim=0) # (2, batch, num_points, dim)
-    tmp = torch.tensor([0,1],dtype=torch.long)
+    ind1 = torch.fmod(torch.ceil(pts / cubesize), size).long()  # periodic wrap-around
+    ind01 = torch.stack((ind0, ind1), dim=0)  # (2, batch, num_points, dim)
+    tmp = torch.tensor([0, 1], dtype=torch.long)
     com_ = torch.stack(torch.meshgrid(tuple([tmp] * dim)), dim=-1).view(-1, dim)
-    dim_ = torch.arange(dim).repeat(com_.shape[0], 1) # (2**dim, dim)
-    ind_ = ind01[com_, ..., dim_]   # (2**dim, dim, batch, num_points)
-    ind_n = ind_.permute(2, 3, 0, 1) # (batch, num_points, 2**dim, dim)
+    dim_ = torch.arange(dim).repeat(com_.shape[0], 1)  # (2**dim, dim)
+    ind_ = ind01[com_, ..., dim_]  # (2**dim, dim, batch, num_points)
+    ind_n = ind_.permute(2, 3, 0, 1)  # (batch, num_points, 2**dim, dim)
     # ind_b = torch.arange(bs).expand(ind_n.shape[1], ind_n.shape[2], bs).permute(2, 0, 1) # (batch, num_points, 2**dim)
-    ind_b = torch.arange(bs, device=dev).expand(ind_n.shape[1], ind_n.shape[2], bs).permute(2, 0, 1) # (batch, num_points, 2**dim)
-    
+    ind_b = (
+        torch.arange(bs, device=dev).expand(ind_n.shape[1], ind_n.shape[2], bs).permute(2, 0, 1)
+    )  # (batch, num_points, 2**dim)
+
     # weights of neighboring nodes
-    xyz0 = ind0.type(cubesize.dtype) * cubesize        # (batch, num_points, dim)
+    xyz0 = ind0.type(cubesize.dtype) * cubesize  # (batch, num_points, dim)
     xyz1 = (ind0.type(cubesize.dtype) + 1) * cubesize  # (batch, num_points, dim)
-    xyz01 = torch.stack((xyz0, xyz1), dim=0) # (2, batch, num_points, dim)
-    pos = xyz01[com_, ..., dim_].permute(2,3,0,1)   # (batch, num_points, 2**dim, dim)
-    pos_ = xyz01[1-com_, ..., dim_].permute(2,3,0,1)   # (batch, num_points, 2**dim, dim)
+    xyz01 = torch.stack((xyz0, xyz1), dim=0)  # (2, batch, num_points, dim)
+    pos = xyz01[com_, ..., dim_].permute(2, 3, 0, 1)  # (batch, num_points, 2**dim, dim)
+    pos_ = xyz01[1 - com_, ..., dim_].permute(2, 3, 0, 1)  # (batch, num_points, 2**dim, dim)
     pos_ = pos_.type(pts.dtype)
-    dxyz_ = torch.abs(pts.unsqueeze(-2) - pos_) / cubesize # (batch, num_points, 2**dim, dim)
-    weights = torch.prod(dxyz_, dim=-1, keepdim=False) # (batch, num_points, 2**dim)
-    
-    ind_b = ind_b.unsqueeze(-1).unsqueeze(-1)      # (batch, num_points, 2**dim, 1, 1)
-    ind_n = ind_n.unsqueeze(-2)                    # (batch, num_points, 2**dim, 1, dim)
+    dxyz_ = torch.abs(pts.unsqueeze(-2) - pos_) / cubesize  # (batch, num_points, 2**dim, dim)
+    weights = torch.prod(dxyz_, dim=-1, keepdim=False)  # (batch, num_points, 2**dim)
+
+    ind_b = ind_b.unsqueeze(-1).unsqueeze(-1)  # (batch, num_points, 2**dim, 1, 1)
+    ind_n = ind_n.unsqueeze(-2)  # (batch, num_points, 2**dim, 1, dim)
     ind_f = torch.arange(nf, device=dev).view(1, 1, 1, nf, 1)  # (1, 1, 1, nf, 1)
     # ind_f = torch.arange(nf).view(1, 1, 1, nf, 1)  # (1, 1, 1, nf, 1)
-    
+
     ind_b = ind_b.expand(bs, npts, 2**dim, nf, 1)
     ind_n = ind_n.expand(bs, npts, 2**dim, nf, dim).to(dev)
     ind_f = ind_f.expand(bs, npts, 2**dim, nf, 1)
     inds = torch.cat([ind_b, ind_f, ind_n], dim=-1)  # (batch, num_points, 2**dim, nf, 1+1+dim)
-     
+
     # weighted values
-    vals = weights.unsqueeze(-1) * vals.unsqueeze(-2)   # (batch, num_points, 2**dim, nf)
-    
-    inds = inds.view(-1, dim+2).permute(1, 0).long()  # (1+dim+1, bs*npts*2**dim*nf)
-    vals = vals.reshape(-1) # (bs*npts*2**dim*nf)
+    vals = weights.unsqueeze(-1) * vals.unsqueeze(-2)  # (batch, num_points, 2**dim, nf)
+
+    inds = inds.view(-1, dim + 2).permute(1, 0).long()  # (1+dim+1, bs*npts*2**dim*nf)
+    vals = vals.reshape(-1)  # (bs*npts*2**dim*nf)
     tensor_size = [bs, nf] + size_list
     raster = scatter_to_grid(inds.permute(1, 0), vals, [bs, nf] + size_list)
-    
+
     return raster  # [batch, nf, res, res, res]
 
 
@@ -216,7 +223,7 @@ def re_sample(image, current_spacing, new_spacing):
     new_spacing = current_spacing / actual_resize_factor
 
     image_resized = scipy.ndimage.interpolation.zoom(image, actual_resize_factor)
-    #image_resized = dip.Resampling(image, zoom=actual_resize_factor, interpolationMethod='nn')
+    # image_resized = dip.Resampling(image, zoom=actual_resize_factor, interpolationMethod='nn')
     # image_resized = np.asarray(image_resized, dtype=np.float32)
 
     return image_resized, new_spacing
@@ -263,13 +270,11 @@ def filter_voxels_within_radius(pc, vox):
 def readCT(filename):
     ct_data, ct_header = nrrd.read(filename)
 
-    ct_spacing = np.asarray([ct_header['space directions'][0, 0],
-                             ct_header['space directions'][1, 1],
-                             ct_header['space directions'][2, 2]])
+    ct_spacing = np.asarray(
+        [ct_header["space directions"][0, 0], ct_header["space directions"][1, 1], ct_header["space directions"][2, 2]]
+    )
 
-    ct_origin = np.asarray([ct_header['space origin'][0],
-                            ct_header['space origin'][1],
-                            ct_header['space origin'][2]])
+    ct_origin = np.asarray([ct_header["space origin"][0], ct_header["space origin"][1], ct_header["space origin"][2]])
 
     # resample data
     if ct_spacing[2] > 0:
@@ -305,7 +310,7 @@ def padding(complete):
     elif x == 0:
         dim_x = (0, 0)
     else:
-        dim_x = (int(x-0.5), int(x+0.5))
+        dim_x = (int(x - 0.5), int(x + 0.5))
 
     y = (512 - complete.shape[1]) / 2
     if y % 1 == 0:
@@ -313,7 +318,7 @@ def padding(complete):
     elif y == 0:
         dim_y = (0, 0)
     else:
-        dim_y = (int(y-0.5), int(y+0.5))
+        dim_y = (int(y - 0.5), int(y + 0.5))
 
     z = 512 - complete.shape[2]
     if z > 0:
@@ -321,15 +326,15 @@ def padding(complete):
     else:
         dim_z = (0, 0)
 
-    complete = np.pad(complete, (dim_x, dim_y, dim_z), 'constant', constant_values=0)
+    complete = np.pad(complete, (dim_x, dim_y, dim_z), "constant", constant_values=0)
 
     return complete, dim_x, dim_y, dim_z
 
 
 def reverse_padding(implant, dim_x, dim_y, dim_z):
-    implant = implant[:, :, dim_z[0]:512-dim_z[1]]
-    implant = implant[:, dim_y[0]:512-dim_y[1], :]
-    implant = implant[dim_x[0]:512-dim_x[1], :, :]
+    implant = implant[:, :, dim_z[0] : 512 - dim_z[1]]
+    implant = implant[:, dim_y[0] : 512 - dim_y[1], :]
+    implant = implant[dim_x[0] : 512 - dim_x[1], :, :]
 
     return implant
 
@@ -350,8 +355,10 @@ def reverse_crop(implant, idx_x, idx_y, idx_z, shape):
 ##################################################
 # Below are the utilization functions in general
 
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -377,49 +384,51 @@ class AverageMeter(object):
     def avgcavg(self):
         return self.avg.sum().item() / (self.count != 0).sum().item()
 
+
 def load_model_manual(state_dict, model):
     new_state_dict = OrderedDict()
     is_model_parallel = isinstance(model, torch.nn.DataParallel)
     for k, v in state_dict.items():
-        if k.startswith('module.') != is_model_parallel:
-            if k.startswith('module.'):
+        if k.startswith("module.") != is_model_parallel:
+            if k.startswith("module."):
                 # remove module
                 k = k[7:]
             else:
                 # add module
-                k = 'module.' + k
+                k = "module." + k
 
         new_state_dict[k] = v
 
     model.load_state_dict(new_state_dict)
 
+
 def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
-    '''
+    """
     Run marching cubes from PSR grid
-    '''
+    """
     batch_size = psr_grid.shape[0]
-    s = psr_grid.shape[-1] # size of psr_grid
+    s = psr_grid.shape[-1]  # size of psr_grid
     psr_grid_numpy = psr_grid.squeeze().detach().cpu().numpy()
-    
-    if batch_size>1:
+
+    if batch_size > 1:
         verts, faces, normals = [], [], []
         for i in range(batch_size):
             verts_cur, faces_cur, normals_cur, values = measure.marching_cubes(psr_grid_numpy[i], level=0)
             verts.append(verts_cur)
             faces.append(faces_cur)
             normals.append(normals_cur)
-        verts = np.stack(verts, axis = 0)
-        faces = np.stack(faces, axis = 0)
-        normals = np.stack(normals, axis = 0)
+        verts = np.stack(verts, axis=0)
+        faces = np.stack(faces, axis=0)
+        normals = np.stack(normals, axis=0)
     else:
         try:
             verts, faces, normals, values = measure.marching_cubes(psr_grid_numpy, level=zero_level)
         except:
             verts, faces, normals, values = measure.marching_cubes(psr_grid_numpy)
     if real_scale:
-        verts = verts / (s-1) # scale to range [0, 1]
+        verts = verts / (s - 1)  # scale to range [0, 1]
     else:
-        verts = verts / s # scale to range [0, 1)
+        verts = verts / s  # scale to range [0, 1)
 
     if pytorchify:
         device = psr_grid.device
@@ -428,7 +437,8 @@ def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
         normals = torch.Tensor(np.ascontiguousarray(-normals)).to(device)
 
     return verts, faces, normals
-        
+
+
 def calc_inters_points(verts, faces, pose, img_size, mask_gt=None):
     verts = verts.squeeze()
     faces = faces.squeeze()
@@ -439,52 +449,47 @@ def calc_inters_points(verts, faces, pose, img_size, mask_gt=None):
     # find 3D points intesected on the mesh
     if True:
         w_masked = w[mask]
-        f_p = faces[pix_to_face[mask]].long() # cooresponding faces for each pixel
+        f_p = faces[pix_to_face[mask]].long()  # cooresponding faces for each pixel
         # corresponding vertices for p_closest
         v_a, v_b, v_c = verts[f_p[..., 0]], verts[f_p[..., 1]], verts[f_p[..., 2]]
-        
+
         # calculate the intersection point of each pixel and the mesh
-        p_inters = w_masked[..., 0, None] * v_a + \
-                w_masked[..., 1, None] * v_b + \
-                w_masked[..., 2, None] * v_c
+        p_inters = w_masked[..., 0, None] * v_a + w_masked[..., 1, None] * v_b + w_masked[..., 2, None] * v_c
     else:
         # backproject ndc to world coordinates using z-buffer
         W, H = img_size[1], img_size[0]
         xy = uv.to(mask.device)[mask]
-        x_ndc = 1 - (2*xy[:, 0]) / (W - 1)
-        y_ndc = 1 - (2*xy[:, 1]) / (H - 1)
+        x_ndc = 1 - (2 * xy[:, 0]) / (W - 1)
+        y_ndc = 1 - (2 * xy[:, 1]) / (H - 1)
         z = zbuf.squeeze().reshape(H * W)[mask]
         xy_depth = torch.stack((x_ndc, y_ndc, z), dim=1)
-        
+
         p_inters = pose.unproject_points(xy_depth, world_coordinates=True)
-    
+
         # if there are outlier points, we should remove it
-        if (p_inters.max()>1) | (p_inters.min()<-1):
-            mask_bound = (p_inters>=-1) & (p_inters<=1)
-            mask_bound = (mask_bound.sum(dim=-1)==3)
-            mask[mask==True] = mask_bound
+        if (p_inters.max() > 1) | (p_inters.min() < -1):
+            mask_bound = (p_inters >= -1) & (p_inters <= 1)
+            mask_bound = mask_bound.sum(dim=-1) == 3
+            mask[mask == True] = mask_bound
             p_inters = p_inters[mask_bound]
-            print('!!!!!find outlier!')
+            print("!!!!!find outlier!")
 
     return p_inters, mask, f_p, w_masked
 
+
 def mesh_rasterization(verts, faces, pose, img_size):
-    '''
-    Use PyTorch3D to rasterize the mesh given a camera 
-    '''
-    transformed_v = pose.transform_points(verts.detach()) # world -> ndc coordinate system
+    """
+    Use PyTorch3D to rasterize the mesh given a camera
+    """
+    transformed_v = pose.transform_points(verts.detach())  # world -> ndc coordinate system
     if isinstance(pose, PerspectiveCameras):
-        transformed_v[..., 2] = 1/transformed_v[..., 2]
+        transformed_v[..., 2] = 1 / transformed_v[..., 2]
     # find p_closest on mesh of each pixel via rasterization
     transformed_mesh = Meshes(verts=[transformed_v], faces=[faces])
     pix_to_face, zbuf, bary_coords, dists = rasterize_meshes(
-        transformed_mesh,
-        image_size=img_size,
-        blur_radius=0,
-        faces_per_pixel=1,
-        perspective_correct=False
+        transformed_mesh, image_size=img_size, blur_radius=0, faces_per_pixel=1, perspective_correct=False
     )
-    pix_to_face = pix_to_face.reshape(1, -1) # B x reso x reso -> B x (reso x reso)
+    pix_to_face = pix_to_face.reshape(1, -1)  # B x reso x reso -> B x (reso x reso)
     mask = pix_to_face.clone() != -1
     mask = mask.squeeze()
     pix_to_face = pix_to_face.squeeze()
@@ -492,11 +497,12 @@ def mesh_rasterization(verts, faces, pose, img_size):
 
     return pix_to_face, w, mask
 
+
 def verts_on_largest_mesh(verts, faces):
-    '''
+    """
     verts: Numpy array or Torch.Tensor (N, 3)
     faces: Numpy array (N, 3)
-    '''
+    """
     if torch.is_tensor(faces):
         verts = verts.squeeze().detach().cpu().numpy()
         faces = faces.squeeze().int().detach().cpu().numpy()
@@ -506,8 +512,8 @@ def verts_on_largest_mesh(verts, faces):
     if num == 0:
         v_large, f_large = verts, faces
     else:
-        max_idx = conn_size.argmax() # find the index of the largest component
-        v_large = verts[conn_idx==max_idx] # keep points on the largest component
+        max_idx = conn_size.argmax()  # find the index of the largest component
+        v_large = verts[conn_idx == max_idx]  # keep points on the largest component
 
         if True:
             mesh_largest = trimesh.Trimesh(verts, faces)
@@ -517,30 +523,30 @@ def verts_on_largest_mesh(verts, faces):
             v_large = v_large.astype(np.float32)
     return v_large, f_large
 
+
 def load_pointcloud(in_file):
     plydata = PlyData.read(in_file)
-    vertices = np.stack([
-        plydata['vertex']['x'],
-        plydata['vertex']['y'],
-        plydata['vertex']['z']
-    ], axis=1)
+    vertices = np.stack([plydata["vertex"]["x"], plydata["vertex"]["y"], plydata["vertex"]["z"]], axis=1)
     return vertices
+
 
 # General config
 
-_ENV_VAR_PATTERN = re.compile(r'\$\{([^}]+)\}')
+_ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
 def _interpolate_env_vars(obj):
-    '''Recursively replace ${VAR} and ${VAR:-default} placeholders with
-    environment variable values.  Works on nested dicts and lists.'''
+    """Recursively replace ${VAR} and ${VAR:-default} placeholders with
+    environment variable values.  Works on nested dicts and lists."""
     if isinstance(obj, str):
+
         def _replace(match):
             expr = match.group(1)
-            if ':-' in expr:
-                var, default = expr.split(':-', 1)
+            if ":-" in expr:
+                var, default = expr.split(":-", 1)
                 return os.environ.get(var, default)
             return os.environ.get(expr, match.group(0))
+
         return _ENV_VAR_PATTERN.sub(_replace, obj)
     if isinstance(obj, dict):
         return {k: _interpolate_env_vars(v) for k, v in obj.items()}
@@ -550,7 +556,7 @@ def _interpolate_env_vars(obj):
 
 
 def load_config(path, default_path=None):
-    ''' Loads config file with environment variable interpolation.
+    """Loads config file with environment variable interpolation.
 
     String values containing ``${VAR}`` are replaced by the corresponding
     environment variable.  ``${VAR:-fallback}`` syntax is supported.
@@ -558,20 +564,20 @@ def load_config(path, default_path=None):
     Args:
         path (str): path to config file
         default_path (str): fallback config path when no inherit_from is set
-    '''
+    """
     # Load configuration from file itself
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         cfg_special = yaml.load(f, Loader=yaml.Loader)
 
     # Check if we should inherit from a config
-    inherit_from = cfg_special.get('inherit_from')
+    inherit_from = cfg_special.get("inherit_from")
 
     # If yes, load this config first as default
     # If no, use the default_path
     if inherit_from is not None:
         cfg = load_config(inherit_from, default_path)
     elif default_path is not None:
-        with open(default_path, 'r') as f:
+        with open(default_path, "r") as f:
             cfg = yaml.load(f, Loader=yaml.Loader)
     else:
         cfg = dict()
@@ -584,46 +590,47 @@ def load_config(path, default_path=None):
 
     return cfg
 
+
 def update_config(config, unknown):
     # update config given args
-    for idx,arg in enumerate(unknown):
+    for idx, arg in enumerate(unknown):
         if arg.startswith("--"):
-            keys = arg.replace("--","").split(':')
-            assert(len(keys)==2)
+            keys = arg.replace("--", "").split(":")
+            assert len(keys) == 2
             k1, k2 = keys
             argtype = type(config[k1][k2])
             if argtype == bool:
-                v = unknown[idx+1].lower() == 'true'
+                v = unknown[idx + 1].lower() == "true"
             else:
                 if config[k1][k2] is not None:
-                    v = type(config[k1][k2])(unknown[idx+1])
+                    v = type(config[k1][k2])(unknown[idx + 1])
                 else:
-                    v = unknown[idx+1]
-            print(f'Changing {k1}:{k2} ---- {config[k1][k2]} to {v}')
+                    v = unknown[idx + 1]
+            print(f"Changing {k1}:{k2} ---- {config[k1][k2]} to {v}")
             config[k1][k2] = v
     return config
 
+
 def initialize_logger(cfg):
-    out_dir = cfg['train']['out_dir']
+    out_dir = cfg["train"]["out_dir"]
     if not out_dir:
         os.makedirs(out_dir)
-    
-    cfg['train']['dir_model'] = os.path.join(out_dir, 'model')
-    os.makedirs(cfg['train']['dir_model'], exist_ok=True)
 
-    if cfg['train']['exp_mesh']:
-        cfg['train']['dir_mesh'] = os.path.join(out_dir, 'vis/mesh')
-        os.makedirs(cfg['train']['dir_mesh'], exist_ok=True)
-    if cfg['train']['exp_pcl']:
-        cfg['train']['dir_pcl'] = os.path.join(out_dir, 'vis/pointcloud')
-        os.makedirs(cfg['train']['dir_pcl'], exist_ok=True)
-    if cfg['train']['vis_rendering']:
-        cfg['train']['dir_rendering'] = os.path.join(out_dir, 'vis/rendering')
-        os.makedirs(cfg['train']['dir_rendering'], exist_ok=True)
-    if cfg['train']['o3d_show']:
-        cfg['train']['dir_o3d'] = os.path.join(out_dir, 'vis/o3d')
-        os.makedirs(cfg['train']['dir_o3d'], exist_ok=True)
+    cfg["train"]["dir_model"] = os.path.join(out_dir, "model")
+    os.makedirs(cfg["train"]["dir_model"], exist_ok=True)
 
+    if cfg["train"]["exp_mesh"]:
+        cfg["train"]["dir_mesh"] = os.path.join(out_dir, "vis/mesh")
+        os.makedirs(cfg["train"]["dir_mesh"], exist_ok=True)
+    if cfg["train"]["exp_pcl"]:
+        cfg["train"]["dir_pcl"] = os.path.join(out_dir, "vis/pointcloud")
+        os.makedirs(cfg["train"]["dir_pcl"], exist_ok=True)
+    if cfg["train"]["vis_rendering"]:
+        cfg["train"]["dir_rendering"] = os.path.join(out_dir, "vis/rendering")
+        os.makedirs(cfg["train"]["dir_rendering"], exist_ok=True)
+    if cfg["train"]["o3d_show"]:
+        cfg["train"]["dir_o3d"] = os.path.join(out_dir, "vis/o3d")
+        os.makedirs(cfg["train"]["dir_o3d"], exist_ok=True)
 
     logger = logging.getLogger("train")
     logger.setLevel(logging.INFO)
@@ -632,19 +639,20 @@ def initialize_logger(cfg):
     ch = logging.StreamHandler()
     logger.addHandler(ch)
     # Log to file
-    fh = logging.FileHandler(os.path.join(cfg['train']['out_dir'], "log.txt"))
+    fh = logging.FileHandler(os.path.join(cfg["train"]["out_dir"], "log.txt"))
     logger.addHandler(fh)
-    logger.info('Outout dir: %s', out_dir)
+    logger.info("Outout dir: %s", out_dir)
     return logger
 
+
 def update_recursive(dict1, dict2):
-    ''' Update two config dictionaries recursively.
+    """Update two config dictionaries recursively.
 
     Args:
         dict1 (dict): first dictionary to be updated
         dict2 (dict): second dictionary which entries should be used
 
-    '''
+    """
     for k, v in dict2.items():
         if k not in dict1:
             dict1[k] = dict()
@@ -652,6 +660,7 @@ def update_recursive(dict1, dict2):
             update_recursive(dict1[k], v)
         else:
             dict1[k] = v
+
 
 def export_pointcloud(name, points, normals=None):
     if len(points.shape) > 2:
@@ -684,52 +693,56 @@ def export_mesh(name, v, f):
 def rescale(p, min, max):
     return p * (max - min) + min
 
+
 def scale2onet(p, scale=1.2):
-    '''
+    """
     Scale the point cloud from SAP to ONet range
-    '''
+    """
     return (p - 0.5) * scale
 
 
 def update_optimizer(inputs, cfg, epoch, model=None, schedule=None):
     if model is not None:
         if schedule is not None:
-            optimizer = torch.optim.Adam([
-                {"params": model.parameters(),
-                "lr": schedule[0].get_learning_rate(epoch)},
-                {"params": inputs,
-                "lr": schedule[1].get_learning_rate(epoch)}])
-        elif 'lr' in cfg['train']:
-            optimizer = torch.optim.Adam([
-                {"params": model.parameters(),
-                    "lr": float(cfg['train']['lr'])},
-                {"params": inputs,
-                "lr": float(cfg['train']['lr_pcl'])}])
+            optimizer = torch.optim.Adam(
+                [
+                    {"params": model.parameters(), "lr": schedule[0].get_learning_rate(epoch)},
+                    {"params": inputs, "lr": schedule[1].get_learning_rate(epoch)},
+                ]
+            )
+        elif "lr" in cfg["train"]:
+            optimizer = torch.optim.Adam(
+                [
+                    {"params": model.parameters(), "lr": float(cfg["train"]["lr"])},
+                    {"params": inputs, "lr": float(cfg["train"]["lr_pcl"])},
+                ]
+            )
         else:
-            raise Exception('no known learning rate')
+            raise Exception("no known learning rate")
     else:
         if schedule is not None:
             optimizer = torch.optim.Adam([inputs], lr=schedule[0].get_learning_rate(epoch))
         else:
-            optimizer = torch.optim.Adam([inputs], lr=float(cfg['train']['lr_pcl']))
+            optimizer = torch.optim.Adam([inputs], lr=float(cfg["train"]["lr_pcl"]))
 
     return optimizer
 
 
 def is_url(url):
     scheme = urllib.parse.urlparse(url).scheme
-    return scheme in ('http', 'https')
+    return scheme in ("http", "https")
+
 
 def load_url(url):
-    '''Load a module dictionary from url.
-    
+    """Load a module dictionary from url.
+
     Args:
         url (str): url to saved model
-    '''
+    """
     print(url)
-    print('=> Loading checkpoint from url...')
+    print("=> Loading checkpoint from url...")
     state_dict = model_zoo.load_url(url, progress=True)
-    
+
     return state_dict
 
 
@@ -745,6 +758,7 @@ class GaussianSmoothing(nn.Module):
         dim (int, optional): The number of dimensions of the data.
             Default value is 2 (spatial).
     """
+
     def __init__(self, channels, kernel_size, sigma, dim=3):
         super(GaussianSmoothing, self).__init__()
         if isinstance(kernel_size, numbers.Number):
@@ -755,16 +769,10 @@ class GaussianSmoothing(nn.Module):
         # The gaussian kernel is the product of the
         # gaussian function of each dimension.
         kernel = 1
-        meshgrids = torch.meshgrid(
-            [
-                torch.arange(size, dtype=torch.float32)
-                for size in kernel_size
-            ]
-        )
+        meshgrids = torch.meshgrid([torch.arange(size, dtype=torch.float32) for size in kernel_size])
         for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
             mean = (size - 1) / 2
-            kernel *= 1 / (std * math.sqrt(2 * math.pi)) * \
-                      torch.exp(-((mgrid - mean) / std) ** 2 / 2)
+            kernel *= 1 / (std * math.sqrt(2 * math.pi)) * torch.exp(-(((mgrid - mean) / std) ** 2) / 2)
 
         # Make sure sum of values in gaussian kernel equals 1.
         kernel = kernel / torch.sum(kernel)
@@ -773,7 +781,7 @@ class GaussianSmoothing(nn.Module):
         kernel = kernel.view(1, 1, *kernel.size())
         kernel = kernel.repeat(channels, *[1] * (kernel.dim() - 1))
 
-        self.register_buffer('weight', kernel)
+        self.register_buffer("weight", kernel)
         self.groups = channels
 
         if dim == 1:
@@ -783,9 +791,7 @@ class GaussianSmoothing(nn.Module):
         elif dim == 3:
             self.conv = F.conv3d
         else:
-            raise RuntimeError(
-                'Only 1, 2 and 3 dimensions are supported. Received {}.'.format(dim)
-            )
+            raise RuntimeError("Only 1, 2 and 3 dimensions are supported. Received {}.".format(dim))
 
     def forward(self, input):
         """
@@ -796,23 +802,30 @@ class GaussianSmoothing(nn.Module):
             filtered (torch.Tensor): Filtered output.
         """
         return self.conv(input, weight=self.weight, groups=self.groups)
-    
+
+
 # Originally from https://github.com/amosgropp/IGR/blob/0db06b1273/code/utils/general.py
 def get_learning_rate_schedules(schedule_specs):
 
     schedules = []
 
     for key in schedule_specs.keys():
-        schedules.append(StepLearningRateSchedule(
-                schedule_specs[key]['initial'],
+        schedules.append(
+            StepLearningRateSchedule(
+                schedule_specs[key]["initial"],
                 schedule_specs[key]["interval"],
-                schedule_specs[key]["factor"], 
-                schedule_specs[key]["final"]))
+                schedule_specs[key]["factor"],
+                schedule_specs[key]["final"],
+            )
+        )
     return schedules
+
 
 class LearningRateSchedule:
     def get_learning_rate(self, epoch):
         pass
+
+
 class StepLearningRateSchedule(LearningRateSchedule):
     def __init__(self, initial, interval, factor, final=1e-6):
         self.initial = float(initial)
@@ -826,6 +839,7 @@ class StepLearningRateSchedule(LearningRateSchedule):
             return lr
         else:
             return self.final
+
 
 def adjust_learning_rate(lr_schedules, optimizer, epoch):
     for i, param_group in enumerate(optimizer.param_groups):

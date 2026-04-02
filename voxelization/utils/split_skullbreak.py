@@ -4,7 +4,6 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DEFECTS = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
 
 
@@ -53,9 +52,7 @@ def parse_args() -> SplitConfig:
 def collect_voxelization_samples(cfg: SplitConfig) -> list[Path]:
     csv_path = cfg.root / "train.csv"
     if not csv_path.is_file():
-        raise FileNotFoundError(
-            f"Missing train.csv at {csv_path}. Run pcdiff/utils/split_skullbreak.py first."
-        )
+        raise FileNotFoundError(f"Missing train.csv at {csv_path}. Run pcdiff/utils/split_skullbreak.py first.")
 
     samples: list[Path] = []
     missing = 0
@@ -106,9 +103,7 @@ def main() -> None:
     write_csv(cfg.root / "voxelization" / "train.csv", train_samples)
     write_csv(cfg.root / "voxelization" / "eval.csv", eval_samples)
 
-    print(
-        f"Created voxelization split with {len(train_samples)} training and {len(eval_samples)} evaluation samples"
-    )
+    print(f"Created voxelization split with {len(train_samples)} training and {len(eval_samples)} evaluation samples")
 
 
 if __name__ == "__main__":

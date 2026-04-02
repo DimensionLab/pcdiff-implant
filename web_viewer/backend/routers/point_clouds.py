@@ -80,9 +80,7 @@ def get_point_cloud(pc_id: str, services=Depends(_get_services)):
 
 
 @router.put("/{pc_id}", response_model=PointCloudRead)
-def update_point_cloud(
-    pc_id: str, body: PointCloudUpdate, services=Depends(_get_services)
-):
+def update_point_cloud(pc_id: str, body: PointCloudUpdate, services=Depends(_get_services)):
     pc = services["point_cloud"].get_point_cloud(pc_id)
     if not pc:
         raise HTTPException(status_code=404, detail="PointCloud not found")
@@ -163,9 +161,7 @@ def get_sdf_values(pc_id: str, services=Depends(_get_services)):
 
 
 @router.post("/{pc_id}/sdf")
-def compute_sdf_custom(
-    pc_id: str, body: SDFRequest, services=Depends(_get_services)
-):
+def compute_sdf_custom(pc_id: str, body: SDFRequest, services=Depends(_get_services)):
     """Compute SDF with custom parameters (e.g. a different reference scan)."""
     pc = services["point_cloud"].get_point_cloud(pc_id)
     if not pc:
@@ -181,9 +177,7 @@ def compute_sdf_custom(
 
     try:
         points = services["point_cloud"].load_point_cloud_data(pc_id)
-        sdf = compute_sdf_from_volume(
-            points, scan.file_path, surface_threshold=body.surface_threshold
-        )
+        sdf = compute_sdf_from_volume(points, scan.file_path, surface_threshold=body.surface_threshold)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"SDF computation failed: {e}")
 
@@ -290,12 +284,8 @@ def download_stl(pc_id: str, services=Depends(_get_services)):
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(data)),
-            "X-Num-Faces": str(
-                _get_meta_field(stl_pc, "num_faces", "unknown")
-            ),
-            "X-Is-Watertight": str(
-                _get_meta_field(stl_pc, "is_watertight", "unknown")
-            ),
+            "X-Num-Faces": str(_get_meta_field(stl_pc, "num_faces", "unknown")),
+            "X-Is-Watertight": str(_get_meta_field(stl_pc, "is_watertight", "unknown")),
         },
     )
 

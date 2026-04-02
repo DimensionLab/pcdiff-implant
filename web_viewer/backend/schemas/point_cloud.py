@@ -50,7 +50,9 @@ class PointCloudRead(BaseModel):
     model_config = {"from_attributes": True}
 
     @field_validator(
-        "file_size_bytes", "num_points", "point_dims",
+        "file_size_bytes",
+        "num_points",
+        "point_dims",
         mode="before",
     )
     @classmethod
@@ -63,12 +65,14 @@ class PointCloudRead(BaseModel):
 
 class SDFRequest(BaseModel):
     """Custom SDF computation parameters."""
+
     reference_scan_id: str | None = None
     surface_threshold: float = 0.5
 
 
 class STLStatusResponse(BaseModel):
     """Response for STL generation status check."""
+
     has_stl: bool
     stl_pc_id: str | None = None
     stl_metadata: dict | None = None

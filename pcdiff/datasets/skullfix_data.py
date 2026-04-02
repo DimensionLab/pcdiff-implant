@@ -1,8 +1,9 @@
-""""
+""" "
 Implements a data structure for loading point clouds from the SkullFix dataset
 """
 
 import csv
+
 import numpy as np
 import open3d as o3d
 import torch as th
@@ -20,29 +21,34 @@ class SkullFixDataset(th.utils.data.Dataset):
         self.eval = eval
         self.augment = augment
 
-        with open(self.directory, 'r') as file:
+        with open(self.directory, "r") as file:
             csv_reader = csv.reader(file)
             for row in csv_reader:
                 datapoint = dict()
-                datapoint['defective_skull'] = row[0].split('complete')[0] + 'defective_skull/' + \
-                                               row[0].split('skull')[1].split('.')[0] + '_surf.npy'
-                datapoint['implant'] = row[0].split('complete')[0] + 'implant/' + \
-                                       row[0].split('skull')[1].split('.')[0] + '_surf.npy'
+                datapoint["defective_skull"] = (
+                    row[0].split("complete")[0]
+                    + "defective_skull/"
+                    + row[0].split("skull")[1].split(".")[0]
+                    + "_surf.npy"
+                )
+                datapoint["implant"] = (
+                    row[0].split("complete")[0] + "implant/" + row[0].split("skull")[1].split(".")[0] + "_surf.npy"
+                )
                 self.database.append(datapoint)
 
     def __getitem__(self, file):
         filedict = self.database[file]
-        name = filedict['defective_skull']
-        pc_np = np.load(filedict['defective_skull'])  # Points belonging to the defective anatomical structure
+        name = filedict["defective_skull"]
+        pc_np = np.load(filedict["defective_skull"])  # Points belonging to the defective anatomical structure
 
         # Downsample point clouds
         num_pc = pc_np.shape[0]
-        idx_pc = np.random.randint(0, num_pc, self.num_points-self.num_nn)
+        idx_pc = np.random.randint(0, num_pc, self.num_points - self.num_nn)
         pc_np = pc_np[idx_pc, :]
 
         # During training
         if not self.eval:  # Load and concat points belonging to the ground truth implant (just for training)
-            pc_i_np = np.load(filedict['implant'])
+            pc_i_np = np.load(filedict["implant"])
             num_pc_i = pc_i_np.shape[0]
             idx_pc_i = np.random.randint(0, num_pc_i, self.num_nn)
             pc_i_np = pc_i_np[idx_pc_i, :]
@@ -62,11 +68,11 @@ class SkullFixDataset(th.utils.data.Dataset):
             pc_c = pc_np
 
         # Normalize point cloud
-        if self.norm_mode == 'shape_unit':
+        if self.norm_mode == "shape_unit":
             shift = pc_c.mean(axis=0).reshape(1, 3)
             scale = pc_c.flatten().std().reshape(1, 1)
 
-        elif self.norm_mode == 'shape_bbox':
+        elif self.norm_mode == "shape_bbox":
             pc_max = pc_c.max(axis=0)
             pc_min = pc_c.min(axis=0)
             shift = ((pc_min + pc_max) / 2).reshape(1, 3)
@@ -77,13 +83,7 @@ class SkullFixDataset(th.utils.data.Dataset):
 
         pc = th.from_numpy(pc_c).float()
 
-        out = {
-            'idx': file,
-            'train_points': pc.float(),
-            'shift': shift,
-            'scale': scale,
-            'name': name
-        }
+        out = {"idx": file, "train_points": pc.float(), "shift": shift, "scale": scale, "name": name}
 
         return out
 

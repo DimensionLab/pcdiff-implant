@@ -1,7 +1,7 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 
-__all__ = ['SE3d']
+__all__ = ["SE3d"]
 
 
 class Swish(nn.Module):
@@ -16,7 +16,7 @@ class SE3d(nn.Module):
             nn.Linear(channel, channel // reduction, bias=False),
             nn.ReLU(True) if use_relu else Swish(),
             nn.Linear(channel // reduction, channel, bias=False),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def forward(self, inputs):

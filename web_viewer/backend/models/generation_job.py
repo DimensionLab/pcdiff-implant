@@ -6,7 +6,7 @@ Supports parent-child job hierarchy for parallel ensemble generation:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -33,7 +33,7 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     input_pc_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("point_clouds.id", ondelete="CASCADE"), nullable=False
     )
-    
+
     # Parent-child hierarchy for parallel ensemble jobs
     parent_job_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("generation_jobs.id", ondelete="CASCADE"), nullable=True
@@ -51,9 +51,7 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Generation parameters
-    sampling_method: Mapped[str] = mapped_column(
-        String(20), default="ddim", nullable=False
-    )  # "ddim" or "ddpm"
+    sampling_method: Mapped[str] = mapped_column(String(20), default="ddim", nullable=False)  # "ddim" or "ddpm"
     sampling_steps: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     num_ensemble: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     pcdiff_model: Mapped[Optional[str]] = mapped_column(
@@ -72,22 +70,16 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     close_holes: Mapped[bool] = mapped_column(
         Integer, default=False, nullable=False, server_default="0"
     )  # Whether to fill holes in the generated mesh
-    
+
     # Re-voxelization tracking - source implant point cloud for re-voxelization jobs
     source_implant_pc_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("point_clouds.id", ondelete="SET NULL"), nullable=True
     )  # If set, this is a re-voxelization job (skips diffusion, only runs voxelization)
 
     # Timing
-    queued_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    started_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     generation_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Results (JSON arrays of output IDs)
@@ -97,14 +89,10 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     output_stl_ids_json: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
     )  # ["uuid1", "uuid2", ...] for voxelized meshes
-    selected_output_id: Mapped[Optional[str]] = mapped_column(
-        String(36), nullable=True
-    )  # User's chosen best result
+    selected_output_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # User's chosen best result
 
     # Evaluation metrics (JSON)
-    metrics_json: Mapped[Optional[str]] = mapped_column(
-        Text, nullable=True
-    )  # {ensemble_idx: {dsc, bdsc, hd95}, ...}
+    metrics_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # {ensemble_idx: {dsc, bdsc, hd95}, ...}
 
     # Relationships
     project: Mapped[Optional["Project"]] = relationship(back_populates="generation_jobs")
@@ -112,7 +100,7 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     source_implant_point_cloud: Mapped[Optional["PointCloud"]] = relationship(
         foreign_keys=[source_implant_pc_id]
     )  # For re-voxelization jobs only
-    
+
     # Parent-child relationship for ensemble jobs
     parent_job: Mapped[Optional["GenerationJob"]] = relationship(
         "GenerationJob",
@@ -131,12 +119,12 @@ class GenerationJob(UUIDMixin, AuditMixin, Base):
     def is_parent_job(self) -> bool:
         """True if this is a parent job with child ensemble jobs."""
         return self.parent_job_id is None and self.num_ensemble > 1
-    
+
     @property
     def is_child_job(self) -> bool:
         """True if this is a child job of a parent ensemble job."""
         return self.parent_job_id is not None
-    
+
     @property
     def is_revoxelization_job(self) -> bool:
         """True if this is a re-voxelization job (no diffusion, just mesh generation)."""

@@ -38,9 +38,7 @@ def get_unread_count(service: NotificationService = Depends(_get_service)):
 
 
 @router.get("/{notification_id}", response_model=NotificationRead)
-def get_notification(
-    notification_id: str, service: NotificationService = Depends(_get_service)
-):
+def get_notification(notification_id: str, service: NotificationService = Depends(_get_service)):
     """Get a specific notification by ID."""
     notification = service.get(notification_id)
     if not notification:
@@ -49,9 +47,7 @@ def get_notification(
 
 
 @router.post("/{notification_id}/read", response_model=NotificationRead)
-def mark_read(
-    notification_id: str, service: NotificationService = Depends(_get_service)
-):
+def mark_read(notification_id: str, service: NotificationService = Depends(_get_service)):
     """Mark a notification as read."""
     notification = service.mark_read(notification_id)
     if not notification:
@@ -67,9 +63,7 @@ def mark_all_read(service: NotificationService = Depends(_get_service)):
 
 
 @router.delete("/{notification_id}", status_code=204)
-def delete_notification(
-    notification_id: str, service: NotificationService = Depends(_get_service)
-):
+def delete_notification(notification_id: str, service: NotificationService = Depends(_get_service)):
     """Delete a notification."""
     if not service.delete(notification_id):
         raise HTTPException(status_code=404, detail="Notification not found")

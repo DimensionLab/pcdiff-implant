@@ -85,13 +85,15 @@ def upload_dataset(host: str, port: int, key: str):
     print(f"\nCreating tarball at {tar_path}...")
     subprocess.run(
         f"tar -czf {tar_path} -C {LOCAL_DATASET.parent} {LOCAL_DATASET.name}",
-        shell=True, check=True, timeout=600,
+        shell=True,
+        check=True,
+        timeout=600,
     )
     tar_size = os.path.getsize(tar_path) / (1024 * 1024)
     print(f"Tarball size: {tar_size:.1f} MB")
 
     # Upload
-    print(f"\nUploading to pod (this may take several minutes)...")
+    print("\nUploading to pod (this may take several minutes)...")
     result = scp_upload(host, port, key, tar_path, "/tmp/skullbreak_data.tar.gz")
     if result.returncode != 0:
         print(f"Upload failed: {result.stderr}")
@@ -100,8 +102,12 @@ def upload_dataset(host: str, port: int, key: str):
 
     # Extract on remote
     print("Extracting on pod...")
-    result = ssh_cmd(host, port, key,
-                     f"cd {Path(REMOTE_DEST).parent} && tar -xzf /tmp/skullbreak_data.tar.gz && rm /tmp/skullbreak_data.tar.gz")
+    result = ssh_cmd(
+        host,
+        port,
+        key,
+        f"cd {Path(REMOTE_DEST).parent} && tar -xzf /tmp/skullbreak_data.tar.gz && rm /tmp/skullbreak_data.tar.gz",
+    )
     if result.returncode != 0:
         print(f"Extraction failed: {result.stderr}")
         sys.exit(1)

@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import diplib as dip
+import nrrd
 import numpy as np
 import torch
 import yaml
-import nrrd
 
 # Ensure project modules are importable
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -28,17 +28,19 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "pcdiff"))
 sys.path.insert(0, str(PROJECT_ROOT / "voxelization"))
 
-from test_completion import Model as PCDiffModel, get_betas  # noqa: E402
+from test_completion import Model as PCDiffModel  # noqa: E402
+from test_completion import get_betas
+
+from voxelization.eval_metrics import bdc, dc, hd95  # noqa: E402
+from voxelization.src import config as vox_config  # noqa: E402
 from voxelization.src.model import Encode2Points  # noqa: E402
 from voxelization.src.utils import (  # noqa: E402
     filter_voxels_within_radius,
     load_config,
     load_model_manual,
 )
-from voxelization.src import config as vox_config  # noqa: E402
-from voxelization.eval_metrics import bdc, dc, hd95  # noqa: E402
 
-DEFECT_TYPES = ['bilateral', 'frontoorbital', 'parietotemporal', 'random_1', 'random_2']
+DEFECT_TYPES = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
 
 
 @dataclass
@@ -55,9 +57,7 @@ class SampleInfo:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Evaluate PCDiff pipeline on random SkullBreak samples."
-    )
+    parser = argparse.ArgumentParser(description="Evaluate PCDiff pipeline on random SkullBreak samples.")
     parser.add_argument(
         "--pcdiff-model",
         required=True,
@@ -236,9 +236,7 @@ class PCDiffRunner:
         state_dict = torch.load(checkpoint, map_location="cpu")["model_state"]
         # Strip DDP prefixes if present
         if next(iter(state_dict.keys())).startswith("model.module."):
-            state_dict = {
-                k.replace("model.module.", "model."): v for k, v in state_dict.items()
-            }
+            state_dict = {k.replace("model.module.", "model."): v for k, v in state_dict.items()}
         self.model.load_state_dict(state_dict, strict=True)
 
     def generate_implant(
@@ -256,10 +254,7 @@ class PCDiffRunner:
 
         sv_points = self.num_points - self.num_nn
         if defective_points.shape[0] < sv_points:
-            raise ValueError(
-                f"Defective cloud has {defective_points.shape[0]} points "
-                f"but {sv_points} are required."
-            )
+            raise ValueError(f"Defective cloud has {defective_points.shape[0]} points but {sv_points} are required.")
 
         idx = np.random.choice(defective_points.shape[0], sv_points, replace=False)
         partial_points_raw = defective_points[idx]
@@ -294,7 +289,12 @@ class PCDiffRunner:
 
         implant_normalized = samples[0]
         implant_points = implant_normalized * scale + shift
-        return implant_points.astype(np.float32), implant_normalized.astype(np.float32), shift.astype(np.float32), float(scale)
+        return (
+            implant_points.astype(np.float32),
+            implant_normalized.astype(np.float32),
+            shift.astype(np.float32),
+            float(scale),
+        )
 
 
 class VoxelizationRunner:
@@ -314,9 +314,7 @@ class VoxelizationRunner:
 
         self.generator = vox_config.get_generator(self.model, cfg, device=device)
 
-    def generate_psr(
-        self, combined_points_norm: np.ndarray
-    ) -> Tuple[np.ndarray, torch.Tensor]:
+    def generate_psr(self, combined_points_norm: np.ndarray) -> Tuple[np.ndarray, torch.Tensor]:
         """
         Args:
             combined_points_norm: (N, 3) point cloud in [0, 1] space
@@ -390,11 +388,13 @@ def evaluate_sample(
         implant_points / 512.0,
     )
 
-    spacing = np.asarray([
-        header["space directions"][0, 0],
-        header["space directions"][1, 1],
-        header["space directions"][2, 2],
-    ])
+    spacing = np.asarray(
+        [
+            header["space directions"][0, 0],
+            header["space directions"][1, 1],
+            header["space directions"][2, 2],
+        ]
+    )
 
     dice = dc(pred_implant, gt_implant)
     bdice = bdc(pred_implant, gt_implant, defective_vol, voxelspacing=spacing, distance=10)
@@ -443,11 +443,7 @@ def main():
         try:
             result = evaluate_sample(sample, pcdiff_runner, vox_runner)
             metrics.append((sample, result))
-            print(
-                f"  DSC={result['dice']:.4f}, "
-                f"bDSC={result['bdice']:.4f}, "
-                f"HD95={result['hd95']:.4f}"
-            )
+            print(f"  DSC={result['dice']:.4f}, bDSC={result['bdice']:.4f}, HD95={result['hd95']:.4f}")
         except Exception as exc:  # pylint: disable=broad-except
             print(f"  ⚠️  Failed: {exc}")
 

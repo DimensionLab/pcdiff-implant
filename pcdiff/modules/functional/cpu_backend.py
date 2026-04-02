@@ -4,6 +4,7 @@ Pure PyTorch CPU implementations of PVCNN operations.
 These are fallback implementations for when CUDA is not available (e.g., macOS, CPU-only systems).
 They are slower than the CUDA kernels but functionally equivalent.
 """
+
 import torch
 import torch.nn.functional as F
 
@@ -24,12 +25,12 @@ def ball_query(centers_coords, points_coords, radius, num_neighbors):
 
     # Transpose for easier distance computation: [B, M, 3] and [B, N, 3]
     centers = centers_coords.transpose(1, 2)  # [B, M, 3]
-    points = points_coords.transpose(1, 2)    # [B, N, 3]
+    points = points_coords.transpose(1, 2)  # [B, N, 3]
 
     # Compute pairwise squared distances: [B, M, N]
     # ||c - p||^2 = ||c||^2 + ||p||^2 - 2 * c.p
-    centers_sq = (centers ** 2).sum(dim=-1, keepdim=True)  # [B, M, 1]
-    points_sq = (points ** 2).sum(dim=-1, keepdim=True).transpose(1, 2)  # [B, 1, N]
+    centers_sq = (centers**2).sum(dim=-1, keepdim=True)  # [B, M, 1]
+    points_sq = (points**2).sum(dim=-1, keepdim=True).transpose(1, 2)  # [B, 1, N]
     cross = torch.bmm(centers, points.transpose(1, 2))  # [B, M, N]
     dists_sq = centers_sq + points_sq - 2 * cross  # [B, M, N]
 
@@ -169,7 +170,7 @@ def furthest_point_sampling(coords, num_samples):
         indices[b, 0] = farthest
 
         # Distance from each point to the sampled set
-        distances = torch.full((N,), float('inf'), device=device)
+        distances = torch.full((N,), float("inf"), device=device)
 
         for i in range(1, num_samples):
             # Update distances
@@ -284,7 +285,7 @@ def trilinear_devoxelize_forward(resolution, is_training, coords, features):
     # Use grid_sample for trilinear interpolation
     # Input: [B, C, D, H, W], grid: [B, N, 1, 1, 3]
     # Output: [B, C, N, 1, 1]
-    outs = F.grid_sample(features_grid, grid, mode='bilinear', padding_mode='border', align_corners=True)
+    outs = F.grid_sample(features_grid, grid, mode="bilinear", padding_mode="border", align_corners=True)
     outs = outs.squeeze(-1).squeeze(-1)  # [B, C, N]
 
     # For backward, we need indices and weights of 8 corners
@@ -367,8 +368,8 @@ def three_nearest_neighbors_interpolate_forward(points_coords, centers_coords, c
     centers = centers_coords.transpose(1, 2)  # [B, M, 3]
 
     # Compute pairwise distances: [B, N, M]
-    points_sq = (points ** 2).sum(dim=-1, keepdim=True)  # [B, N, 1]
-    centers_sq = (centers ** 2).sum(dim=-1, keepdim=True).transpose(1, 2)  # [B, 1, M]
+    points_sq = (points**2).sum(dim=-1, keepdim=True)  # [B, N, 1]
+    centers_sq = (centers**2).sum(dim=-1, keepdim=True).transpose(1, 2)  # [B, 1, M]
     cross = torch.bmm(points, centers.transpose(1, 2))  # [B, N, M]
     dists = points_sq + centers_sq - 2 * cross  # [B, N, M]
     dists = dists.clamp(min=1e-10).sqrt()  # [B, N, M]
@@ -474,4 +475,4 @@ class CPUBackend:
 # Singleton instance
 _cpu_backend = CPUBackend()
 
-__all__ = ['_cpu_backend']
+__all__ = ["_cpu_backend"]

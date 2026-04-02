@@ -22,11 +22,7 @@ class ColorProfileService:
         return self.db.query(ColorProfile).filter(ColorProfile.id == profile_id).first()
 
     def get_default_profile(self) -> ColorProfile | None:
-        return (
-            self.db.query(ColorProfile)
-            .filter(ColorProfile.is_default.is_(True))
-            .first()
-        )
+        return self.db.query(ColorProfile).filter(ColorProfile.is_default.is_(True)).first()
 
     def create_profile(
         self,
@@ -100,7 +96,5 @@ class ColorProfileService:
         return True
 
     def _clear_defaults(self) -> None:
-        self.db.query(ColorProfile).filter(ColorProfile.is_default.is_(True)).update(
-            {"is_default": False}
-        )
+        self.db.query(ColorProfile).filter(ColorProfile.is_default.is_(True)).update({"is_default": False})
         self.db.flush()

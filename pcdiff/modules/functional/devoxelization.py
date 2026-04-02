@@ -2,7 +2,7 @@ from torch.autograd import Function
 
 from modules.functional.backend import _backend
 
-__all__ = ['trilinear_devoxelize']
+__all__ = ["trilinear_devoxelize"]
 
 
 class TrilinearDevoxelization(Function):
@@ -29,7 +29,7 @@ class TrilinearDevoxelization(Function):
     @staticmethod
     def backward(ctx, grad_output):
         """
-        :param ctx: 
+        :param ctx:
         :param grad_output: gradient of outputs, FloatTensor[B, C, N]
         :return:
             gradient of inputs, FloatTensor[B, C, R, R, R]

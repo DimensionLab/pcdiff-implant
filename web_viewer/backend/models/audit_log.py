@@ -30,17 +30,11 @@ class AuditLog(Base):
     )  # e.g. 'scan.create', 'scan.view', 'inference.start'
 
     # What was affected (polymorphic reference)
-    entity_type: Mapped[str | None] = mapped_column(
-        String(50), nullable=True
-    )  # 'scan', 'point_cloud', 'project', ...
-    entity_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True
-    )  # UUID of the affected entity
+    entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 'scan', 'point_cloud', 'project', ...
+    entity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # UUID of the affected entity
 
     # Who did it
-    user_id: Mapped[str] = mapped_column(
-        String(100), default="system", nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(String(100), default="system", nullable=False)
 
     # Extra context
     details_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -51,7 +45,4 @@ class AuditLog(Base):
     software_version: Mapped[str] = mapped_column(String(20), nullable=False)
 
     def __repr__(self) -> str:
-        return (
-            f"<AuditLog id={self.id} action={self.action!r} "
-            f"entity={self.entity_type}:{self.entity_id}>"
-        )
+        return f"<AuditLog id={self.id} action={self.action!r} entity={self.entity_type}:{self.entity_id}>"

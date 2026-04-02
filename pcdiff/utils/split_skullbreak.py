@@ -93,9 +93,7 @@ def main() -> None:
     write_csv(cfg.root / "train.csv", train_cases)
     write_csv(cfg.root / "test.csv", test_cases)
 
-    print(
-        f"Created SkullBreak split with {len(train_cases)} training and {len(test_cases)} testing cases"
-    )
+    print(f"Created SkullBreak split with {len(train_cases)} training and {len(test_cases)} testing cases")
 
 
 if __name__ == "__main__":

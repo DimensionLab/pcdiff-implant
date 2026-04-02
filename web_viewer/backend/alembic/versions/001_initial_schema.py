@@ -4,8 +4,8 @@ Revision ID: 001
 Create Date: 2025-01-28
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "001"
 down_revision = None

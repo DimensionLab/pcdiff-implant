@@ -34,10 +34,7 @@ def validate_file_path(path: str, allowed_extensions: set[str] | None = None) ->
     if not p.is_file():
         raise ValueError(f"Path is not a file: {path}")
     if allowed_extensions and p.suffix.lower() not in allowed_extensions:
-        raise ValueError(
-            f"Unsupported file extension '{p.suffix}'. "
-            f"Allowed: {allowed_extensions}"
-        )
+        raise ValueError(f"Unsupported file extension '{p.suffix}'. Allowed: {allowed_extensions}")
     return p
 
 

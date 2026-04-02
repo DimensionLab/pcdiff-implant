@@ -21,8 +21,8 @@ import json
 import os
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 RUNPOD_API_URL = "https://api.runpod.io/graphql"
@@ -31,9 +31,9 @@ SSH_KEY_PATH = Path("/home/mike/.ssh/id_ed25519.pub")
 
 # GPU preferences in order (CA-MTL-3 compatible, cost-effective)
 GPU_PREFERENCES = [
-    "NVIDIA A40",              # $0.35/hr, 48GB — best value
-    "NVIDIA GeForce RTX 4090", # $0.34/hr, 24GB — good alternative
-    "NVIDIA GeForce RTX 3090", # $0.22/hr, 24GB — budget option
+    "NVIDIA A40",  # $0.35/hr, 48GB — best value
+    "NVIDIA GeForce RTX 4090",  # $0.34/hr, 24GB — good alternative
+    "NVIDIA GeForce RTX 3090",  # $0.22/hr, 24GB — budget option
 ]
 
 
@@ -80,7 +80,9 @@ def get_ssh_key() -> str:
 
 
 def get_pods() -> list:
-    data = graphql("{ myself { pods { id name desiredStatus runtime { uptimeInSeconds ports { ip isIpPublic privatePort publicPort type } gpus { id gpuUtilPercent } } machine { gpuDisplayName } } } }")
+    data = graphql(
+        "{ myself { pods { id name desiredStatus runtime { uptimeInSeconds ports { ip isIpPublic privatePort publicPort type } gpus { id gpuUtilPercent } } machine { gpuDisplayName } } } }"
+    )
     return data["myself"]["pods"]
 
 
@@ -126,7 +128,9 @@ def create_pod(gpu_id: str = None) -> dict:
                     "startSsh": True,
                     "env": [
                         {"key": "PUBLIC_KEY", "value": ssh_key},
-                    ] if ssh_key else [],
+                    ]
+                    if ssh_key
+                    else [],
                 }
             }
 
@@ -158,7 +162,7 @@ def wait_for_pod(pod_id: str, timeout: int = 300) -> dict:
                         if port.get("privatePort") == 22:
                             ssh_ip = port.get("ip", "")
                             ssh_port = port.get("publicPort", 22)
-                            print(f"\nPod ready!")
+                            print("\nPod ready!")
                             print(f"  SSH: ssh root@{ssh_ip} -p {ssh_port} -i ~/.ssh/id_ed25519")
                             print(f"  GPU: {pod.get('machine', {}).get('gpuDisplayName', 'unknown')}")
                             return {"ssh_ip": ssh_ip, "ssh_port": ssh_port, "pod_id": pod_id}
@@ -179,12 +183,14 @@ def stop_pods():
                 "mutation stopPod($input: PodStopInput!) { podStop(input: $input) { id desiredStatus } }",
                 {"input": {"podId": pod["id"]}},
             )
-            print(f"  Stopped.")
+            print("  Stopped.")
 
 
 def show_status():
     """Show current pod status and balance."""
-    data = graphql("{ myself { clientBalance pods { id name desiredStatus machine { gpuDisplayName } runtime { uptimeInSeconds ports { ip privatePort publicPort } } } } }")
+    data = graphql(
+        "{ myself { clientBalance pods { id name desiredStatus machine { gpuDisplayName } runtime { uptimeInSeconds ports { ip privatePort publicPort } } } } }"
+    )
     balance = data["myself"]["clientBalance"]
     pods = data["myself"]["pods"]
 
@@ -203,6 +209,7 @@ def show_status():
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="RunPod pod management for autoresearch")
     parser.add_argument("--stop", action="store_true", help="Stop all running pods")
     parser.add_argument("--status", action="store_true", help="Show pod status")
@@ -216,13 +223,13 @@ if __name__ == "__main__":
     else:
         pod = create_pod(args.gpu)
         conn = wait_for_pod(pod["id"])
-        print(f"\n=== NEXT STEPS ===")
-        print(f"1. SSH into the pod:")
+        print("\n=== NEXT STEPS ===")
+        print("1. SSH into the pod:")
         print(f"   ssh root@{conn['ssh_ip']} -p {conn['ssh_port']} -i ~/.ssh/id_ed25519")
-        print(f"2. Update the repo on networked storage:")
-        print(f"   cd /workspace/pcdiff-implant && git checkout main && git pull")
-        print(f"3. Install dependencies:")
-        print(f"   pip install -r requirements.txt")
-        print(f"4. Run autoresearch:")
-        print(f"   cd /workspace/pcdiff-implant/autoresearch")
-        print(f"   OPENROUTER_API_KEY=<key> python run_experiments.py --time-budget 900 --max-experiments 50")
+        print("2. Update the repo on networked storage:")
+        print("   cd /workspace/pcdiff-implant && git checkout main && git pull")
+        print("3. Install dependencies:")
+        print("   pip install -r requirements.txt")
+        print("4. Run autoresearch:")
+        print("   cd /workspace/pcdiff-implant/autoresearch")
+        print("   OPENROUTER_API_KEY=<key> python run_experiments.py --time-budget 900 --max-experiments 50")

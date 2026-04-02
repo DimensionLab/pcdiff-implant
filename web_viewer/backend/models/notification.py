@@ -20,9 +20,7 @@ class Notification(UUIDMixin, AuditMixin, Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Entity reference for navigation
-    entity_type: Mapped[Optional[str]] = mapped_column(
-        String(50), nullable=True
-    )  # generation_job, point_cloud, etc.
+    entity_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # generation_job, point_cloud, etc.
     entity_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
 
     # Read status

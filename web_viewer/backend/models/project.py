@@ -41,27 +41,19 @@ class Project(UUIDMixin, AuditMixin, Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Region code for regulatory customization (ISO 3166-1 alpha-2)
-    region_code: Mapped[Optional[str]] = mapped_column(
-        String(10), nullable=True
-    )  # e.g., "US", "EU", "SK"
+    region_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # e.g., "US", "EU", "SK"
 
     # Extended metadata for future dynamic forms and regional compliance
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     patient: Mapped[Optional["Patient"]] = relationship(back_populates="projects")
-    scans: Mapped[list["Scan"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-    point_clouds: Mapped[list["PointCloud"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
+    scans: Mapped[list["Scan"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    point_clouds: Mapped[list["PointCloud"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     generation_jobs: Mapped[list["GenerationJob"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
-    case_reports: Mapped[list["CaseReport"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
+    case_reports: Mapped[list["CaseReport"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Project id={self.id!r} name={self.name!r}>"

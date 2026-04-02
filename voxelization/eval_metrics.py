@@ -1,15 +1,15 @@
-'''
+"""
 Calculation of similarity between two binary volumes. Includes:
 - Dice Similarity Score (DSC)
 - Border Dice Similarity Score (BDSC)
 - Hausdorff Distance (HD)
 - 95% Hausdorff Distance (HD95)
 credits: MedPy http://pydoc.net/MedPy/0.2.2/medpy.metric.binary/
-'''
+"""
 
 import numpy
 from scipy.ndimage import _ni_support
-from scipy.ndimage.morphology import distance_transform_edt, binary_erosion, generate_binary_structure
+from scipy.ndimage.morphology import binary_erosion, distance_transform_edt, generate_binary_structure
 
 
 def __surface_distances(result, reference, voxelspacing=None, connectivity=1):
@@ -30,9 +30,9 @@ def __surface_distances(result, reference, voxelspacing=None, connectivity=1):
 
     # test for emptiness
     if 0 == numpy.count_nonzero(result):
-        raise RuntimeError('The first supplied array does not contain any binary object.')
+        raise RuntimeError("The first supplied array does not contain any binary object.")
     if 0 == numpy.count_nonzero(reference):
-        raise RuntimeError('The second supplied array does not contain any binary object.')
+        raise RuntimeError("The second supplied array does not contain any binary object.")
 
         # extract only 1-pixel border line of objects
     result_border = result ^ binary_erosion(result, structure=footprint, iterations=1)
@@ -45,6 +45,7 @@ def __surface_distances(result, reference, voxelspacing=None, connectivity=1):
     sds = dt[result_border]
 
     return sds
+
 
 def hd(result, reference, voxelspacing=None, connectivity=1):
     """
@@ -137,6 +138,7 @@ def hd95(result, reference, voxelspacing=None, connectivity=1):
 
     return hd95
 
+
 def dc(input1, input2):
     """
     Dice coefficient
@@ -176,7 +178,7 @@ def dc(input1, input2):
     size_i2 = numpy.count_nonzero(input2)
 
     try:
-        dc = 2. * intersection / float(size_i1 + size_i2)
+        dc = 2.0 * intersection / float(size_i1 + size_i2)
     except ZeroDivisionError:
         dc = 0.0
 

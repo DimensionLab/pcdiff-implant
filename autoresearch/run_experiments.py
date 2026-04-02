@@ -49,17 +49,18 @@ LLM_MODEL = "openai/gpt-5.3-codex"  # Coding-optimized model, fewer syntax error
 MAX_RETRIES_PER_EXPERIMENT = 4  # Retry with error feedback on syntax/apply failures
 
 # Experiment config
-DEFAULT_TIME_BUDGET = 900    # 15 minutes per experiment
+DEFAULT_TIME_BUDGET = 900  # 15 minutes per experiment
 MAX_EXPERIMENTS = 100
 
 # ---------------------------------------------------------------------------
 # LLM Client (OpenRouter)
 # ---------------------------------------------------------------------------
 
+
 def call_llm(messages: list, temperature: float = 0.7) -> str:
     """Call LLM via OpenRouter API. Returns the assistant response text."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
@@ -74,12 +75,14 @@ def call_llm(messages: list, temperature: float = 0.7) -> str:
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set. Set it in environment or web_viewer/.env")
 
-    payload = json.dumps({
-        "model": LLM_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 8192,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "model": LLM_MODEL,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": 8192,
+        }
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         OPENROUTER_API_URL,
@@ -104,6 +107,7 @@ def call_llm(messages: list, temperature: float = 0.7) -> str:
 # Experiment History
 # ---------------------------------------------------------------------------
 
+
 def load_history() -> list:
     """Load experiment history from JSONL file."""
     history_file = RESULTS_DIR / "experiments.jsonl"
@@ -125,8 +129,9 @@ def format_history_summary(history: list, last_n: int = 15) -> str:
         if err:
             # Extract what the experiment tried from diff
             diff = exp.get("diff", "")
-            adds = [l.lstrip("+").strip() for l in diff.split("\n")
-                    if l.startswith("+") and not l.startswith("+++")][:3]
+            adds = [l.lstrip("+").strip() for l in diff.split("\n") if l.startswith("+") and not l.startswith("+++")][
+                :3
+            ]
             key = " | ".join(adds)[:80] if adds else "unknown"
             failure_patterns[key] = failure_patterns.get(key, 0) + 1
 
@@ -174,6 +179,7 @@ def get_best_cd(history: list) -> float:
 # Code Modification
 # ---------------------------------------------------------------------------
 
+
 def apply_search_replace_blocks(original: str, blocks_text: str) -> str:
     """Apply SEARCH/REPLACE edit blocks to the original code.
 
@@ -198,6 +204,7 @@ def apply_search_replace_blocks(original: str, blocks_text: str) -> str:
         if search_text not in result:
             # Try with slightly relaxed whitespace matching
             import re
+
             # Normalize trailing whitespace per line for matching
             search_lines = [l.rstrip() for l in search_text.splitlines()]
             result_lines = [l.rstrip() for l in result.splitlines()]
@@ -214,8 +221,9 @@ def apply_search_replace_blocks(original: str, blocks_text: str) -> str:
     return result
 
 
-def propose_modification(current_code: str, program: str, history_summary: str, best_cd: float,
-                         previous_error: str = None) -> str:
+def propose_modification(
+    current_code: str, program: str, history_summary: str, best_cd: float, previous_error: str = None
+) -> str:
     """Ask LLM to propose a modification to train_pcdiff.py using SEARCH/REPLACE blocks."""
 
     error_context = ""
@@ -256,7 +264,7 @@ def propose_modification(current_code: str, program: str, history_summary: str, 
 {program}
 
 ## Current Best Validation Loss
-{best_cd if best_cd < float('inf') else 'Not yet established (first run)'}
+{best_cd if best_cd < float("inf") else "Not yet established (first run)"}
 
 ## Recent Experiment History
 {history_summary}
@@ -294,15 +302,16 @@ def compute_diff(old_code: str, new_code: str) -> str:
 # Experiment Runner
 # ---------------------------------------------------------------------------
 
+
 def run_experiment(time_budget: int, checkpoint: str = None) -> dict:
     """Run train_pcdiff.py and return results."""
     cmd = [sys.executable, str(TRAIN_FILE), "--time-budget", str(time_budget)]
     if checkpoint:
         cmd.extend(["--checkpoint", checkpoint])
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Running: {' '.join(cmd)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     started_at = datetime.now(timezone.utc)
     try:
@@ -322,7 +331,7 @@ def run_experiment(time_budget: int, checkpoint: str = None) -> dict:
             print(f"  {line}")
 
         if result.returncode != 0:
-            print(f"\nSTDERR (last 20 lines):")
+            print("\nSTDERR (last 20 lines):")
             stderr_lines = result.stderr.strip().split("\n")
             for line in stderr_lines[-20:]:
                 print(f"  {line}")
@@ -490,8 +499,12 @@ def maybe_commit_audit_logs(experiment_id: str, accepted: bool) -> None:
         print(f"Warning: git commit failed for {experiment_id}: {stderr or stdout}")
 
 
-def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: int = DEFAULT_TIME_BUDGET,
-                           dry_run: bool = False, commit_logs: bool = False):
+def run_autoresearch_loop(
+    max_experiments: int = MAX_EXPERIMENTS,
+    time_budget: int = DEFAULT_TIME_BUDGET,
+    dry_run: bool = False,
+    commit_logs: bool = False,
+):
     """Main autoresearch loop."""
     RESULTS_DIR.mkdir(exist_ok=True)
 
@@ -534,9 +547,9 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
             print("[DRY RUN] Would run baseline experiment")
 
     for exp_idx in range(max_experiments):
-        print(f"\n{'#'*60}")
+        print(f"\n{'#' * 60}")
         print(f"# EXPERIMENT {exp_idx + 1}/{max_experiments}")
-        print(f"{'#'*60}")
+        print(f"{'#' * 60}")
 
         # Read current code
         current_code = TRAIN_FILE.read_text()
@@ -556,7 +569,10 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
             print("\nAsking LLM for modification proposal...")
             try:
                 proposed_code = propose_modification(
-                    current_code, program, history_summary, best_cd,
+                    current_code,
+                    program,
+                    history_summary,
+                    best_cd,
                     previous_error=last_error if attempt > 0 else None,
                 )
             except Exception as e:
@@ -590,7 +606,7 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
                 context_lines = []
                 for i in range(start, end):
                     marker = ">>>" if i == lineno - 1 else "   "
-                    context_lines.append(f"{marker} {i+1}: {code_lines[i]}")
+                    context_lines.append(f"{marker} {i + 1}: {code_lines[i]}")
                 context_str = "\n".join(context_lines)
                 last_error = f"Syntax error at line {lineno}: {e.msg}\n{context_str}"
                 print(f"  Syntax error: {e}")
@@ -704,12 +720,14 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
         print(f"\nExperiment {exp_idx + 1} complete. Total accepted: {sum(1 for h in history if h.get('accepted'))}")
 
     # Summary
-    print(f"\n{'='*60}")
-    print(f"AUTORESEARCH COMPLETE")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("AUTORESEARCH COMPLETE")
+    print(f"{'=' * 60}")
     print(f"Total experiments: {len(history)}")
     print(f"Accepted: {sum(1 for h in history if h.get('accepted'))}")
-    print(f"Best CD: {get_best_cd(history):.6f}" if get_best_cd(history) < float("inf") else "No successful experiments")
+    print(
+        f"Best CD: {get_best_cd(history):.6f}" if get_best_cd(history) < float("inf") else "No successful experiments"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -718,12 +736,19 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PCDiff autoresearch orchestrator")
-    parser.add_argument("--max-experiments", type=int, default=MAX_EXPERIMENTS,
-                        help=f"Maximum number of experiments (default: {MAX_EXPERIMENTS})")
-    parser.add_argument("--time-budget", type=int, default=DEFAULT_TIME_BUDGET,
-                        help=f"Time budget per experiment in seconds (default: {DEFAULT_TIME_BUDGET})")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show proposed changes without running experiments")
+    parser.add_argument(
+        "--max-experiments",
+        type=int,
+        default=MAX_EXPERIMENTS,
+        help=f"Maximum number of experiments (default: {MAX_EXPERIMENTS})",
+    )
+    parser.add_argument(
+        "--time-budget",
+        type=int,
+        default=DEFAULT_TIME_BUDGET,
+        help=f"Time budget per experiment in seconds (default: {DEFAULT_TIME_BUDGET})",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Show proposed changes without running experiments")
     parser.add_argument(
         "--commit-logs",
         action="store_true",

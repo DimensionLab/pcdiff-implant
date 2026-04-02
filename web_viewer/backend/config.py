@@ -7,6 +7,7 @@ changes must be traceable via the audit_log.
 """
 
 from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 
@@ -72,4 +73,3 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
-

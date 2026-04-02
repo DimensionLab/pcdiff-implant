@@ -27,9 +27,7 @@ class Scan(UUIDMixin, AuditMixin, Base):
 
     # File reference (absolute path on disk)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
-    file_format: Mapped[str] = mapped_column(
-        String(20), nullable=False
-    )  # 'nrrd' | 'dicom_series'
+    file_format: Mapped[str] = mapped_column(String(20), nullable=False)  # 'nrrd' | 'dicom_series'
     file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Volume metadata (extracted from NRRD header)
@@ -47,9 +45,7 @@ class Scan(UUIDMixin, AuditMixin, Base):
     defect_type: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True
     )  # bilateral, frontoorbital, parietotemporal, random_1, random_2
-    skull_id: Mapped[Optional[str]] = mapped_column(
-        String(20), nullable=True
-    )  # e.g. '059'
+    skull_id: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # e.g. '059'
 
     # Extended metadata + provenance
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -57,9 +53,7 @@ class Scan(UUIDMixin, AuditMixin, Base):
 
     # Relationships
     project: Mapped[Optional["Project"]] = relationship(back_populates="scans")
-    point_clouds: Mapped[list["PointCloud"]] = relationship(
-        back_populates="scan", cascade="all, delete-orphan"
-    )
+    point_clouds: Mapped[list["PointCloud"]] = relationship(back_populates="scan", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Scan id={self.id!r} name={self.name!r} format={self.file_format!r}>"

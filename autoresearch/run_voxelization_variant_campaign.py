@@ -9,14 +9,13 @@ and persists audit artifacts.
 
 import argparse
 import json
+import random
 import re
 import subprocess
 import sys
-import random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent

@@ -109,7 +109,9 @@ def summarize_candidate(dataset: str, run_dir: Path, baseline_summary: dict[str,
 
 
 def choose_best(candidates: list[CandidateResult]) -> CandidateResult | None:
-    valid = [candidate for candidate in candidates if candidate.non_regressing and candidate.runtime_sec_mean is not None]
+    valid = [
+        candidate for candidate in candidates if candidate.non_regressing and candidate.runtime_sec_mean is not None
+    ]
     if not valid:
         return None
     return min(valid, key=lambda candidate: candidate.runtime_sec_mean)

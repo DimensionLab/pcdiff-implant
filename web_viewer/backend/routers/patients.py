@@ -68,14 +68,10 @@ def get_patient(patient_id: str, services=Depends(_get_services)):
 
 
 @router.put("/{patient_id}", response_model=PatientRead)
-def update_patient(
-    patient_id: str, body: PatientUpdate, services=Depends(_get_services)
-):
+def update_patient(patient_id: str, body: PatientUpdate, services=Depends(_get_services)):
     """Update a patient record."""
     try:
-        patient = services["patient"].update_patient(
-            patient_id, **body.model_dump(exclude_none=True)
-        )
+        patient = services["patient"].update_patient(patient_id, **body.model_dump(exclude_none=True))
         if not patient:
             raise HTTPException(status_code=404, detail="Patient not found")
         return patient

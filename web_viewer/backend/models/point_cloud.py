@@ -30,9 +30,7 @@ class PointCloud(UUIDMixin, AuditMixin, Base):
 
     # File reference
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
-    file_format: Mapped[str] = mapped_column(
-        String(10), nullable=False
-    )  # 'npy' | 'ply' | 'stl'
+    file_format: Mapped[str] = mapped_column(String(10), nullable=False)  # 'npy' | 'ply' | 'stl'
     file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Point cloud metadata

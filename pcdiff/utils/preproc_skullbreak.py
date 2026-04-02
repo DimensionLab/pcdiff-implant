@@ -122,12 +122,12 @@ def generate_point_cloud(
 ) -> str:
     """Generate point cloud from volume. Returns 'processed', 'skipped', or 'failed'."""
     obj_path, npy_path = _surface_paths(volume_path)
-    npy_path_tmp = npy_path.with_suffix('.npy.tmp')
+    npy_path_tmp = npy_path.with_suffix(".npy.tmp")
 
     # Check if valid output already exists
     if not overwrite and npy_path.exists():
         try:
-            data = np.load(npy_path, mmap_mode='r')
+            data = np.load(npy_path, mmap_mode="r")
             if data.shape[0] > 100:  # Basic validation: at least 100 points
                 return "skipped"
         except Exception:
@@ -144,7 +144,7 @@ def generate_point_cloud(
 
         pc = mesh.sample_points_poisson_disk(target_points)
         pc_np = np.asarray(pc.points, dtype=np.float32)
-        
+
         # Atomic write
         np.save(npy_path_tmp, pc_np)
         npy_path_tmp.rename(npy_path)
@@ -154,13 +154,13 @@ def generate_point_cloud(
                 obj_path.unlink()
             except FileNotFoundError:
                 pass
-        
+
         # Clean up any leftover temp files
         if npy_path_tmp.exists():
             npy_path_tmp.unlink()
-            
+
         return "processed"
-    except Exception as e:
+    except Exception:
         # Clean up temp files on failure
         if npy_path_tmp.exists():
             npy_path_tmp.unlink()
@@ -170,7 +170,7 @@ def generate_point_cloud(
 def process_sample(sample: SkullBreakSample, *, target_points: int, keep_mesh: bool, overwrite: bool) -> dict:
     """Process a sample and return statistics dict."""
     results = {"processed": 0, "skipped": 0, "failed": 0}
-    
+
     if sample.complete_path is not None:
         status = generate_point_cloud(
             sample.complete_path,
@@ -195,7 +195,7 @@ def process_sample(sample: SkullBreakSample, *, target_points: int, keep_mesh: b
         overwrite=overwrite,
     )
     results[status] += 1
-    
+
     return results
 
 
@@ -208,7 +208,7 @@ def run(samples: list[SkullBreakSample], args: argparse.Namespace) -> None:
     )
 
     total_stats = {"processed": 0, "skipped": 0, "failed": 0}
-    
+
     if args.multiprocessing and args.threads > 1:
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=args.threads) as pool:
@@ -220,8 +220,8 @@ def run(samples: list[SkullBreakSample], args: argparse.Namespace) -> None:
             result = worker(sample)
             for key in total_stats:
                 total_stats[key] += result[key]
-    
-    print(f"\nProcessing summary:")
+
+    print("\nProcessing summary:")
     print(f"  Processed: {total_stats['processed']}")
     print(f"  Skipped (already done): {total_stats['skipped']}")
     print(f"  Failed: {total_stats['failed']}")

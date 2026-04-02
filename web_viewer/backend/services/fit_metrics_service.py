@@ -17,7 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt, generate_binary_structure, binary_erosion
+from scipy.ndimage import binary_erosion, distance_transform_edt, generate_binary_structure
 from scipy.spatial import KDTree
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Inlined metric functions (from voxelization/eval_metrics.py)
 # ---------------------------------------------------------------------------
+
 
 def _surface_distances(
     result: np.ndarray,
@@ -114,6 +115,7 @@ def _border_dice(
 # Voxelization helpers
 # ---------------------------------------------------------------------------
 
+
 def _compute_shared_bbox(
     *point_arrays: np.ndarray,
     padding_fraction: float = 0.05,
@@ -167,6 +169,7 @@ def _voxelize_point_cloud(
 # Service class
 # ---------------------------------------------------------------------------
 
+
 class FitMetricsService:
     def __init__(self, db: Session, audit: AuditService):
         self.db = db
@@ -174,7 +177,7 @@ class FitMetricsService:
 
     def _load_points(self, pc_id: str) -> np.ndarray:
         """Load point cloud data from disk. Returns (N, 3) array.
-        
+
         Supports .npy, .stl, and .ply file formats.
         """
         pc = self.db.query(PointCloud).filter(PointCloud.id == pc_id).first()
@@ -183,28 +186,30 @@ class FitMetricsService:
         p = Path(pc.file_path)
         if not p.exists():
             raise ValueError(f"File not found: {pc.file_path}")
-        
+
         suffix = p.suffix.lower()
-        
-        if suffix == '.npy':
+
+        if suffix == ".npy":
             # allow_pickle=True is needed for .npy files that contain object arrays
             data = np.load(str(p), allow_pickle=True)
-        elif suffix == '.stl':
+        elif suffix == ".stl":
             # Load STL mesh and extract vertices
             import trimesh
+
             mesh = trimesh.load(str(p))
             data = np.array(mesh.vertices)
-        elif suffix == '.ply':
+        elif suffix == ".ply":
             # Load PLY point cloud
             import trimesh
+
             cloud = trimesh.load(str(p))
-            if hasattr(cloud, 'vertices'):
+            if hasattr(cloud, "vertices"):
                 data = np.array(cloud.vertices)
             else:
                 data = np.array(cloud)
         else:
             raise ValueError(f"Unsupported file format: {suffix}")
-        
+
         # Ensure (N, 3) shape
         if data.ndim == 1:
             data = data.reshape(-1, 3)
@@ -270,9 +275,7 @@ class FitMetricsService:
 
             # Hausdorff distances (only if both volumes have voxels)
             try:
-                result.hausdorff_distance = _hausdorff_distance(
-                    implant_vol, reference_vol, voxelspacing=voxel_spacing
-                )
+                result.hausdorff_distance = _hausdorff_distance(implant_vol, reference_vol, voxelspacing=voxel_spacing)
                 result.hausdorff_distance_95 = _hausdorff_distance_95(
                     implant_vol, reference_vol, voxelspacing=voxel_spacing
                 )
@@ -351,11 +354,7 @@ class FitMetricsService:
 
     def get_result(self, result_id: str) -> FitMetricsResult | None:
         """Get a cached metrics result by ID."""
-        return (
-            self.db.query(FitMetricsResult)
-            .filter(FitMetricsResult.id == result_id)
-            .first()
-        )
+        return self.db.query(FitMetricsResult).filter(FitMetricsResult.id == result_id).first()
 
     def list_results(
         self,
@@ -370,12 +369,7 @@ class FitMetricsService:
             q = q.filter(FitMetricsResult.implant_pc_id == implant_pc_id)
         if reference_pc_id:
             q = q.filter(FitMetricsResult.reference_pc_id == reference_pc_id)
-        return (
-            q.order_by(FitMetricsResult.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return q.order_by(FitMetricsResult.created_at.desc()).offset(offset).limit(limit).all()
 
     def auto_match_by_skull_id(
         self,
@@ -399,9 +393,7 @@ class FitMetricsService:
         )
 
         # Group by skull_id
-        by_skull: dict[str, dict[str, list]] = defaultdict(
-            lambda: {"defective_skulls": [], "implants": []}
-        )
+        by_skull: dict[str, dict[str, list]] = defaultdict(lambda: {"defective_skulls": [], "implants": []})
         for pc in pcs:
             if pc.scan_category == "defective_skull":
                 by_skull[pc.skull_id]["defective_skulls"].append(pc)
@@ -412,10 +404,12 @@ class FitMetricsService:
         pairs = []
         for skull_id, group in by_skull.items():
             if group["defective_skulls"] and group["implants"]:
-                pairs.append({
-                    "skull_id": skull_id,
-                    "defective_skull": group["defective_skulls"][0],
-                    "implants": group["implants"],
-                })
+                pairs.append(
+                    {
+                        "skull_id": skull_id,
+                        "defective_skull": group["defective_skulls"][0],
+                        "implants": group["implants"],
+                    }
+                )
 
         return pairs

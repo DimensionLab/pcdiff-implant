@@ -208,11 +208,7 @@ class ScanService:
             skull_id = nrrd_path.stem  # e.g. '059'
 
             # Skip if already registered
-            existing = (
-                self.db.query(Scan)
-                .filter(Scan.file_path == str(nrrd_path))
-                .first()
-            )
+            existing = self.db.query(Scan).filter(Scan.file_path == str(nrrd_path)).first()
             if existing:
                 stats["skipped"] += 1
                 continue

@@ -3,6 +3,7 @@ Service for managing user notifications.
 """
 
 import logging
+
 from sqlalchemy.orm import Session
 
 from web_viewer.backend.models.notification import Notification
@@ -55,12 +56,7 @@ class NotificationService:
         if unread_only:
             q = q.filter(Notification.read == False)
         # Order by read status (unread first), then by creation time (newest first)
-        return (
-            q.order_by(Notification.read.asc(), Notification.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return q.order_by(Notification.read.asc(), Notification.created_at.desc()).offset(offset).limit(limit).all()
 
     def count_unread(self) -> int:
         """Count unread notifications."""
@@ -79,11 +75,7 @@ class NotificationService:
 
     def mark_all_read(self) -> int:
         """Mark all notifications as read. Returns count of updated records."""
-        count = (
-            self.db.query(Notification)
-            .filter(Notification.read == False)
-            .update({"read": True})
-        )
+        count = self.db.query(Notification).filter(Notification.read == False).update({"read": True})
         self.db.commit()
         return count
 

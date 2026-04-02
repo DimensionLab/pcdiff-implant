@@ -25,12 +25,15 @@ sys.path.insert(0, str(ROOT_DIR / "voxelization"))
 
 # These imports may fail if the environment is not fully set up
 try:
-    import nrrd
     import diplib as dip
-    from voxelization.eval_metrics import bdc, dc, hd95 as compute_hd95
+    import nrrd
+
+    from voxelization.eval_metrics import bdc, dc
+    from voxelization.eval_metrics import hd95 as compute_hd95
     from voxelization.src import config as vox_config
     from voxelization.src.model import Encode2Points
-    from voxelization.src.utils import load_config, load_model_manual, filter_voxels_within_radius
+    from voxelization.src.utils import filter_voxels_within_radius, load_config, load_model_manual
+
     VOXELIZATION_AVAILABLE = True
 except ImportError as e:
     VOXELIZATION_AVAILABLE = False
@@ -40,6 +43,7 @@ except ImportError as e:
 @dataclass
 class ProxySample:
     """Information for a single proxy validation sample."""
+
     case_id: str
     defective_npy: Path
     defective_nrrd: Path
@@ -49,6 +53,7 @@ class ProxySample:
 @dataclass
 class ProxyEvalResult:
     """Result of evaluating a single sample."""
+
     case_id: str
     dsc: float
     bdsc: float
@@ -91,7 +96,7 @@ def load_proxy_subset(subset_path: Path, base_dir: Optional[Path] = None) -> Lis
     """Load the fixed proxy validation subset from JSON file."""
     subset_path = Path(subset_path).resolve()
 
-    with open(subset_path, 'r') as f:
+    with open(subset_path, "r") as f:
         data = json.load(f)
 
     if base_dir is None:
@@ -143,10 +148,7 @@ def run_pcdiff_inference_on_sample(
     sv_points = num_points - num_nn  # Number of skull points to use
 
     if defective_points.shape[0] < sv_points:
-        raise ValueError(
-            f"Defective cloud has {defective_points.shape[0]} points, "
-            f"but {sv_points} were expected."
-        )
+        raise ValueError(f"Defective cloud has {defective_points.shape[0]} points, but {sv_points} were expected.")
 
     # Randomly sample skull points (same as eval script)
     idx = np.random.choice(defective_points.shape[0], sv_points, replace=False)
@@ -244,12 +246,7 @@ def compute_metrics_for_sample(
         raw_implant = mean_implant.copy()
 
         # Post-processing: filter voxels within radius of predicted implant points
-        reference_implant_points = (
-            reference_inputs[:, -num_nn:, :]
-            .detach()
-            .cpu()
-            .squeeze(0)
-        )
+        reference_implant_points = reference_inputs[:, -num_nn:, :].detach().cpu().squeeze(0)
         mean_implant = filter_voxels_within_radius(reference_implant_points, mean_implant)
         if not np.any(mean_implant):
             mean_implant = raw_implant
@@ -273,11 +270,13 @@ def compute_metrics_for_sample(
         gt_implant, _ = nrrd.read(str(sample.implant_nrrd))
 
         # Get voxel spacing from header
-        spacing = np.asarray([
-            header["space directions"][0, 0],
-            header["space directions"][1, 1],
-            header["space directions"][2, 2],
-        ])
+        spacing = np.asarray(
+            [
+                header["space directions"][0, 0],
+                header["space directions"][1, 1],
+                header["space directions"][2, 2],
+            ]
+        )
 
         # Compute metrics
         dice = float(dc(mean_implant, gt_implant))
@@ -296,7 +295,7 @@ def compute_metrics_for_sample(
             case_id=sample.case_id,
             dsc=0.0,
             bdsc=0.0,
-            hd95=float('inf'),
+            hd95=float("inf"),
             error=str(e),
         )
 
@@ -340,14 +339,14 @@ def run_proxy_evaluation(
 
     if not VOXELIZATION_AVAILABLE:
         logger.warning(f"Voxelization not available, skipping proxy eval: {VOXELIZATION_IMPORT_ERROR}")
-        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float('inf'), "error": "voxelization_unavailable"}
+        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float("inf"), "error": "voxelization_unavailable"}
 
     # Load samples
     try:
         samples = load_proxy_subset(subset_path, base_dir)
     except Exception as e:
         logger.error(f"Failed to load proxy subset: {e}")
-        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float('inf'), "error": f"subset_load_failed: {e}"}
+        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float("inf"), "error": f"subset_load_failed: {e}"}
 
     logger.info(f"Running proxy evaluation on {len(samples)} samples with {sampling_method.upper()}-{sampling_steps}")
 
@@ -356,7 +355,7 @@ def run_proxy_evaluation(
         vox_runner = VoxelizationRunner(vox_config_path, vox_checkpoint_path, device)
     except Exception as e:
         logger.error(f"Failed to initialize voxelization runner: {e}")
-        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float('inf'), "error": f"vox_init_failed: {e}"}
+        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float("inf"), "error": f"vox_init_failed: {e}"}
 
     # Set model to eval mode
     pcdiff_model.eval()
@@ -368,11 +367,11 @@ def run_proxy_evaluation(
             # Check if files exist
             if not sample.defective_npy.exists():
                 logger.warning(f"Missing defective_npy: {sample.defective_npy}")
-                results.append(ProxyEvalResult(sample.case_id, 0.0, 0.0, float('inf'), "missing_defective_npy"))
+                results.append(ProxyEvalResult(sample.case_id, 0.0, 0.0, float("inf"), "missing_defective_npy"))
                 continue
             if not sample.implant_nrrd.exists():
                 logger.warning(f"Missing implant_nrrd: {sample.implant_nrrd}")
-                results.append(ProxyEvalResult(sample.case_id, 0.0, 0.0, float('inf'), "missing_implant_nrrd"))
+                results.append(ProxyEvalResult(sample.case_id, 0.0, 0.0, float("inf"), "missing_implant_nrrd"))
                 continue
 
             # Load defective skull points
@@ -398,11 +397,13 @@ def run_proxy_evaluation(
             if result.error:
                 logger.warning(f"Sample {sample.case_id}: error={result.error}")
             else:
-                logger.info(f"Sample {sample.case_id}: DSC={result.dsc:.4f}, bDSC={result.bdsc:.4f}, HD95={result.hd95:.2f}")
+                logger.info(
+                    f"Sample {sample.case_id}: DSC={result.dsc:.4f}, bDSC={result.bdsc:.4f}, HD95={result.hd95:.2f}"
+                )
 
         except Exception as e:
             logger.error(f"Failed to evaluate sample {sample.case_id}: {e}")
-            results.append(ProxyEvalResult(sample.case_id, 0.0, 0.0, float('inf'), str(e)))
+            results.append(ProxyEvalResult(sample.case_id, 0.0, 0.0, float("inf"), str(e)))
 
     # Set model back to train mode
     pcdiff_model.train()
@@ -412,14 +413,16 @@ def run_proxy_evaluation(
 
     if not valid_results:
         logger.warning("No valid proxy evaluation results!")
-        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float('inf'), "error": "all_samples_failed"}
+        return {"dsc": 0.0, "bdsc": 0.0, "hd95": float("inf"), "error": "all_samples_failed"}
 
     mean_dsc = np.mean([r.dsc for r in valid_results])
     mean_bdsc = np.mean([r.bdsc for r in valid_results])
     mean_hd95 = np.mean([r.hd95 for r in valid_results])
 
-    logger.info(f"Proxy eval complete: DSC={mean_dsc:.4f}, bDSC={mean_bdsc:.4f}, HD95={mean_hd95:.2f} "
-                f"({len(valid_results)}/{len(samples)} samples)")
+    logger.info(
+        f"Proxy eval complete: DSC={mean_dsc:.4f}, bDSC={mean_bdsc:.4f}, HD95={mean_hd95:.2f} "
+        f"({len(valid_results)}/{len(samples)} samples)"
+    )
 
     return {
         "dsc": float(mean_dsc),
@@ -451,7 +454,7 @@ def save_proxy_metrics(
         "metrics": metrics,
     }
 
-    with open(metrics_file, 'w') as f:
+    with open(metrics_file, "w") as f:
         json.dump(data, f, indent=2)
 
     logger.info(f"Proxy metrics saved to: {metrics_file}")

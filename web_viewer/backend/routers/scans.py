@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from web_viewer.backend.database import get_db
+from web_viewer.backend.schemas.point_cloud import PointCloudRead
 from web_viewer.backend.schemas.scan import (
     ImportResult,
     ScanCreate,
@@ -11,7 +12,6 @@ from web_viewer.backend.schemas.scan import (
     ScanUpdate,
     SkullBreakImportRequest,
 )
-from web_viewer.backend.schemas.point_cloud import PointCloudRead
 from web_viewer.backend.services.audit_service import AuditService
 from web_viewer.backend.services.point_cloud_service import PointCloudService
 from web_viewer.backend.services.scan_service import ScanService

@@ -22,6 +22,7 @@ sys.path.insert(0, str(project_root))
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
+
     web_viewer_dir = Path(__file__).parent.parent
     env_file = web_viewer_dir / ".env"
     if env_file.exists():
@@ -51,8 +52,10 @@ from web_viewer.backend.routers import (
     point_clouds,
     projects,
     scans,
-    settings as settings_router,
     viewer,
+)
+from web_viewer.backend.routers import (
+    settings as settings_router,
 )
 
 # Configure structured logging
@@ -96,7 +99,16 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID", "X-Num-Points", "X-Point-Dims", "X-Dtype", "X-Count", "X-Volume-Metadata", "X-Num-Faces", "X-Is-Watertight"],
+        expose_headers=[
+            "X-Request-ID",
+            "X-Num-Points",
+            "X-Point-Dims",
+            "X-Dtype",
+            "X-Count",
+            "X-Volume-Metadata",
+            "X-Num-Faces",
+            "X-Is-Watertight",
+        ],
     )
     app.add_middleware(AuditMiddleware)
 

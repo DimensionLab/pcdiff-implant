@@ -14,8 +14,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any
-
+from typing import Any, Dict
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_FILE = SCRIPT_DIR / "train_pcdiff.py"
@@ -84,7 +83,9 @@ def parse_result_from_stdout(stdout: str) -> Dict[str, Any]:
     return {"error": "No JSON result found in stdout", "stdout_tail": stdout[-4000:]}
 
 
-def run_variant(variant_name: str, overrides: Dict[str, Any], time_budget: int, checkpoint: str | None) -> Dict[str, Any]:
+def run_variant(
+    variant_name: str, overrides: Dict[str, Any], time_budget: int, checkpoint: str | None
+) -> Dict[str, Any]:
     original_src = TRAIN_FILE.read_text()
     variant_src = apply_overrides(original_src, overrides)
     TRAIN_FILE.write_text(variant_src)
@@ -118,7 +119,9 @@ def run_variant(variant_name: str, overrides: Dict[str, Any], time_budget: int, 
     return payload
 
 
-def save_artifacts(campaign_name: str, variant_name: str, overrides: Dict[str, Any], run_payload: Dict[str, Any]) -> Path:
+def save_artifacts(
+    campaign_name: str, variant_name: str, overrides: Dict[str, Any], run_payload: Dict[str, Any]
+) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = RESULTS_DIR / campaign_name / f"{variant_name}_{ts}"
     out_dir.mkdir(parents=True, exist_ok=True)

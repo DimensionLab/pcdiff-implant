@@ -89,9 +89,7 @@ def scan_inference_results() -> List[InferenceResult]:
     return sorted(results, key=lambda x: x.name)
 
 
-async def convert_result_background(
-    result_id: str, force: bool = False, export_stl: bool = True
-):
+async def convert_result_background(result_id: str, force: bool = False, export_stl: bool = True):
     from pcdiff.utils.convert_to_web import convert_inference_result
 
     conversion_jobs[result_id] = {
@@ -175,17 +173,13 @@ async def list_result_files(result_id: str):
 
 
 @router.post("/api/convert/{result_id}")
-async def convert_result(
-    result_id: str, request: ConversionRequest, background_tasks: BackgroundTasks
-):
+async def convert_result(result_id: str, request: ConversionRequest, background_tasks: BackgroundTasks):
     result_dir = settings.syn_dir / result_id
     if not result_dir.exists():
         raise HTTPException(status_code=404, detail=f"Result not found: {result_id}")
     if result_id in conversion_jobs and conversion_jobs[result_id]["status"] == "running":
         return {"message": "Conversion already in progress", "status": conversion_jobs[result_id]}
-    background_tasks.add_task(
-        convert_result_background, result_id, request.force, request.export_stl
-    )
+    background_tasks.add_task(convert_result_background, result_id, request.force, request.export_stl)
     return {"message": "Conversion started", "result_id": result_id}
 
 

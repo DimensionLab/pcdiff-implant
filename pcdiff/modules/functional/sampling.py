@@ -4,7 +4,7 @@ from torch.autograd import Function
 
 from modules.functional.backend import _backend
 
-__all__ = ['gather', 'furthest_point_sample', 'logits_mask']
+__all__ = ["gather", "furthest_point_sample", "logits_mask"]
 
 
 class Gather(Function):
@@ -26,7 +26,7 @@ class Gather(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        indices, = ctx.saved_tensors
+        (indices,) = ctx.saved_tensors
         grad_features = _backend.gather_features_backward(grad_output.contiguous(), indices, ctx.num_points)
         return grad_features, None
 
@@ -60,11 +60,12 @@ def logits_mask(coords, logits, num_points_per_object):
         mask: mask to select points, BoolTensor[B, N]
     """
     batch_size, _, num_points = coords.shape
-    mask = torch.lt(logits[:, 0, :], logits[:, 1, :])   # [B, N]
+    mask = torch.lt(logits[:, 0, :], logits[:, 1, :])  # [B, N]
     num_candidates = torch.sum(mask, dim=-1, keepdim=True)  # [B, 1]
     masked_coords = coords * mask.view(batch_size, 1, num_points)  # [B, C, N]
-    masked_coords_mean = torch.sum(masked_coords, dim=-1) / torch.max(num_candidates,
-                                                                      torch.ones_like(num_candidates)).float()  # [B, C]
+    masked_coords_mean = (
+        torch.sum(masked_coords, dim=-1) / torch.max(num_candidates, torch.ones_like(num_candidates)).float()
+    )  # [B, C]
     selected_indices = torch.zeros((batch_size, num_points_per_object), device=coords.device, dtype=torch.int32)
     for i in range(batch_size):
         current_mask = mask[i]  # [N]
@@ -74,10 +75,14 @@ def logits_mask(coords, logits, num_points_per_object):
             choices = np.random.choice(current_num_candidates, num_points_per_object, replace=False)
             selected_indices[i] = current_candidates[choices]
         elif current_num_candidates > 0:
-            choices = np.concatenate([
-                np.arange(current_num_candidates).repeat(num_points_per_object // current_num_candidates),
-                np.random.choice(current_num_candidates, num_points_per_object % current_num_candidates, replace=False)
-            ])
+            choices = np.concatenate(
+                [
+                    np.arange(current_num_candidates).repeat(num_points_per_object // current_num_candidates),
+                    np.random.choice(
+                        current_num_candidates, num_points_per_object % current_num_candidates, replace=False
+                    ),
+                ]
+            )
             np.random.shuffle(choices)
             selected_indices[i] = current_candidates[choices]
     selected_coords = gather(masked_coords - masked_coords_mean.view(batch_size, -1, 1), selected_indices)

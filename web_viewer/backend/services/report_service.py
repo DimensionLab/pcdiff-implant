@@ -52,12 +52,7 @@ class ReportService:
         if project_id:
             query = query.filter(CaseReport.project_id == project_id)
 
-        return (
-            query.order_by(CaseReport.generated_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return query.order_by(CaseReport.generated_at.desc()).offset(offset).limit(limit).all()
 
     def get_report(self, report_id: str) -> CaseReport | None:
         """Get a specific report by ID."""
@@ -108,9 +103,7 @@ class ReportService:
         )
 
         # Build context for the prompt
-        context = self._build_report_context(
-            project, patient, scans, point_clouds, generation_jobs, effective_region
-        )
+        context = self._build_report_context(project, patient, scans, point_clouds, generation_jobs, effective_region)
 
         # Generate title if not provided
         if not title:
@@ -132,12 +125,14 @@ class ReportService:
             ai_request_id=ai_request_id,
             region_code=effective_region,
             generated_at=datetime.now(timezone.utc),
-            metadata_json=json.dumps({
-                "scans_count": len(scans),
-                "point_clouds_count": len(point_clouds),
-                "generation_jobs_count": len(generation_jobs),
-                "patient_id": project.patient_id,
-            }),
+            metadata_json=json.dumps(
+                {
+                    "scans_count": len(scans),
+                    "point_clouds_count": len(point_clouds),
+                    "generation_jobs_count": len(generation_jobs),
+                    "patient_id": project.patient_id,
+                }
+            ),
         )
 
         self.db.add(report)
@@ -187,10 +182,13 @@ class ReportService:
         scan_lines = []
         for scan in scans:
             dims = f"{scan.volume_dims_x}x{scan.volume_dims_y}x{scan.volume_dims_z}" if scan.volume_dims_x else "N/A"
-            spacing = f"{scan.voxel_spacing_x:.3f}x{scan.voxel_spacing_y:.3f}x{scan.voxel_spacing_z:.3f}" if scan.voxel_spacing_x else "N/A"
+            spacing = (
+                f"{scan.voxel_spacing_x:.3f}x{scan.voxel_spacing_y:.3f}x{scan.voxel_spacing_z:.3f}"
+                if scan.voxel_spacing_x
+                else "N/A"
+            )
             scan_lines.append(
-                f"- {scan.name}: Category={scan.scan_category or 'N/A'}, "
-                f"Dimensions={dims}, Spacing={spacing}mm"
+                f"- {scan.name}: Category={scan.scan_category or 'N/A'}, Dimensions={dims}, Spacing={spacing}mm"
             )
         scan_info = "\n".join(scan_lines) if scan_lines else "No scans available"
 
@@ -198,9 +196,7 @@ class ReportService:
         implant_pcs = [pc for pc in point_clouds if pc.scan_category in ("implant", "generated_implant")]
         implant_lines = []
         for pc in implant_pcs:
-            implant_lines.append(
-                f"- {pc.name}: Points={pc.num_points or 'N/A'}, Format={pc.file_format}"
-            )
+            implant_lines.append(f"- {pc.name}: Points={pc.num_points or 'N/A'}, Format={pc.file_format}")
         implant_info = "\n".join(implant_lines) if implant_lines else "No implants generated"
 
         # Generation job details
@@ -225,9 +221,7 @@ class ReportService:
                             dsc = val.get("dsc", "N/A")
                             bdsc = val.get("bdsc", "N/A")
                             hd95 = val.get("hd95", "N/A")
-                            metrics_lines.append(
-                                f"- Ensemble {key}: DSC={dsc}, bDSC={bdsc}, HD95={hd95}mm"
-                            )
+                            metrics_lines.append(f"- Ensemble {key}: DSC={dsc}, bDSC={bdsc}, HD95={hd95}mm")
                 except json.JSONDecodeError:
                     pass
         quality_metrics = "\n".join(metrics_lines) if metrics_lines else "No metrics available"
@@ -267,9 +261,7 @@ class ReportService:
         """
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError(
-                "OPENROUTER_API_KEY not set. Please configure it in web_viewer/.env"
-            )
+            raise ValueError("OPENROUTER_API_KEY not set. Please configure it in web_viewer/.env")
 
         headers = {
             "Authorization": f"Bearer {api_key}",

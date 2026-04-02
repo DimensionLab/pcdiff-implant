@@ -108,7 +108,7 @@ def collect_system_info(device: Any = None) -> dict[str, Any]:
             info["gpu"] = {
                 "index": device_index,
                 "name": props.name,
-                "total_memory_mb": round(props.total_memory / (1024 ** 2), 2),
+                "total_memory_mb": round(props.total_memory / (1024**2), 2),
             }
     except Exception:
         pass

@@ -1,6 +1,7 @@
 """
 API endpoints for filesystem browsing.
 """
+
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -77,13 +78,15 @@ def browse_directory(
             except (OSError, PermissionError):
                 size = None
 
-            entries.append(FileEntry(
-                name=item.name,
-                path=str(item),
-                is_dir=is_dir,
-                size=size,
-                extension=extension,
-            ))
+            entries.append(
+                FileEntry(
+                    name=item.name,
+                    path=str(item),
+                    is_dir=is_dir,
+                    size=size,
+                    extension=extension,
+                )
+            )
     except PermissionError:
         raise HTTPException(status_code=403, detail=f"Permission denied: {path}")
 
@@ -117,7 +120,10 @@ def get_common_paths():
 
     # Add project-specific paths if they exist
     project_paths = [
-        {"name": "SkullBreak Dataset", "path": str(home / "projects/dimensionlab/pcdiff-implant/pcdiff/datasets/SkullBreak")},
+        {
+            "name": "SkullBreak Dataset",
+            "path": str(home / "projects/dimensionlab/pcdiff-implant/pcdiff/datasets/SkullBreak"),
+        },
         {"name": "PCDiff Datasets", "path": str(home / "projects/dimensionlab/pcdiff-implant/pcdiff/datasets")},
     ]
 

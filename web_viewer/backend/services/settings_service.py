@@ -11,6 +11,7 @@ Environment variable mapping:
 - AWS_S3_BUCKET: S3 bucket for cloud results
 - AWS_S3_REGION: S3 region
 """
+
 import json
 import logging
 import os
@@ -20,7 +21,7 @@ import sys
 import torch
 from sqlalchemy.orm import Session
 
-from web_viewer.backend.models.settings import Setting, DEFAULT_SETTINGS
+from web_viewer.backend.models.settings import DEFAULT_SETTINGS, Setting
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class SettingsService:
     def get_value(self, key: str, default: str | None = None) -> str | None:
         """
         Get just the value of a setting.
-        
+
         Priority:
         1. Database setting (if set and non-empty)
         2. Environment variable (if mapped and set)
@@ -70,7 +71,7 @@ class SettingsService:
         setting = self.get(key)
         if setting and setting.value:
             return setting.value
-        
+
         # Check environment variable fallback
         env_var = ENV_VAR_MAPPING.get(key)
         if env_var:
@@ -78,7 +79,7 @@ class SettingsService:
             if env_value:
                 logger.debug(f"Using environment variable {env_var} for setting {key}")
                 return env_value
-        
+
         return default
 
     def get_all(self) -> list[Setting]:
@@ -131,7 +132,7 @@ class SettingsService:
     def get_system_info() -> dict:
         """Get system information for the settings page."""
         cuda_available = torch.cuda.is_available()
-        mps_available = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+        mps_available = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
 
         device_name = None
         if cuda_available:
@@ -144,12 +145,14 @@ class SettingsService:
         try:
             import sys
             from pathlib import Path
+
             # Add pcdiff to path for import
             project_root = Path(__file__).parent.parent.parent.parent
             pcdiff_path = str(project_root / "pcdiff")
             if pcdiff_path not in sys.path:
                 sys.path.insert(0, pcdiff_path)
             from modules.functional.backend import get_backend_type
+
             backend_type = get_backend_type()
         except Exception as e:
             logger.debug(f"Could not determine backend type: {e}")
@@ -177,7 +180,7 @@ class SettingsService:
             # Auto-detect best available device
             if torch.cuda.is_available():
                 return "cuda"
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
             else:
                 return "cpu"
@@ -187,7 +190,7 @@ class SettingsService:
             logger.warning("CUDA requested but not available, falling back to CPU")
             return "cpu"
         elif device_setting == "mps":
-            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
             logger.warning("MPS requested but not available, falling back to CPU")
             return "cpu"

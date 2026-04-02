@@ -34,29 +34,30 @@ else:
     DATASET_ROOT = PROJECT_ROOT / "datasets" / "SkullBreak"
 
 # Point cloud parameters (must match train_pcdiff.py)
-NUM_POINTS = 4096       # Total points (defective + implant) — reduced for fast experiments
-NUM_NN = 1024           # Implant points
+NUM_POINTS = 4096  # Total points (defective + implant) — reduced for fast experiments
+NUM_NN = 1024  # Implant points
 SV_POINTS = NUM_POINTS - NUM_NN  # 3072 skull points
 
 # Evaluation parameters
-EVAL_CASES = 10         # Number of validation cases for proxy eval
-DDIM_STEPS = 50         # DDIM sampling steps for fast eval
+EVAL_CASES = 10  # Number of validation cases for proxy eval
+DDIM_STEPS = 50  # DDIM sampling steps for fast eval
 
-DEFECT_TYPES = ['bilateral', 'frontoorbital', 'parietotemporal', 'random_1', 'random_2']
+DEFECT_TYPES = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
 
 # ---------------------------------------------------------------------------
 # Dataset loading
 # ---------------------------------------------------------------------------
 
+
 def _nrrd_to_npy_path(path: str) -> str:
     """Convert .nrrd path to the preprocessed _surf.npy path."""
-    if path.endswith('.nrrd'):
+    if path.endswith(".nrrd"):
         stem = path[:-5]  # Remove .nrrd
-        npy_path = stem + '_surf.npy'
+        npy_path = stem + "_surf.npy"
         if os.path.exists(npy_path):
             return npy_path
     # Also check if .npy version exists directly
-    npy_direct = path.rsplit('.', 1)[0] + '.npy' if '.' in os.path.basename(path) else path + '.npy'
+    npy_direct = path.rsplit(".", 1)[0] + ".npy" if "." in os.path.basename(path) else path + ".npy"
     if os.path.exists(npy_direct):
         return npy_direct
     # Return original path (np.load will fail with a clear error if neither exists)
@@ -70,7 +71,7 @@ def load_csv_entries(csv_path: str) -> list:
     """
     pcdiff_dir = str(PROJECT_ROOT)
     entries = []
-    with open(csv_path, 'r') as f:
+    with open(csv_path, "r") as f:
         reader = csv.reader(f)
         header = next(reader, None)
         for row in reader:
@@ -160,6 +161,7 @@ def prepare_eval_batch(entries: list, device: torch.device) -> tuple:
 # Chamfer Distance (proxy metric)
 # ---------------------------------------------------------------------------
 
+
 def chamfer_distance(pred: np.ndarray, gt: np.ndarray) -> float:
     """
     Compute Chamfer Distance between two point clouds.
@@ -169,11 +171,11 @@ def chamfer_distance(pred: np.ndarray, gt: np.ndarray) -> float:
     # Forward: for each point in pred, find nearest in gt
     # Using einsum for efficiency without scipy
     diff_fwd = pred[:, None, :] - gt[None, :, :]  # [N, M, 3]
-    dist_fwd = np.sum(diff_fwd ** 2, axis=-1)       # [N, M]
-    min_fwd = np.min(dist_fwd, axis=1)               # [N]
+    dist_fwd = np.sum(diff_fwd**2, axis=-1)  # [N, M]
+    min_fwd = np.min(dist_fwd, axis=1)  # [N]
 
     # Backward: for each point in gt, find nearest in pred
-    min_bwd = np.min(dist_fwd, axis=0)               # [M]
+    min_bwd = np.min(dist_fwd, axis=0)  # [M]
 
     return float(np.mean(min_fwd) + np.mean(min_bwd))
 
@@ -199,8 +201,8 @@ def chamfer_distance_batch(preds: list, gts: list) -> dict:
 # Evaluation runner
 # ---------------------------------------------------------------------------
 
-def evaluate_model_loss(model, dataloader, device: torch.device,
-                        num_batches: int = 10) -> dict:
+
+def evaluate_model_loss(model, dataloader, device: torch.device, num_batches: int = 10) -> dict:
     """
     Evaluate model using validation loss (MSE on noise prediction).
 
@@ -228,7 +230,7 @@ def evaluate_model_loss(model, dataloader, device: torch.device,
         for i, data in enumerate(dataloader):
             if num_batches > 0 and i >= num_batches:
                 break
-            pc_in = data['train_points'].transpose(1, 2)
+            pc_in = data["train_points"].transpose(1, 2)
             if torch.cuda.is_available():
                 pc_in = pc_in.to(device, non_blocking=True)
             batch_losses = model.get_loss_iter(pc_in)
@@ -246,9 +248,9 @@ def evaluate_model_loss(model, dataloader, device: torch.device,
     return metrics
 
 
-def evaluate_model_noise_prediction(model, dataloader, device: torch.device,
-                                     timesteps_to_check: list = None,
-                                     num_batches: int = 5) -> dict:
+def evaluate_model_noise_prediction(
+    model, dataloader, device: torch.device, timesteps_to_check: list = None, num_batches: int = 5
+) -> dict:
     """
     Evaluate noise prediction accuracy at specific timesteps.
 
@@ -280,7 +282,7 @@ def evaluate_model_noise_prediction(model, dataloader, device: torch.device,
             for i, data in enumerate(dataloader):
                 if i >= num_batches:
                     break
-                pc_in = data['train_points'].transpose(1, 2)
+                pc_in = data["train_points"].transpose(1, 2)
                 if torch.cuda.is_available():
                     pc_in = pc_in.to(device, non_blocking=True)
 
@@ -289,10 +291,13 @@ def evaluate_model_noise_prediction(model, dataloader, device: torch.device,
 
                 # Get noise prediction loss at this specific timestep
                 noise = torch.randn(pc_in[:, :, SV_POINTS:].shape, device=device)
-                x_noisy = torch.cat([
-                    pc_in[:, :, :SV_POINTS],
-                    model.diffusion.q_sample(x_start=pc_in[:, :, SV_POINTS:], t=t, noise=noise)
-                ], dim=-1)
+                x_noisy = torch.cat(
+                    [
+                        pc_in[:, :, :SV_POINTS],
+                        model.diffusion.q_sample(x_start=pc_in[:, :, SV_POINTS:], t=t, noise=noise),
+                    ],
+                    dim=-1,
+                )
                 pred_noise = model._denoise(x_noisy, t)[:, :, SV_POINTS:]
                 mse = ((noise - pred_noise) ** 2).mean(dim=[1, 2])
                 t_losses.extend(mse.cpu().tolist())
@@ -306,8 +311,7 @@ def evaluate_model_noise_prediction(model, dataloader, device: torch.device,
     return results
 
 
-def evaluate_model(model, device: torch.device, entries: list = None,
-                   ddim_steps: int = DDIM_STEPS) -> dict:
+def evaluate_model(model, device: torch.device, entries: list = None, ddim_steps: int = DDIM_STEPS) -> dict:
     """
     Run generation-based evaluation (Chamfer Distance).
 
@@ -336,9 +340,11 @@ def evaluate_model(model, device: torch.device, entries: list = None,
     with torch.no_grad():
         gen_shape = (B, 3, NUM_NN)
         generated = model.gen_samples(
-            partial_x, gen_shape, device,
+            partial_x,
+            gen_shape,
+            device,
             clip_denoised=False,
-            sampling_method='ddim',
+            sampling_method="ddim",
             sampling_steps=ddim_steps,
         )
         gen_implant = generated[:, :, SV_POINTS:].detach().cpu().numpy()
@@ -365,8 +371,7 @@ def evaluate_model(model, device: torch.device, entries: list = None,
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
-def log_experiment(experiment_id: str, metrics: dict, config: dict,
-                   accepted: bool, diff: str = "") -> None:
+def log_experiment(experiment_id: str, metrics: dict, config: dict, accepted: bool, diff: str = "") -> None:
     """Log experiment results to JSON file."""
     RESULTS_DIR.mkdir(exist_ok=True)
 

@@ -1,12 +1,11 @@
+import datetime
+import logging
 import os
 import random
 import sys
 from shutil import copyfile
-import datetime
 
 import torch
-
-import logging
 
 logger = logging.getLogger()
 
@@ -14,8 +13,8 @@ import numpy as np
 
 
 def set_global_gpu_env(opt):
-    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.gpu)
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(opt.gpu)
 
     torch.cuda.set_device(opt.gpu)
 
@@ -28,7 +27,7 @@ def setup_logging(output_dir):
     log_format = logging.Formatter("%(asctime)s : %(message)s")
     logger = logging.getLogger()
     logger.handlers = []
-    output_file = os.path.join(output_dir, 'output.log')
+    output_file = os.path.join(output_dir, "output.log")
     file_handler = logging.FileHandler(output_file)
     file_handler.setFormatter(log_format)
     logger.addHandler(file_handler)
@@ -43,8 +42,8 @@ def setup_logging(output_dir):
 
 
 def get_output_dir(prefix, exp_id):
-    t = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-    output_dir = os.path.join(prefix, 'output/' + exp_id, t)
+    t = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    output_dir = os.path.join(prefix, "output/" + exp_id, t)
     os.makedirs(output_dir, exist_ok=True)
     return output_dir
 

@@ -302,18 +302,20 @@ def collect_results(args):
 
         output = job.get("output", {})
         metadata = output.get("metadata", {})
-        by_config[rid].append({
-            "case_id": job["case_id"],
-            "defect": job["defect"],
-            "processing_time_seconds": metadata.get("processing_time_seconds"),
-            "mesh_vertices": metadata.get("mesh_vertices"),
-            "mesh_faces": metadata.get("mesh_faces"),
-            "num_implant_points": metadata.get("num_implant_points"),
-            "sampling_method": metadata.get("sampling_method"),
-            "sampling_steps": metadata.get("sampling_steps"),
-            "num_ensemble": metadata.get("num_ensemble"),
-            "results": output.get("results", {}),
-        })
+        by_config[rid].append(
+            {
+                "case_id": job["case_id"],
+                "defect": job["defect"],
+                "processing_time_seconds": metadata.get("processing_time_seconds"),
+                "mesh_vertices": metadata.get("mesh_vertices"),
+                "mesh_faces": metadata.get("mesh_faces"),
+                "num_implant_points": metadata.get("num_implant_points"),
+                "sampling_method": metadata.get("sampling_method"),
+                "sampling_steps": metadata.get("sampling_steps"),
+                "num_ensemble": metadata.get("num_ensemble"),
+                "results": output.get("results", {}),
+            }
+        )
 
     print(f"Configs with completed results: {len(by_config)}")
     for rid, results in sorted(by_config.items()):

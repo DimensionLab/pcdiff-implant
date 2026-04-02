@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 try:
     import torch._dynamo as dynamo  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover
@@ -7,7 +8,7 @@ except ImportError:  # pragma: no cover
 
 import modules.functional as F
 
-__all__ = ['Voxelization']
+__all__ = ["Voxelization"]
 
 
 class Voxelization(nn.Module):
@@ -21,7 +22,10 @@ class Voxelization(nn.Module):
         coords = coords.detach()
         norm_coords = coords - coords.mean(2, keepdim=True)
         if self.normalize:
-            norm_coords = norm_coords / (norm_coords.norm(dim=1, keepdim=True).max(dim=2, keepdim=True).values * 2.0 + self.eps) + 0.5
+            norm_coords = (
+                norm_coords / (norm_coords.norm(dim=1, keepdim=True).max(dim=2, keepdim=True).values * 2.0 + self.eps)
+                + 0.5
+            )
         else:
             norm_coords = (norm_coords + 1) / 2.0
         norm_coords = torch.clamp(norm_coords * self.r, 0, self.r - 1)
@@ -29,7 +33,8 @@ class Voxelization(nn.Module):
         return F.avg_voxelize(features, vox_coords, self.r), norm_coords
 
     def extra_repr(self):
-        return 'resolution={}{}'.format(self.r, ', normalized eps = {}'.format(self.eps) if self.normalize else '')
+        return "resolution={}{}".format(self.r, ", normalized eps = {}".format(self.eps) if self.normalize else "")
+
 
 if dynamo is not None:  # pragma: no cover
     Voxelization.forward = dynamo.disable(Voxelization.forward)

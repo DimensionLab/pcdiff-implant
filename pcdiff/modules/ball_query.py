@@ -3,7 +3,7 @@ import torch.nn as nn
 
 import modules.functional as F
 
-__all__ = ['BallQuery']
+__all__ = ["BallQuery"]
 
 
 class BallQuery(nn.Module):
@@ -21,7 +21,7 @@ class BallQuery(nn.Module):
         neighbor_coordinates = neighbor_coordinates - centers_coords.unsqueeze(-1)
 
         if points_features is None:
-            assert self.include_coordinates, 'No Features For Grouping'
+            assert self.include_coordinates, "No Features For Grouping"
             neighbor_features = neighbor_coordinates
         else:
             neighbor_features = F.grouping(points_features, neighbor_indices)
@@ -30,5 +30,6 @@ class BallQuery(nn.Module):
         return neighbor_features, F.grouping(temb, neighbor_indices)
 
     def extra_repr(self):
-        return 'radius={}, num_neighbors={}{}'.format(
-            self.radius, self.num_neighbors, ', include coordinates' if self.include_coordinates else '')
+        return "radius={}, num_neighbors={}{}".format(
+            self.radius, self.num_neighbors, ", include coordinates" if self.include_coordinates else ""
+        )

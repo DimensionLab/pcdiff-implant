@@ -62,30 +62,34 @@ def export_audit_csv(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([
-        "timestamp",
-        "action",
-        "entity_type",
-        "entity_id",
-        "user_id",
-        "details",
-        "ip_address",
-        "session_id",
-        "software_version",
-    ])
+    writer.writerow(
+        [
+            "timestamp",
+            "action",
+            "entity_type",
+            "entity_id",
+            "user_id",
+            "details",
+            "ip_address",
+            "session_id",
+            "software_version",
+        ]
+    )
 
     for item in items:
-        writer.writerow([
-            item.timestamp.isoformat() if item.timestamp else "",
-            item.action,
-            item.entity_type or "",
-            item.entity_id or "",
-            item.user_id,
-            item.details_json or "",
-            item.ip_address or "",
-            item.session_id or "",
-            item.software_version,
-        ])
+        writer.writerow(
+            [
+                item.timestamp.isoformat() if item.timestamp else "",
+                item.action,
+                item.entity_type or "",
+                item.entity_id or "",
+                item.user_id,
+                item.details_json or "",
+                item.ip_address or "",
+                item.session_id or "",
+                item.software_version,
+            ]
+        )
 
     buf.seek(0)
     return StreamingResponse(

@@ -1,9 +1,10 @@
-""""
+""" "
 Implements a data structure for loading point clouds from the SkullBreak dataset
 """
 
 import csv
 import os
+
 import numpy as np
 import open3d as o3d
 import torch as th
@@ -18,42 +19,42 @@ class SkullBreakDataset(th.utils.data.Dataset):
         self.num_nn = num_nn
         self.database = []
         self.norm_mode = norm_mode
-        self.defects = ['bilateral', 'frontoorbital', 'parietotemporal', 'random_1', 'random_2']
+        self.defects = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
         self.num_samples = num_samples
         self.eval = eval
         self.augment = augment
 
-        with open(self.directory, 'r') as file:
+        with open(self.directory, "r") as file:
             csv_reader = csv.reader(file)
             for row in csv_reader:
                 for defect_id in range(5):
                     datapoint = dict()
                     entry = row[0]
-                    base_path = entry.split('complete_skull')[0]
-                    filename = entry.split('/')[-1]
-                    defective = base_path + 'defective_skull/' + self.defects[defect_id] + '/' + filename
-                    implant = base_path + 'implant/' + self.defects[defect_id] + '/' + filename
+                    base_path = entry.split("complete_skull")[0]
+                    filename = entry.split("/")[-1]
+                    defective = base_path + "defective_skull/" + self.defects[defect_id] + "/" + filename
+                    implant = base_path + "implant/" + self.defects[defect_id] + "/" + filename
                     # Resolve relative paths against CSV file directory
                     if not os.path.isabs(defective):
                         defective = os.path.join(self.csv_base_dir, defective)
                         implant = os.path.join(self.csv_base_dir, implant)
-                    datapoint['defective_skull'] = defective
-                    datapoint['implant'] = implant
+                    datapoint["defective_skull"] = defective
+                    datapoint["implant"] = implant
                     self.database.append(datapoint)
 
     def __getitem__(self, file):
         filedict = self.database[file]
-        name = filedict['defective_skull']
-        pc_np = np.load(filedict['defective_skull'])  # Points belonging to the defective anatomical structure
+        name = filedict["defective_skull"]
+        pc_np = np.load(filedict["defective_skull"])  # Points belonging to the defective anatomical structure
 
         # Downsample point clouds
         num_pc = pc_np.shape[0]
-        idx_pc = np.random.randint(0, num_pc, self.num_points-self.num_nn)
+        idx_pc = np.random.randint(0, num_pc, self.num_points - self.num_nn)
         pc_np = pc_np[idx_pc, :]
 
         # During training
         if not self.eval:  # Load and concat points belonging to the ground truth implant (just for training)
-            pc_i_np = np.load(filedict['implant'])
+            pc_i_np = np.load(filedict["implant"])
             num_pc_i = pc_i_np.shape[0]
             idx_pc_i = np.random.randint(0, num_pc_i, self.num_nn)
             pc_i_np = pc_i_np[idx_pc_i, :]
@@ -73,11 +74,11 @@ class SkullBreakDataset(th.utils.data.Dataset):
             pc_c = pc_np
 
         # Normalize point cloud
-        if self.norm_mode == 'shape_unit':
+        if self.norm_mode == "shape_unit":
             shift = pc_c.mean(axis=0).reshape(1, 3)
             scale = pc_c.flatten().std().reshape(1, 1)
 
-        elif self.norm_mode == 'shape_bbox':
+        elif self.norm_mode == "shape_bbox":
             pc_max = pc_c.max(axis=0)
             pc_min = pc_c.min(axis=0)
             shift = ((pc_min + pc_max) / 2).reshape(1, 3)
@@ -88,13 +89,7 @@ class SkullBreakDataset(th.utils.data.Dataset):
 
         pc = th.from_numpy(pc_c).float()
 
-        out = {
-            'idx': file,
-            'train_points': pc.float(),
-            'shift': shift,
-            'scale': scale,
-            'name': name
-        }
+        out = {"idx": file, "train_points": pc.float(), "shift": shift, "scale": scale, "name": name}
 
         return out
 

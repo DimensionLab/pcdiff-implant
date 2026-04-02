@@ -34,12 +34,7 @@ class PatientService:
                 | Patient.medical_record_number.ilike(search_pattern)
             )
 
-        return (
-            query.order_by(Patient.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return query.order_by(Patient.created_at.desc()).offset(offset).limit(limit).all()
 
     def get_patient(self, patient_id: str) -> Patient | None:
         """Get a patient by ID."""
@@ -47,11 +42,7 @@ class PatientService:
 
     def get_patient_by_code(self, patient_code: str) -> Patient | None:
         """Get a patient by their unique code."""
-        return (
-            self.db.query(Patient)
-            .filter(Patient.patient_code == patient_code)
-            .first()
-        )
+        return self.db.query(Patient).filter(Patient.patient_code == patient_code).first()
 
     def create_patient(
         self,

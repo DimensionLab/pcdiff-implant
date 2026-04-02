@@ -6,9 +6,8 @@ Create Date: 2026-02-03
 
 """
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "003"
@@ -23,7 +22,7 @@ def upgrade() -> None:
         "generation_jobs",
         sa.Column("voxelization_resolution", sa.Integer(), nullable=False, server_default="512"),
     )
-    
+
     # Add source_implant_pc_id for re-voxelization jobs
     # Note: SQLite doesn't enforce foreign keys by default, so we skip the FK constraint
     op.add_column(

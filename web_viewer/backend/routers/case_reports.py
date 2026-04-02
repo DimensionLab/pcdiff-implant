@@ -128,8 +128,8 @@ def get_report_html(report_id: str, service: ReportService = Depends(_get_servic
 {html}
 <div class="metadata">
     <p>Report ID: {report.id}</p>
-    <p>Generated: {report.generated_at.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
-    <p>Model: {report.ai_model or 'N/A'}</p>
+    <p>Generated: {report.generated_at.strftime("%Y-%m-%d %H:%M:%S UTC")}</p>
+    <p>Model: {report.ai_model or "N/A"}</p>
     <p>Template Version: {report.template_version}</p>
 </div>
 </body>
@@ -236,6 +236,4 @@ def _generate_pdf(html_content: str, title: str) -> bytes:
         pass
 
     # Final fallback: raise error with installation instructions
-    raise ImportError(
-        "No PDF library available. Install one with: pip install weasyprint or pip install xhtml2pdf"
-    )
+    raise ImportError("No PDF library available. Install one with: pip install weasyprint or pip install xhtml2pdf")

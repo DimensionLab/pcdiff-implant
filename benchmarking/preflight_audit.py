@@ -21,7 +21,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 REQUIRED_IMPORTS = [
     "torch",
     "torchvision",
@@ -51,7 +50,6 @@ CSV_FILES = [
 
 CONFIG_FILES = [
     "voxelization/configs/gen_skullbreak.yaml",
-
     "voxelization/configs/train_skullbreak.yaml",
 ]
 

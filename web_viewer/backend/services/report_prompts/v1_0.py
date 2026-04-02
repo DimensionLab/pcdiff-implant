@@ -97,7 +97,7 @@ REGION_COMPLIANCE = {
 - This report is generated for informational and documentation purposes
 - Final clinical decisions must be made by qualified medical professionals
 - Local regulatory requirements may apply based on jurisdiction
-"""
+""",
 }
 
 

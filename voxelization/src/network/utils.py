@@ -1,7 +1,8 @@
-""" Positional encoding embedding. Code was taken from https://github.com/bmild/nerf. """
+"""Positional encoding embedding. Code was taken from https://github.com/bmild/nerf."""
 
 import torch
 import torch.nn as nn
+
 
 class Embedder:
     def __init__(self, **kwargs):
@@ -10,24 +11,23 @@ class Embedder:
 
     def create_embedding_fn(self):
         embed_fns = []
-        d = self.kwargs['input_dims']
+        d = self.kwargs["input_dims"]
         out_dim = 0
-        if self.kwargs['include_input']:
+        if self.kwargs["include_input"]:
             embed_fns.append(lambda x: x)
             out_dim += d
 
-        max_freq = self.kwargs['max_freq_log2']
-        N_freqs = self.kwargs['num_freqs']
+        max_freq = self.kwargs["max_freq_log2"]
+        N_freqs = self.kwargs["num_freqs"]
 
-        if self.kwargs['log_sampling']:
-            freq_bands = 2. ** torch.linspace(0., max_freq, N_freqs)
+        if self.kwargs["log_sampling"]:
+            freq_bands = 2.0 ** torch.linspace(0.0, max_freq, N_freqs)
         else:
-            freq_bands = torch.linspace(2.**0., 2.**max_freq, N_freqs)
+            freq_bands = torch.linspace(2.0**0.0, 2.0**max_freq, N_freqs)
 
         for freq in freq_bands:
-            for p_fn in self.kwargs['periodic_fns']:
-                embed_fns.append(lambda x, p_fn=p_fn,
-                                 freq=freq: p_fn(x * freq))
+            for p_fn in self.kwargs["periodic_fns"]:
+                embed_fns.append(lambda x, p_fn=p_fn, freq=freq: p_fn(x * freq))
                 out_dim += d
 
         self.embed_fns = embed_fns
@@ -39,34 +39,37 @@ class Embedder:
 
 def get_embedder(multires, d_in=3):
     embed_kwargs = {
-        'include_input': True,
-        'input_dims': d_in,
-        'max_freq_log2': multires-1,
-        'num_freqs': multires,
-        'log_sampling': True,
-        'periodic_fns': [torch.sin, torch.cos],
+        "include_input": True,
+        "input_dims": d_in,
+        "max_freq_log2": multires - 1,
+        "num_freqs": multires,
+        "log_sampling": True,
+        "periodic_fns": [torch.sin, torch.cos],
     }
 
     embedder_obj = Embedder(**embed_kwargs)
-    def embed(x, eo=embedder_obj): return eo.embed(x)
+
+    def embed(x, eo=embedder_obj):
+        return eo.embed(x)
+
     return embed, embedder_obj.out_dim
 
 
-def normalize_coordinate(p, plane='xz'):
-    ''' Normalize coordinate to [0, 1] for unit cube experiments
+def normalize_coordinate(p, plane="xz"):
+    """Normalize coordinate to [0, 1] for unit cube experiments
 
     Args:
         p (tensor): point
         padding (float): conventional padding paramter of ONet for unit cube, so [-0.5, 0.5] -> [-0.55, 0.55]
         plane (str): plane feature type, ['xz', 'xy', 'yz']
-    '''
-    if plane == 'xz':
+    """
+    if plane == "xz":
         xy = p[:, :, [0, 2]]
-    elif plane =='xy':
+    elif plane == "xy":
         xy = p[:, :, [0, 1]]
     else:
         xy = p[:, :, [1, 2]]
-    
+
     xy_new = xy
     # f there are outliers out of the range
     if xy_new.max() >= 1:
@@ -77,40 +80,41 @@ def normalize_coordinate(p, plane='xz'):
 
 
 def normalize_3d_coordinate(p):
-    ''' Normalize coordinate to [0, 1] for unit cube experiments.
-    '''   
+    """Normalize coordinate to [0, 1] for unit cube experiments."""
     if p.max() >= 1:
         p[p >= 1] = 1 - 10e-6
     if p.min() < 0:
         p[p < 0] = 0.0
     return p
 
-def coordinate2index(x, reso, coord_type='2d'):
-    ''' Normalize coordinate to [0, 1] for unit cube experiments.
+
+def coordinate2index(x, reso, coord_type="2d"):
+    """Normalize coordinate to [0, 1] for unit cube experiments.
         Corresponds to our 3D model
 
     Args:
         x (tensor): coordinate
         reso (int): defined resolution
         coord_type (str): coordinate type
-    '''
+    """
     x = (x * reso).long()
-    if coord_type == '2d': # plane
+    if coord_type == "2d":  # plane
         index = x[:, :, 0] + reso * x[:, :, 1]
-    elif coord_type == '3d': # grid
+    elif coord_type == "3d":  # grid
         index = x[:, :, 0] + reso * (x[:, :, 1] + reso * x[:, :, 2])
     index = index[:, None, :]
     return index
 
 
 class map2local(object):
-    ''' Add new keys to the given input
+    """Add new keys to the given input
 
     Args:
         s (float): the defined voxel size
         pos_encoding (str): method for the positional encoding, linear|sin_cos
-    '''
-    def __init__(self, s, pos_encoding='linear'):
+    """
+
+    def __init__(self, s, pos_encoding="linear"):
         super().__init__()
         self.s = s
         # self.pe = positional_encoding(basis_function=pos_encoding, local=True)
@@ -123,15 +127,16 @@ class map2local(object):
         # p = self.pe(p)
         return p
 
+
 # Resnet Blocks
 class ResnetBlockFC(nn.Module):
-    ''' Fully connected ResNet Block class.
+    """Fully connected ResNet Block class.
 
     Args:
         size_in (int): input dimension
         size_out (int): output dimension
         size_h (int): hidden dimension
-    '''
+    """
 
     def __init__(self, size_in, size_out=None, size_h=None, siren=False):
         super().__init__()

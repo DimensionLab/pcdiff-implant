@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT_DIR / "voxelization"))
 # Acceptance criteria from PRD
 ACCEPTANCE_CRITERIA = {
     "minimum": {"dsc": 0.85, "bdsc": 0.87, "hd95": 2.60},  # Must meet
-    "target": {"dsc": 0.87, "bdsc": 0.89, "hd95": 2.45},   # Paper baseline
+    "target": {"dsc": 0.87, "bdsc": 0.89, "hd95": 2.45},  # Paper baseline
 }
 
 DEFECT_TYPES = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
@@ -51,6 +51,7 @@ DEFECT_TYPES = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "ra
 @dataclass
 class SampleMetrics:
     """Metrics for a single sample."""
+
     case_id: str
     defect: str
     dsc: float
@@ -62,6 +63,7 @@ class SampleMetrics:
 @dataclass
 class MethodResults:
     """Results for one inference method (DDIM or DDPM)."""
+
     method: str
     sampling_steps: int
     num_ens: int
@@ -109,6 +111,7 @@ class MethodResults:
 @dataclass
 class SampleInfo:
     """Information about a test sample."""
+
     case_id: str
     defect: str
     defective_npy: Path
@@ -159,14 +162,16 @@ def read_test_dataset(csv_path: Path) -> List[SampleInfo]:
                 if not (defective_npy.exists() and defective_nrrd.exists() and implant_nrrd.exists()):
                     continue
 
-                samples.append(SampleInfo(
-                    case_id=case_id,
-                    defect=defect,
-                    defective_npy=defective_npy,
-                    defective_nrrd=defective_nrrd,
-                    implant_nrrd=implant_nrrd,
-                    syn_dir_name=syn_dir_name,
-                ))
+                samples.append(
+                    SampleInfo(
+                        case_id=case_id,
+                        defect=defect,
+                        defective_npy=defective_npy,
+                        defective_nrrd=defective_nrrd,
+                        implant_nrrd=implant_nrrd,
+                        syn_dir_name=syn_dir_name,
+                    )
+                )
 
     if not samples:
         raise RuntimeError(f"No valid samples found in {csv_path}")
@@ -189,25 +194,34 @@ def run_distributed_inference(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
-        sys.executable, "-m", "torch.distributed.run",
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
         f"--nproc_per_node={num_gpus}",
         "--master_port=29501",
         str(ROOT_DIR / "pcdiff" / "test_completion_distributed.py"),
-        "--path", str(csv_path),
-        "--dataset", "SkullBreak",
-        "--model", str(checkpoint),
-        "--eval_path", str(output_dir),
-        "--sampling_method", sampling_method,
-        "--sampling_steps", str(sampling_steps),
-        "--num_ens", str(num_ens),
+        "--path",
+        str(csv_path),
+        "--dataset",
+        "SkullBreak",
+        "--model",
+        str(checkpoint),
+        "--eval_path",
+        str(output_dir),
+        "--sampling_method",
+        sampling_method,
+        "--sampling_steps",
+        str(sampling_steps),
+        "--num_ens",
+        str(num_ens),
         "--verify",
     ]
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Running {sampling_method.upper()}-{sampling_steps} inference...")
     print(f"Output: {output_dir}")
     print(f"Command: {' '.join(cmd)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     start_time = time.time()
 
@@ -246,6 +260,7 @@ def compute_metrics_for_sample(
     import diplib as dip
     import nrrd
     from scipy import ndimage
+
     from voxelization.eval_metrics import bdc, dc, hd95
     from voxelization.src.utils import filter_voxels_within_radius
 
@@ -299,12 +314,7 @@ def compute_metrics_for_sample(
     raw_implant = mean_implant.copy()
 
     # Post-processing
-    reference_implant_points = (
-        reference_inputs[:, -num_nn:, :]
-        .detach()
-        .cpu()
-        .squeeze(0)
-    )
+    reference_implant_points = reference_inputs[:, -num_nn:, :].detach().cpu().squeeze(0)
     mean_implant = filter_voxels_within_radius(reference_implant_points, mean_implant)
     if not np.any(mean_implant):
         mean_implant = raw_implant
@@ -325,11 +335,13 @@ def compute_metrics_for_sample(
 
     # Load GT and compute metrics
     gt_implant, _ = nrrd.read(str(sample_info.implant_nrrd))
-    spacing = np.asarray([
-        header["space directions"][0, 0],
-        header["space directions"][1, 1],
-        header["space directions"][2, 2],
-    ])
+    spacing = np.asarray(
+        [
+            header["space directions"][0, 0],
+            header["space directions"][1, 1],
+            header["space directions"][2, 2],
+        ]
+    )
 
     dice = float(dc(mean_implant, gt_implant))
     bdice = float(bdc(mean_implant, gt_implant, defective_vol, voxelspacing=spacing, distance=10))
@@ -356,6 +368,7 @@ def worker_compute_metrics(
 ) -> None:
     """Worker function for parallel metric computation."""
     import torch
+
     from voxelization.src import config as vox_config
     from voxelization.src.model import Encode2Points
     from voxelization.src.utils import load_config, load_model_manual
@@ -384,6 +397,7 @@ def worker_compute_metrics(
         @torch.no_grad()
         def generate_psr(self, combined_points_norm):
             import torch
+
             inputs = torch.from_numpy(combined_points_norm).float().unsqueeze(0).to(self.device)
             vertices, faces, points, normals, psr_grid = self.generator.generate_mesh(inputs)
             psr_grid_np = psr_grid.detach().cpu().numpy()[0]
@@ -394,7 +408,7 @@ def worker_compute_metrics(
     # Process samples
     results = []
     for i, sample in enumerate(samples):
-        print(f"  [Rank {rank}] Processing {i+1}/{len(samples)}: {sample.syn_dir_name}")
+        print(f"  [Rank {rank}] Processing {i + 1}/{len(samples)}: {sample.syn_dir_name}")
         metrics = compute_metrics_for_sample(sample, syn_dir, num_ens, vox_runner)
         if metrics:
             results.append(metrics)
@@ -465,19 +479,21 @@ def create_comparison_report(
         ddpm_s = ddpm_by_key.get(key)
 
         if ddim_s and ddpm_s:
-            per_sample_diffs.append({
-                "case_id": case_id,
-                "defect": defect,
-                "ddim_dsc": ddim_s.dsc,
-                "ddpm_dsc": ddpm_s.dsc,
-                "delta_dsc": ddpm_s.dsc - ddim_s.dsc,
-                "ddim_bdsc": ddim_s.bdsc,
-                "ddpm_bdsc": ddpm_s.bdsc,
-                "delta_bdsc": ddpm_s.bdsc - ddim_s.bdsc,
-                "ddim_hd95": ddim_s.hd95,
-                "ddpm_hd95": ddpm_s.hd95,
-                "delta_hd95": ddpm_s.hd95 - ddim_s.hd95,
-            })
+            per_sample_diffs.append(
+                {
+                    "case_id": case_id,
+                    "defect": defect,
+                    "ddim_dsc": ddim_s.dsc,
+                    "ddpm_dsc": ddpm_s.dsc,
+                    "delta_dsc": ddpm_s.dsc - ddim_s.dsc,
+                    "ddim_bdsc": ddim_s.bdsc,
+                    "ddpm_bdsc": ddpm_s.bdsc,
+                    "delta_bdsc": ddpm_s.bdsc - ddim_s.bdsc,
+                    "ddim_hd95": ddim_s.hd95,
+                    "ddpm_hd95": ddpm_s.hd95,
+                    "delta_hd95": ddpm_s.hd95 - ddim_s.hd95,
+                }
+            )
 
     # Aggregate by defect type
     defect_stats = {}
@@ -612,17 +628,21 @@ def write_markdown_report(
             delta = ddpm_val - ddim_val
             min_val = criteria["minimum"][metric]
             tgt_val = criteria["target"][metric]
-            f.write(f"| {metric.upper()} | {ddim_val:.4f}±{ddim[metric]['std']:.4f} | "
-                   f"{ddpm_val:.4f}±{ddpm[metric]['std']:.4f} | {delta:+.4f} | "
-                   f"≥{min_val:.2f} | ≥{tgt_val:.2f} |\n")
+            f.write(
+                f"| {metric.upper()} | {ddim_val:.4f}±{ddim[metric]['std']:.4f} | "
+                f"{ddpm_val:.4f}±{ddpm[metric]['std']:.4f} | {delta:+.4f} | "
+                f"≥{min_val:.2f} | ≥{tgt_val:.2f} |\n"
+            )
 
         # HD95 (lower is better)
         ddim_hd = ddim["hd95"]["mean"]
         ddpm_hd = ddpm["hd95"]["mean"]
         delta_hd = ddpm_hd - ddim_hd
-        f.write(f"| HD95 | {ddim_hd:.4f}±{ddim['hd95']['std']:.4f} | "
-               f"{ddpm_hd:.4f}±{ddpm['hd95']['std']:.4f} | {delta_hd:+.4f} | "
-               f"≤{criteria['minimum']['hd95']:.2f} | ≤{criteria['target']['hd95']:.2f} |\n")
+        f.write(
+            f"| HD95 | {ddim_hd:.4f}±{ddim['hd95']['std']:.4f} | "
+            f"{ddpm_hd:.4f}±{ddpm['hd95']['std']:.4f} | {delta_hd:+.4f} | "
+            f"≤{criteria['minimum']['hd95']:.2f} | ≤{criteria['target']['hd95']:.2f} |\n"
+        )
 
         # Acceptance status
         f.write("\n## Acceptance Criteria Status\n\n")
@@ -632,10 +652,12 @@ def write_markdown_report(
         for method, key in [("DDIM-50", "ddim_50"), ("DDPM-1000", "ddpm_1000")]:
             mins = summary[key]["meets_minimum"]
             all_min = all(mins.values())
-            f.write(f"| {method} | {'✓' if mins['dsc'] else '✗'} | "
-                   f"{'✓' if mins['bdsc'] else '✗'} | "
-                   f"{'✓' if mins['hd95'] else '✗'} | "
-                   f"{'✓' if all_min else '✗'} |\n")
+            f.write(
+                f"| {method} | {'✓' if mins['dsc'] else '✗'} | "
+                f"{'✓' if mins['bdsc'] else '✗'} | "
+                f"{'✓' if mins['hd95'] else '✗'} | "
+                f"{'✓' if all_min else '✗'} |\n"
+            )
 
         f.write("\n| Method | DSC ≥ 0.87 | bDSC ≥ 0.89 | HD95 ≤ 2.45 | All Target |\n")
         f.write("|--------|------------|-------------|-------------|------------|\n")
@@ -643,18 +665,20 @@ def write_markdown_report(
         for method, key in [("DDIM-50", "ddim_50"), ("DDPM-1000", "ddpm_1000")]:
             tgts = summary[key]["meets_target"]
             all_tgt = all(tgts.values())
-            f.write(f"| {method} | {'✓' if tgts['dsc'] else '✗'} | "
-                   f"{'✓' if tgts['bdsc'] else '✗'} | "
-                   f"{'✓' if tgts['hd95'] else '✗'} | "
-                   f"{'✓' if all_tgt else '✗'} |\n")
+            f.write(
+                f"| {method} | {'✓' if tgts['dsc'] else '✗'} | "
+                f"{'✓' if tgts['bdsc'] else '✗'} | "
+                f"{'✓' if tgts['hd95'] else '✗'} | "
+                f"{'✓' if all_tgt else '✗'} |\n"
+            )
 
         # Inference time comparison
         f.write("\n## Inference Time\n\n")
         ddim_time = summary["ddim_50"]["inference_time_seconds"]
         ddpm_time = summary["ddpm_1000"]["inference_time_seconds"]
         speedup = ddpm_time / ddim_time if ddim_time > 0 else 0
-        f.write(f"- **DDIM-50:** {ddim_time:.1f}s ({ddim_time/60:.1f} min)\n")
-        f.write(f"- **DDPM-1000:** {ddpm_time:.1f}s ({ddpm_time/60:.1f} min)\n")
+        f.write(f"- **DDIM-50:** {ddim_time:.1f}s ({ddim_time / 60:.1f} min)\n")
+        f.write(f"- **DDPM-1000:** {ddpm_time:.1f}s ({ddpm_time / 60:.1f} min)\n")
         f.write(f"- **Speedup:** {speedup:.1f}x faster with DDIM\n")
 
         # Defect type breakdown
@@ -677,39 +701,45 @@ def write_markdown_report(
 
         sorted_diffs = sorted(per_sample, key=lambda x: abs(x["delta_dsc"]), reverse=True)[:10]
         for row in sorted_diffs:
-            f.write(f"| {row['case_id']} | {row['defect']} | {row['ddim_dsc']:.4f} | "
-                   f"{row['ddpm_dsc']:.4f} | {row['delta_dsc']:+.4f} |\n")
+            f.write(
+                f"| {row['case_id']} | {row['defect']} | {row['ddim_dsc']:.4f} | "
+                f"{row['ddpm_dsc']:.4f} | {row['delta_dsc']:+.4f} |\n"
+            )
 
         f.write("\n---\n")
-        f.write(f"*Full per-sample data saved to `per_sample_comparison.csv`*\n")
+        f.write("*Full per-sample data saved to `per_sample_comparison.csv`*\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description="E2E evaluation harness: DDIM-50 vs DDPM-1000")
-    parser.add_argument("--pcdiff-checkpoint", type=Path, required=True,
-                       help="Path to trained PCDiff checkpoint (.pth)")
-    parser.add_argument("--vox-checkpoint", type=Path,
-                       default=Path("voxelization/checkpoints/model_best.pt"),
-                       help="Path to trained voxelization checkpoint")
-    parser.add_argument("--vox-config", type=Path,
-                       default=Path("voxelization/configs/gen_skullbreak.yaml"),
-                       help="Voxelization config file")
-    parser.add_argument("--dataset-csv", type=Path,
-                       default=Path("datasets/SkullBreak/test.csv"),
-                       help="Test dataset CSV")
-    parser.add_argument("--output-dir", type=Path,
-                       default=Path("pcdiff/eval/e2e_comparison"),
-                       help="Output directory for results")
-    parser.add_argument("--num-ens", type=int, default=5,
-                       help="Ensemble size for inference")
-    parser.add_argument("--gpus", type=str, default="0,1",
-                       help="Comma-separated GPU IDs")
-    parser.add_argument("--skip-inference", action="store_true",
-                       help="Skip inference, only compute metrics from existing outputs")
-    parser.add_argument("--ddim-only", action="store_true",
-                       help="Only run DDIM-50 (for quick testing)")
-    parser.add_argument("--ddpm-only", action="store_true",
-                       help="Only run DDPM-1000")
+    parser.add_argument(
+        "--pcdiff-checkpoint", type=Path, required=True, help="Path to trained PCDiff checkpoint (.pth)"
+    )
+    parser.add_argument(
+        "--vox-checkpoint",
+        type=Path,
+        default=Path("voxelization/checkpoints/model_best.pt"),
+        help="Path to trained voxelization checkpoint",
+    )
+    parser.add_argument(
+        "--vox-config",
+        type=Path,
+        default=Path("voxelization/configs/gen_skullbreak.yaml"),
+        help="Voxelization config file",
+    )
+    parser.add_argument(
+        "--dataset-csv", type=Path, default=Path("datasets/SkullBreak/test.csv"), help="Test dataset CSV"
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("pcdiff/eval/e2e_comparison"), help="Output directory for results"
+    )
+    parser.add_argument("--num-ens", type=int, default=5, help="Ensemble size for inference")
+    parser.add_argument("--gpus", type=str, default="0,1", help="Comma-separated GPU IDs")
+    parser.add_argument(
+        "--skip-inference", action="store_true", help="Skip inference, only compute metrics from existing outputs"
+    )
+    parser.add_argument("--ddim-only", action="store_true", help="Only run DDIM-50 (for quick testing)")
+    parser.add_argument("--ddpm-only", action="store_true", help="Only run DDPM-1000")
     args = parser.parse_args()
 
     # Resolve paths
@@ -852,10 +882,10 @@ def main():
         )
 
         print(f"\nComparison artifacts saved to: {output_dir}")
-        print(f"  - comparison_summary.json")
-        print(f"  - comparison_report.md")
-        print(f"  - per_sample_comparison.json")
-        print(f"  - per_sample_comparison.csv")
+        print("  - comparison_summary.json")
+        print("  - comparison_report.md")
+        print("  - per_sample_comparison.json")
+        print("  - per_sample_comparison.csv")
 
         # Print final summary
         print("\n" + "=" * 70)
@@ -863,42 +893,56 @@ def main():
         print("=" * 70)
         print(f"{'Metric':<10} {'DDIM-50':>20} {'DDPM-1000':>20} {'Δ':>12}")
         print("-" * 70)
-        print(f"{'DSC':<10} {ddim_results.mean_dsc:>15.4f}±{ddim_results.std_dsc:.4f} "
-              f"{ddpm_results.mean_dsc:>15.4f}±{ddpm_results.std_dsc:.4f} "
-              f"{ddpm_results.mean_dsc - ddim_results.mean_dsc:>+12.4f}")
-        print(f"{'bDSC':<10} {ddim_results.mean_bdsc:>15.4f}±{ddim_results.std_bdsc:.4f} "
-              f"{ddpm_results.mean_bdsc:>15.4f}±{ddpm_results.std_bdsc:.4f} "
-              f"{ddpm_results.mean_bdsc - ddim_results.mean_bdsc:>+12.4f}")
-        print(f"{'HD95':<10} {ddim_results.mean_hd95:>15.4f}±{ddim_results.std_hd95:.4f} "
-              f"{ddpm_results.mean_hd95:>15.4f}±{ddpm_results.std_hd95:.4f} "
-              f"{ddpm_results.mean_hd95 - ddim_results.mean_hd95:>+12.4f}")
+        print(
+            f"{'DSC':<10} {ddim_results.mean_dsc:>15.4f}±{ddim_results.std_dsc:.4f} "
+            f"{ddpm_results.mean_dsc:>15.4f}±{ddpm_results.std_dsc:.4f} "
+            f"{ddpm_results.mean_dsc - ddim_results.mean_dsc:>+12.4f}"
+        )
+        print(
+            f"{'bDSC':<10} {ddim_results.mean_bdsc:>15.4f}±{ddim_results.std_bdsc:.4f} "
+            f"{ddpm_results.mean_bdsc:>15.4f}±{ddpm_results.std_bdsc:.4f} "
+            f"{ddpm_results.mean_bdsc - ddim_results.mean_bdsc:>+12.4f}"
+        )
+        print(
+            f"{'HD95':<10} {ddim_results.mean_hd95:>15.4f}±{ddim_results.std_hd95:.4f} "
+            f"{ddpm_results.mean_hd95:>15.4f}±{ddpm_results.std_hd95:.4f} "
+            f"{ddpm_results.mean_hd95 - ddim_results.mean_hd95:>+12.4f}"
+        )
         print("=" * 70)
 
     elif ddim_results.samples:
         # Save DDIM-only results
         with (output_dir / "ddim_50_metrics.json").open("w") as f:
-            json.dump({
-                "method": "ddim",
-                "sampling_steps": 50,
-                "num_ens": args.num_ens,
-                "n_samples": len(ddim_results.samples),
-                "dsc": {"mean": ddim_results.mean_dsc, "std": ddim_results.std_dsc},
-                "bdsc": {"mean": ddim_results.mean_bdsc, "std": ddim_results.std_bdsc},
-                "hd95": {"mean": ddim_results.mean_hd95, "std": ddim_results.std_hd95},
-            }, f, indent=2)
+            json.dump(
+                {
+                    "method": "ddim",
+                    "sampling_steps": 50,
+                    "num_ens": args.num_ens,
+                    "n_samples": len(ddim_results.samples),
+                    "dsc": {"mean": ddim_results.mean_dsc, "std": ddim_results.std_dsc},
+                    "bdsc": {"mean": ddim_results.mean_bdsc, "std": ddim_results.std_bdsc},
+                    "hd95": {"mean": ddim_results.mean_hd95, "std": ddim_results.std_hd95},
+                },
+                f,
+                indent=2,
+            )
 
     elif ddpm_results.samples:
         # Save DDPM-only results
         with (output_dir / "ddpm_1000_metrics.json").open("w") as f:
-            json.dump({
-                "method": "ddpm",
-                "sampling_steps": 1000,
-                "num_ens": args.num_ens,
-                "n_samples": len(ddpm_results.samples),
-                "dsc": {"mean": ddpm_results.mean_dsc, "std": ddpm_results.std_dsc},
-                "bdsc": {"mean": ddpm_results.mean_bdsc, "std": ddpm_results.std_bdsc},
-                "hd95": {"mean": ddpm_results.mean_hd95, "std": ddpm_results.std_hd95},
-            }, f, indent=2)
+            json.dump(
+                {
+                    "method": "ddpm",
+                    "sampling_steps": 1000,
+                    "num_ens": args.num_ens,
+                    "n_samples": len(ddpm_results.samples),
+                    "dsc": {"mean": ddpm_results.mean_dsc, "std": ddpm_results.std_dsc},
+                    "bdsc": {"mean": ddpm_results.mean_bdsc, "std": ddpm_results.std_bdsc},
+                    "hd95": {"mean": ddpm_results.mean_hd95, "std": ddpm_results.std_hd95},
+                },
+                f,
+                indent=2,
+            )
 
     print("\nE2E evaluation complete!")
 

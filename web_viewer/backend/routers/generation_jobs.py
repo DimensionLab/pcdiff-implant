@@ -12,7 +12,7 @@ import threading
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from web_viewer.backend.database import get_db, SessionLocal
+from web_viewer.backend.database import SessionLocal, get_db
 from web_viewer.backend.schemas.generation_job import (
     GenerationJobCreate,
     GenerationJobRead,
@@ -46,7 +46,7 @@ def _execute_child_job_in_thread(child_job_id: str):
 def _start_parallel_child_jobs(child_job_ids: list[str]):
     """Start all child jobs in parallel using threads."""
     logger.info(f"Starting {len(child_job_ids)} child jobs in parallel")
-    
+
     # Start each child job in its own thread
     # Threads run independently and don't block each other
     threads = []
@@ -60,7 +60,7 @@ def _start_parallel_child_jobs(child_job_ids: list[str]):
         thread.start()
         threads.append(thread)
         logger.info(f"Started thread for child job {job_id}")
-    
+
     logger.info(f"All {len(child_job_ids)} child job threads started")
 
 
@@ -84,13 +84,13 @@ def create_job(
 
     The job will be executed in the background. Poll the job status
     endpoint to track progress.
-    
+
     For cloud generation with num_ensemble > 1:
     - Creates a parent job to track overall progress
     - Creates N child jobs (one per ensemble) that run in parallel on separate GPU workers
     - Each child job generates exactly 1 implant
     - Parent job aggregates results from all children
-    
+
     For local generation or single ensemble:
     - Creates a single job that runs all ensembles sequentially
     """
@@ -104,8 +104,10 @@ def create_job(
             endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
             api_key = settings_service.get_value("runpod_api_key", "")
             if not endpoint_id or not api_key:
-                raise ValueError("Cloud generation enabled but not configured. Set Runpod endpoint ID and API key in settings.")
-            
+                raise ValueError(
+                    "Cloud generation enabled but not configured. Set Runpod endpoint ID and API key in settings."
+                )
+
             if body.num_ensemble > 1:
                 # PARALLEL ENSEMBLE: Create parent job + N child jobs
                 parent_job = service.create_job(
@@ -121,24 +123,24 @@ def create_job(
                     smoothing_iterations=body.smoothing_iterations,
                     close_holes=body.close_holes,
                 )
-                
+
                 # Mark parent as running (children will update aggregate status)
                 parent_job.status = "running"
                 parent_job.started_at = parent_job.queued_at
                 parent_job.current_step = f"Starting {body.num_ensemble} parallel jobs..."
                 service.db.commit()
                 service.db.refresh(parent_job)
-                
+
                 # Create child jobs and collect their IDs
                 child_job_ids = []
                 for i in range(body.num_ensemble):
                     child_job = service.create_child_job(parent_job, ensemble_index=i)
                     child_job_ids.append(child_job.id)
-                
+
                 # Start all child jobs in parallel using background thread
                 # Each child job will have its own database session
                 background_tasks.add_task(_start_parallel_child_jobs, child_job_ids)
-                
+
                 return parent_job
             else:
                 # Single ensemble - use original flow
@@ -174,7 +176,7 @@ def create_job(
             )
             background_tasks.add_task(service.execute_generation, job.id)
             return job
-            
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -187,17 +189,17 @@ def create_revoxelization_job(
     settings_service: SettingsService = Depends(_get_settings_service),
 ):
     """Create a re-voxelization job to regenerate mesh from existing implant point cloud.
-    
+
     Use this to generate a new STL mesh with a different level of detail (resolution)
     from an already-generated implant point cloud. This skips the diffusion step
     and only runs the voxelization/mesh generation part.
-    
+
     Resolution options:
     - 128: Fast, low detail (for previews)
     - 256: Medium detail
     - 512: High detail (default, balanced)
     - 1024: Ultra detail (slower, for final production)
-    
+
     Can run locally or in the cloud depending on settings and use_cloud flag.
     """
     try:
@@ -212,11 +214,11 @@ def create_revoxelization_job(
             smoothing_iterations=body.smoothing_iterations,
             close_holes=body.close_holes,
         )
-        
+
         # Check if we should use cloud execution
         cloud_enabled = settings_service.get_value("cloud_generation_enabled", "false").lower() == "true"
         use_cloud = body.use_cloud if body.use_cloud is not None else cloud_enabled
-        
+
         if use_cloud:
             # Verify cloud is configured
             endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
@@ -231,9 +233,9 @@ def create_revoxelization_job(
         else:
             # Run locally
             background_tasks.add_task(service.execute_generation, job.id)
-        
+
         return job
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -258,14 +260,14 @@ def list_jobs(
 @router.get("/{job_id}", response_model=GenerationJobWithChildren)
 def get_job(job_id: str, service: GenerationService = Depends(_get_service)):
     """Get a specific generation job by ID.
-    
+
     For parent jobs (num_ensemble > 1 with cloud), includes child_jobs array
     with the status of each parallel ensemble job.
     """
     job = service.get_job_with_children(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Generation job not found")
-    
+
     # Convert to response with children
     response = GenerationJobWithChildren.model_validate(job)
     response.child_jobs = [GenerationJobRead.model_validate(child) for child in job.child_jobs]
@@ -275,13 +277,13 @@ def get_job(job_id: str, service: GenerationService = Depends(_get_service)):
 @router.get("/{job_id}/children", response_model=list[GenerationJobRead])
 def get_child_jobs(job_id: str, service: GenerationService = Depends(_get_service)):
     """Get all child jobs for a parent job.
-    
+
     Returns empty list if the job has no children (single ensemble or local execution).
     """
     job = service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Generation job not found")
-    
+
     return service.get_child_jobs(job_id)
 
 
@@ -325,9 +327,7 @@ def select_output(
 
 
 @router.delete("/{job_id}/unselected-outputs", status_code=204)
-def delete_unselected_outputs(
-    job_id: str, service: GenerationService = Depends(_get_service)
-):
+def delete_unselected_outputs(job_id: str, service: GenerationService = Depends(_get_service)):
     """Delete all unselected outputs from a completed job.
 
     Requires that an output has been selected first.

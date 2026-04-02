@@ -1,21 +1,27 @@
-import multiprocessing
-import time
 import argparse
-import numpy as np
-import nrrd
+import multiprocessing
 import os
-import open3d as o3d
+import time
+
 import mcubes
+import nrrd
+import numpy as np
+import open3d as o3d
 import scipy
 from tqdm import tqdm
 
 # Path to the complete_skull folder of SkullFix dataset
-directory = 'pcdiff/datasets/SkullFix/complete_skull'
+directory = "pcdiff/datasets/SkullFix/complete_skull"
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--multiprocessing', type=eval, default=True, help="set multiprocessing True/False")
-parser.add_argument('--threads', type=int, default=min(multiprocessing.cpu_count() - 1, 16), help="define number of threads (capped at 16 to avoid spawn overhead)")
-parser.add_argument('--keep_mesh', type=eval, default=False, help="save meshes True/False")
+parser.add_argument("--multiprocessing", type=eval, default=True, help="set multiprocessing True/False")
+parser.add_argument(
+    "--threads",
+    type=int,
+    default=min(multiprocessing.cpu_count() - 1, 16),
+    help="define number of threads (capped at 16 to avoid spawn overhead)",
+)
+parser.add_argument("--keep_mesh", type=eval, default=False, help="save meshes True/False")
 opt = parser.parse_args()
 
 database = []
@@ -45,13 +51,11 @@ def readCT(filename):
     """
     ct_data, ct_header = nrrd.read(filename)
 
-    ct_spacing = np.asarray([ct_header['space directions'][0, 0],
-                             ct_header['space directions'][1, 1],
-                             ct_header['space directions'][2, 2]])
+    ct_spacing = np.asarray(
+        [ct_header["space directions"][0, 0], ct_header["space directions"][1, 1], ct_header["space directions"][2, 2]]
+    )
 
-    ct_origin = np.asarray([ct_header['space origin'][0],
-                            ct_header['space origin'][1],
-                            ct_header['space origin'][2]])
+    ct_origin = np.asarray([ct_header["space origin"][0], ct_header["space origin"][1], ct_header["space origin"][2]])
 
     # if ct_spacing[2] > 0:
     #     num_slices = int(180 / ct_spacing[2])
@@ -103,7 +107,7 @@ def padding(complete, defective, implant):
     elif x == 0:
         dim_x = (0, 0)
     else:
-        dim_x = (int(x-0.5), int(x+0.5))
+        dim_x = (int(x - 0.5), int(x + 0.5))
 
     y = (512 - complete.shape[1]) / 2
     if y % 1 == 0:
@@ -111,7 +115,7 @@ def padding(complete, defective, implant):
     elif y == 0:
         dim_y = (0, 0)
     else:
-        dim_y = (int(y-0.5), int(y+0.5))
+        dim_y = (int(y - 0.5), int(y + 0.5))
 
     z = 512 - complete.shape[2]
     if z > 0:
@@ -119,9 +123,9 @@ def padding(complete, defective, implant):
     else:
         dim_z = (0, 0)
 
-    complete = np.pad(complete, (dim_x, dim_y, dim_z), 'constant', constant_values=0)
-    defective = np.pad(defective, (dim_x, dim_y, dim_z), 'constant', constant_values=0)
-    implant = np.pad(implant, (dim_x, dim_y, dim_z), 'constant', constant_values=0)
+    complete = np.pad(complete, (dim_x, dim_y, dim_z), "constant", constant_values=0)
+    defective = np.pad(defective, (dim_x, dim_y, dim_z), "constant", constant_values=0)
+    implant = np.pad(implant, (dim_x, dim_y, dim_z), "constant", constant_values=0)
 
     assert complete.shape == defective.shape == implant.shape
     return complete, defective, implant
@@ -131,50 +135,50 @@ def process_one(obj):
     """Process one sample. Returns dict with processing stats."""
     datapoint = obj
     results = {"processed": 0, "skipped": 0, "failed": 0}
-    
+
     # Check if outputs already exist
-    complete_pc_filename = datapoint['complete'].split('.nrrd')[0] + '_surf.npy'
-    defective_pc_filename = datapoint['defect'].split('.nrrd')[0] + '_surf.npy'
-    impl_pc_filename = datapoint['implant'].split('.nrrd')[0] + '_surf.npy'
-    
+    complete_pc_filename = datapoint["complete"].split(".nrrd")[0] + "_surf.npy"
+    defective_pc_filename = datapoint["defect"].split(".nrrd")[0] + "_surf.npy"
+    impl_pc_filename = datapoint["implant"].split(".nrrd")[0] + "_surf.npy"
+
     all_exist = all(os.path.exists(f) for f in [complete_pc_filename, defective_pc_filename, impl_pc_filename])
     if all_exist:
         try:
             # Validate existing files
             for filename in [complete_pc_filename, defective_pc_filename, impl_pc_filename]:
-                data = np.load(filename, mmap_mode='r')
+                data = np.load(filename, mmap_mode="r")
                 if data.shape[0] < 100:  # Basic validation
                     raise ValueError("Invalid file")
             results["skipped"] = 3
             return results
         except Exception:
             pass  # Files corrupted, will regenerate
-    
+
     try:
         # ------------------------------------------------------------
         # Perform marching cubes to extract the skull/ implant surface
         # ------------------------------------------------------------
 
-        complete = readCT(datapoint['complete'])
-        defective = readCT(datapoint['defect'])
-        implant = readCT(datapoint['implant'])
+        complete = readCT(datapoint["complete"])
+        defective = readCT(datapoint["defect"])
+        implant = readCT(datapoint["implant"])
 
         complete, defective, implant = crop(complete, defective, implant)
         complete, defective, implant = padding(complete, defective, implant)
 
         # For complete skull
         complete_surf_vert, complete_surf_triangles = mcubes.marching_cubes(complete, 0)
-        complete_surf_filename = datapoint['complete'].split('.nrrd')[0] + '_surf.obj'
+        complete_surf_filename = datapoint["complete"].split(".nrrd")[0] + "_surf.obj"
         mcubes.export_obj(complete_surf_vert, complete_surf_triangles, complete_surf_filename)
 
         # For defective skull
         defective_surf_vert, defective_surf_triangles = mcubes.marching_cubes(defective, 0)
-        defective_surf_filename = datapoint['defect'].split('.nrrd')[0] + '_surf.obj'
+        defective_surf_filename = datapoint["defect"].split(".nrrd")[0] + "_surf.obj"
         mcubes.export_obj(defective_surf_vert, defective_surf_triangles, defective_surf_filename)
 
         # For implant
         impl_surf_vert, impl_surf_triangles = mcubes.marching_cubes(implant, 0)
-        impl_surf_filename = datapoint['implant'].split('.nrrd')[0] + '_surf.obj'
+        impl_surf_filename = datapoint["implant"].split(".nrrd")[0] + "_surf.obj"
         mcubes.export_obj(impl_surf_vert, impl_surf_triangles, impl_surf_filename)
 
         # ---------------------------------------------
@@ -184,7 +188,7 @@ def process_one(obj):
         complete_surf = o3d.io.read_triangle_mesh(complete_surf_filename)
         complete_pc = complete_surf.sample_points_poisson_disk(400000)
         complete_pc_np = np.asarray(complete_pc.points)
-        complete_pc_tmp = complete_pc_filename + '.tmp'
+        complete_pc_tmp = complete_pc_filename + ".tmp"
         np.save(complete_pc_tmp, complete_pc_np)
         os.rename(complete_pc_tmp, complete_pc_filename)
 
@@ -192,7 +196,7 @@ def process_one(obj):
         defective_surf = o3d.io.read_triangle_mesh(defective_surf_filename)
         defective_pc = defective_surf.sample_points_poisson_disk(400000)
         defective_pc_np = np.asarray(defective_pc.points)
-        defective_pc_tmp = defective_pc_filename + '.tmp'
+        defective_pc_tmp = defective_pc_filename + ".tmp"
         np.save(defective_pc_tmp, defective_pc_np)
         os.rename(defective_pc_tmp, defective_pc_filename)
 
@@ -200,7 +204,7 @@ def process_one(obj):
         impl_surf = o3d.io.read_triangle_mesh(impl_surf_filename)
         impl_pc = impl_surf.sample_points_poisson_disk(400000)
         impl_pc_np = np.asarray(impl_pc.points)
-        impl_pc_tmp = impl_pc_filename + '.tmp'
+        impl_pc_tmp = impl_pc_filename + ".tmp"
         np.save(impl_pc_tmp, impl_pc_np)
         os.rename(impl_pc_tmp, impl_pc_filename)
 
@@ -214,12 +218,12 @@ def process_one(obj):
                 os.remove(defective_surf_filename)
             if os.path.exists(impl_surf_filename):
                 os.remove(impl_surf_filename)
-        
+
         results["processed"] = 3
         return results
-    except Exception as e:
+    except Exception:
         # Clean up any temporary files
-        for tmp in [complete_pc_filename + '.tmp', defective_pc_filename + '.tmp', impl_pc_filename + '.tmp']:
+        for tmp in [complete_pc_filename + ".tmp", defective_pc_filename + ".tmp", impl_pc_filename + ".tmp"]:
             if os.path.exists(tmp):
                 os.remove(tmp)
         results["failed"] = 3
@@ -231,16 +235,16 @@ def main():
     for root, dirs, files in os.walk(directory, topdown=False):
         for filename in files:
             # Create 5 datapoints for each complete skull
-            if filename.endswith('.nrrd'):
+            if filename.endswith(".nrrd"):
                 datapoint = dict()
-                datapoint['complete'] = os.path.join(root, filename)
-                pardir = root.split('/complete')
-                datapoint['defect'] = os.path.join(pardir[0], 'defective_skull', filename)
-                datapoint['implant'] = os.path.join(pardir[0], 'implant', filename)
+                datapoint["complete"] = os.path.join(root, filename)
+                pardir = root.split("/complete")
+                datapoint["defect"] = os.path.join(pardir[0], "defective_skull", filename)
+                datapoint["implant"] = os.path.join(pardir[0], "implant", filename)
                 database.append(datapoint)
 
     total_stats = {"processed": 0, "skipped": 0, "failed": 0}
-    
+
     if multiprocess:
         pool = multiprocessing.Pool(njobs)
         try:
@@ -256,16 +260,16 @@ def main():
             result = process_one(obj)
             for key in total_stats:
                 total_stats[key] += result[key]
-    
-    print(f"\nProcessing summary:")
+
+    print("\nProcessing summary:")
     print(f"  Processed: {total_stats['processed']}")
     print(f"  Skipped (already done): {total_stats['skipped']}")
     print(f"  Failed: {total_stats['failed']}")
 
 
 if __name__ == "__main__":
-    print('Preprocess SkullFix dataset ...')
+    print("Preprocess SkullFix dataset ...")
     t_start = time.time()
     main()
     t_end = time.time()
-    print('Done. Total processing time: ', t_end - t_start)
+    print("Done. Total processing time: ", t_end - t_start)

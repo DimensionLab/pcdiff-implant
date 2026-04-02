@@ -97,18 +97,16 @@ class VerificationResult:
 def get_git_info() -> tuple[str, str]:
     """Get current git commit hash and branch."""
     try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
     except Exception:
         commit = "unknown"
 
     try:
-        branch = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        branch = (
+            subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
     except Exception:
         branch = "unknown"
 
@@ -128,12 +126,7 @@ def compute_file_hash(filepath: Path) -> str:
         return "unknown"
 
 
-def verify_metrics(
-    dsc: float,
-    bdsc: float,
-    hd95: float,
-    threshold_type: str = "minimum"
-) -> Dict[str, bool]:
+def verify_metrics(dsc: float, bdsc: float, hd95: float, threshold_type: str = "minimum") -> Dict[str, bool]:
     """Verify metrics against thresholds."""
     thresholds = ACCEPTANCE_CRITERIA[threshold_type]
     return {
@@ -255,29 +248,41 @@ def print_verification_summary(result: VerificationResult) -> None:
     print("\n" + "-" * 60)
     print("DDIM-50 Results:")
     print("-" * 60)
-    print(f"  DSC:   {result.ddim_dsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['dsc']:.2f}, "
-          f"target: {ACCEPTANCE_CRITERIA['target']['dsc']:.2f}) "
-          f"[{'PASS' if result.ddim_meets_minimum['dsc'] else 'FAIL'}]")
-    print(f"  bDSC:  {result.ddim_bdsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['bdsc']:.2f}, "
-          f"target: {ACCEPTANCE_CRITERIA['target']['bdsc']:.2f}) "
-          f"[{'PASS' if result.ddim_meets_minimum['bdsc'] else 'FAIL'}]")
-    print(f"  HD95:  {result.ddim_hd95:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['hd95']:.2f}, "
-          f"target: {ACCEPTANCE_CRITERIA['target']['hd95']:.2f}) "
-          f"[{'PASS' if result.ddim_meets_minimum['hd95'] else 'FAIL'}]")
+    print(
+        f"  DSC:   {result.ddim_dsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['dsc']:.2f}, "
+        f"target: {ACCEPTANCE_CRITERIA['target']['dsc']:.2f}) "
+        f"[{'PASS' if result.ddim_meets_minimum['dsc'] else 'FAIL'}]"
+    )
+    print(
+        f"  bDSC:  {result.ddim_bdsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['bdsc']:.2f}, "
+        f"target: {ACCEPTANCE_CRITERIA['target']['bdsc']:.2f}) "
+        f"[{'PASS' if result.ddim_meets_minimum['bdsc'] else 'FAIL'}]"
+    )
+    print(
+        f"  HD95:  {result.ddim_hd95:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['hd95']:.2f}, "
+        f"target: {ACCEPTANCE_CRITERIA['target']['hd95']:.2f}) "
+        f"[{'PASS' if result.ddim_meets_minimum['hd95'] else 'FAIL'}]"
+    )
 
     if result.ddpm_dsc is not None:
         print("\n" + "-" * 60)
         print("DDPM-1000 Results:")
         print("-" * 60)
-        print(f"  DSC:   {result.ddpm_dsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['dsc']:.2f}, "
-              f"target: {ACCEPTANCE_CRITERIA['target']['dsc']:.2f}) "
-              f"[{'PASS' if result.ddpm_meets_minimum['dsc'] else 'FAIL'}]")
-        print(f"  bDSC:  {result.ddpm_bdsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['bdsc']:.2f}, "
-              f"target: {ACCEPTANCE_CRITERIA['target']['bdsc']:.2f}) "
-              f"[{'PASS' if result.ddpm_meets_minimum['bdsc'] else 'FAIL'}]")
-        print(f"  HD95:  {result.ddpm_hd95:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['hd95']:.2f}, "
-              f"target: {ACCEPTANCE_CRITERIA['target']['hd95']:.2f}) "
-              f"[{'PASS' if result.ddpm_meets_minimum['hd95'] else 'FAIL'}]")
+        print(
+            f"  DSC:   {result.ddpm_dsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['dsc']:.2f}, "
+            f"target: {ACCEPTANCE_CRITERIA['target']['dsc']:.2f}) "
+            f"[{'PASS' if result.ddpm_meets_minimum['dsc'] else 'FAIL'}]"
+        )
+        print(
+            f"  bDSC:  {result.ddpm_bdsc:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['bdsc']:.2f}, "
+            f"target: {ACCEPTANCE_CRITERIA['target']['bdsc']:.2f}) "
+            f"[{'PASS' if result.ddpm_meets_minimum['bdsc'] else 'FAIL'}]"
+        )
+        print(
+            f"  HD95:  {result.ddpm_hd95:.4f} (min: {ACCEPTANCE_CRITERIA['minimum']['hd95']:.2f}, "
+            f"target: {ACCEPTANCE_CRITERIA['target']['hd95']:.2f}) "
+            f"[{'PASS' if result.ddpm_meets_minimum['hd95'] else 'FAIL'}]"
+        )
 
     print("\n" + "=" * 60)
     print("OVERALL VERIFICATION STATUS")
@@ -294,40 +299,21 @@ def print_verification_summary(result: VerificationResult) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Verify PCDiff checkpoint against acceptance criteria"
-    )
+    parser = argparse.ArgumentParser(description="Verify PCDiff checkpoint against acceptance criteria")
     parser.add_argument(
-        "--eval-dir",
-        type=Path,
-        help="Path to E2E evaluation output directory (contains comparison_summary.json)"
+        "--eval-dir", type=Path, help="Path to E2E evaluation output directory (contains comparison_summary.json)"
     )
+    parser.add_argument("--checkpoint", type=Path, help="Path to PCDiff checkpoint (.pth file)")
     parser.add_argument(
-        "--checkpoint",
-        type=Path,
-        help="Path to PCDiff checkpoint (.pth file)"
+        "--run-eval", action="store_true", help="Run full E2E evaluation before verification (requires --checkpoint)"
     )
-    parser.add_argument(
-        "--run-eval",
-        action="store_true",
-        help="Run full E2E evaluation before verification (requires --checkpoint)"
-    )
-    parser.add_argument(
-        "--freeze-report",
-        action="store_true",
-        help="Generate a frozen evaluation report artifact"
-    )
+    parser.add_argument("--freeze-report", action="store_true", help="Generate a frozen evaluation report artifact")
     parser.add_argument(
         "--output-report",
         type=Path,
-        help="Output path for frozen report (default: <eval-dir>/frozen_evaluation_report.json)"
+        help="Output path for frozen report (default: <eval-dir>/frozen_evaluation_report.json)",
     )
-    parser.add_argument(
-        "--gpus",
-        type=str,
-        default="0,1",
-        help="GPU IDs for E2E evaluation (comma-separated)"
-    )
+    parser.add_argument("--gpus", type=str, default="0,1", help="GPU IDs for E2E evaluation (comma-separated)")
 
     args = parser.parse_args()
 
@@ -350,7 +336,7 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         eval_dir = Path(f"pcdiff/eval/verification_{timestamp}")
 
-        print(f"Running E2E evaluation...")
+        print("Running E2E evaluation...")
         print(f"  Checkpoint: {args.checkpoint}")
         print(f"  Output: {eval_dir}")
         print(f"  GPUs: {args.gpus}")
@@ -359,9 +345,12 @@ def main():
         cmd = [
             sys.executable,
             "pcdiff/eval_e2e.py",
-            "--pcdiff-checkpoint", str(args.checkpoint),
-            "--output-dir", str(eval_dir),
-            "--gpus", args.gpus,
+            "--pcdiff-checkpoint",
+            str(args.checkpoint),
+            "--output-dir",
+            str(eval_dir),
+            "--gpus",
+            args.gpus,
         ]
 
         result = subprocess.run(cmd, check=False)

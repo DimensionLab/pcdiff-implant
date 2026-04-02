@@ -1,11 +1,13 @@
-import torch
-import numpy as np
 import time
-from src.utils import point_rasterize, grid_interp, mc_from_psr, calc_inters_points
-from src.dpsr import DPSR
+
+import numpy as np
+import torch
 import torch.nn as nn
-from src.network import encoder_dict, decoder_dict
+
+from src.dpsr import DPSR
+from src.network import decoder_dict, encoder_dict
 from src.network.utils import map2local
+from src.utils import calc_inters_points, grid_interp, mc_from_psr, point_rasterize
 
 
 class PSR2Mesh(torch.autograd.Function):
@@ -39,8 +41,8 @@ class PSR2Mesh(torch.autograd.Function):
         # matrix multiplication between dL/dV and dV/dPSR
         # dV/dPSR = - normals
         grad_vert = torch.matmul(dL_dVertex.permute(1, 0, 2), -normals.permute(1, 2, 0))
-        grad_grid = point_rasterize(vert_pts, grad_vert.permute(1, 0, 2), res) # b x 1 x res x res x res
-        
+        grad_grid = point_rasterize(vert_pts, grad_vert.permute(1, 0, 2), res)  # b x 1 x res x res x res
+
         return grad_grid
 
 
@@ -48,9 +50,8 @@ class PSR2SurfacePoints(torch.autograd.Function):
     @staticmethod
     def forward(ctx, psr_grid, poses, img_size, uv, psr_grad, mask_sample):
         verts, faces, normals = mc_from_psr(psr_grid, pytorchify=True)
-        verts = verts * 2. - 1. # within the range of [-1, 1]
+        verts = verts * 2.0 - 1.0  # within the range of [-1, 1]
 
-        
         p_all, n_all, mask_all = [], [], []
 
         for i in range(len(poses)):
@@ -68,7 +69,6 @@ class PSR2SurfacePoints(torch.autograd.Function):
         n_inters_all = torch.cat(n_all, dim=0)
         mask_visible = torch.stack(mask_all, dim=0)
 
-
         res = torch.tensor(psr_grid.detach().shape[2])
         ctx.save_for_backward(p_inters_all, n_inters_all, res)
 
@@ -81,8 +81,8 @@ class PSR2SurfacePoints(torch.autograd.Function):
 
         # grad from the p_inters via MLP renderer
         grad_pts = torch.matmul(dL_dp[:, None], -pts_n[..., None])
-        grad_grid_pts = point_rasterize((pts[None]+1)/2, grad_pts.permute(1, 0, 2), res)  # b x 1 x res x res x res
-        
+        grad_grid_pts = point_rasterize((pts[None] + 1) / 2, grad_pts.permute(1, 0, 2), res)  # b x 1 x res x res x res
+
         return grad_grid_pts, None, None, None, None, None
 
 
@@ -90,22 +90,22 @@ class Encode2Points(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        
-        encoder = cfg['model']['encoder']  # encoder type
-        decoder = cfg['model']['decoder']
-        dim = cfg['data']['dim']  # input data dim
-        c_dim = cfg['model']['c_dim']
-        encoder_kwargs = cfg['model']['encoder_kwargs']
+
+        encoder = cfg["model"]["encoder"]  # encoder type
+        decoder = cfg["model"]["decoder"]
+        dim = cfg["data"]["dim"]  # input data dim
+        c_dim = cfg["model"]["c_dim"]
+        encoder_kwargs = cfg["model"]["encoder_kwargs"]
         if encoder_kwargs == None:
             encoder_kwargs = {}
-        decoder_kwargs = cfg['model']['decoder_kwargs']
-        padding = cfg['data']['padding']
-        self.predict_normal = cfg['model']['predict_normal']
-        self.predict_offset = cfg['model']['predict_offset']
+        decoder_kwargs = cfg["model"]["decoder_kwargs"]
+        padding = cfg["data"]["padding"]
+        self.predict_normal = cfg["model"]["predict_normal"]
+        self.predict_offset = cfg["model"]["predict_offset"]
 
         out_dim = 3
         out_dim_offset = 3
-        num_offset = cfg['data']['num_offset']
+        num_offset = cfg["data"]["num_offset"]
         # each point predict more than one offset to add output points
         if num_offset > 1:
             out_dim_offset = out_dim * num_offset
@@ -113,43 +113,37 @@ class Encode2Points(nn.Module):
 
         # local mapping
         self.map2local = None
-        if cfg['model']['local_coord']:
-            if 'unet' in encoder_kwargs.keys():
-                unit_size = 1 / encoder_kwargs['plane_resolution']
+        if cfg["model"]["local_coord"]:
+            if "unet" in encoder_kwargs.keys():
+                unit_size = 1 / encoder_kwargs["plane_resolution"]
             else:
-                unit_size = 1 / encoder_kwargs['grid_resolution']
-            
+                unit_size = 1 / encoder_kwargs["grid_resolution"]
+
             local_mapping = map2local(unit_size)
 
-        self.encoder = encoder_dict[encoder](
-            dim=dim, c_dim=c_dim, map2local=local_mapping,
-            **encoder_kwargs
-        )
+        self.encoder = encoder_dict[encoder](dim=dim, c_dim=c_dim, map2local=local_mapping, **encoder_kwargs)
 
         if self.predict_normal:
             # decoder for normal prediction
-            self.decoder_normal = decoder_dict[decoder](
-                dim=dim, c_dim=c_dim, out_dim=out_dim,
-                **decoder_kwargs)
+            self.decoder_normal = decoder_dict[decoder](dim=dim, c_dim=c_dim, out_dim=out_dim, **decoder_kwargs)
         if self.predict_offset:
             # decoder for offset prediction
             self.decoder_offset = decoder_dict[decoder](
-                dim=dim, c_dim=c_dim, out_dim=out_dim_offset,
-                map2local=local_mapping,
-                **decoder_kwargs)
+                dim=dim, c_dim=c_dim, out_dim=out_dim_offset, map2local=local_mapping, **decoder_kwargs
+            )
 
-            self.s_off = cfg['model']['s_offset']
+            self.s_off = cfg["model"]["s_offset"]
 
     def forward(self, p):
-        ''' Performs a forward pass through the network.
+        """Performs a forward pass through the network.
 
         Args:
             p (tensor): input unoriented points
-        '''
+        """
 
         time_dict = {}
         mask = None
-        
+
         batch_size = p.size(0)
         points = p.clone()
 
@@ -169,13 +163,12 @@ class Encode2Points(nn.Module):
         if self.predict_normal:
             normals = self.decoder_normal(points, c)
         t2 = time.perf_counter()
-        
-        time_dict['encode'] = t1 - t0
-        time_dict['predict'] = t2 - t1
-        
+
+        time_dict["encode"] = t1 - t0
+        time_dict["predict"] = t2 - t1
+
         points = torch.clamp(points, 0.0, 0.99)
-        if self.cfg['model']['normal_normalize']:
-            normals = normals / (normals.norm(dim=-1, keepdim=True)+1e-8)
+        if self.cfg["model"]["normal_normalize"]:
+            normals = normals / (normals.norm(dim=-1, keepdim=True) + 1e-8)
 
         return points, normals
-    

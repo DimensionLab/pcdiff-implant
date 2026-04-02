@@ -1,11 +1,12 @@
-import torch.nn as nn
 import torch
-import modules.functional as F
-from modules.voxelization import Voxelization
-from modules.shared_mlp import SharedMLP
-from modules.se import SE3d
+import torch.nn as nn
 
-__all__ = ['PVConv', 'Attention', 'Swish', 'PVConvReLU']
+import modules.functional as F
+from modules.se import SE3d
+from modules.shared_mlp import SharedMLP
+from modules.voxelization import Voxelization
+
+__all__ = ["PVConv", "Attention", "Swish", "PVConvReLU"]
 
 
 class Swish(nn.Module):
@@ -59,8 +60,19 @@ class Attention(nn.Module):
 
 
 class PVConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, resolution, attention=False,
-                 dropout=0.1, with_se=False, with_se_relu=False, normalize=True, eps=0):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        resolution,
+        attention=False,
+        dropout=0.1,
+        with_se=False,
+        with_se_relu=False,
+        normalize=True,
+        eps=0,
+    ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -69,15 +81,19 @@ class PVConv(nn.Module):
 
         self.voxelization = Voxelization(resolution, normalize=normalize, eps=eps)
 
-        voxel_layers = [nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2),
-                        nn.GroupNorm(num_groups=8, num_channels=out_channels),
-                        Swish()]
+        voxel_layers = [
+            nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
+            Swish(),
+        ]
 
         voxel_layers += [nn.Dropout(dropout)] if dropout is not None else []
 
-        voxel_layers += [nn.Conv3d(out_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2),
-                         nn.GroupNorm(num_groups=8, num_channels=out_channels),
-                         Attention(out_channels, 8) if attention else Swish()]
+        voxel_layers += [
+            nn.Conv3d(out_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
+            Attention(out_channels, 8) if attention else Swish(),
+        ]
 
         if with_se:
             voxel_layers.append(SE3d(out_channels, use_relu=with_se_relu))
@@ -94,8 +110,20 @@ class PVConv(nn.Module):
 
 
 class PVConvReLU(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, resolution, attention=False, leak=0.2,
-                 dropout=0.1, with_se=False, with_se_relu=False, normalize=True, eps=0):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        resolution,
+        attention=False,
+        leak=0.2,
+        dropout=0.1,
+        with_se=False,
+        with_se_relu=False,
+        normalize=True,
+        eps=0,
+    ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -106,13 +134,13 @@ class PVConvReLU(nn.Module):
         voxel_layers = [
             nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2),
             nn.BatchNorm3d(out_channels),
-            nn.LeakyReLU(leak, True)
+            nn.LeakyReLU(leak, True),
         ]
         voxel_layers += [nn.Dropout(dropout)] if dropout is not None else []
         voxel_layers += [
             nn.Conv3d(out_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2),
             nn.BatchNorm3d(out_channels),
-            Attention(out_channels, 8) if attention else nn.LeakyReLU(leak, True)
+            Attention(out_channels, 8) if attention else nn.LeakyReLU(leak, True),
         ]
         if with_se:
             voxel_layers.append(SE3d(out_channels, use_relu=with_se_relu))

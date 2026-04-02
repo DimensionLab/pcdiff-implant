@@ -16,13 +16,7 @@ class ProjectService:
         self.audit = audit
 
     def list_projects(self, limit: int = 100, offset: int = 0) -> list[Project]:
-        return (
-            self.db.query(Project)
-            .order_by(Project.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return self.db.query(Project).order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
 
     def get_project(self, project_id: str) -> Project | None:
         return self.db.query(Project).filter(Project.id == project_id).first()

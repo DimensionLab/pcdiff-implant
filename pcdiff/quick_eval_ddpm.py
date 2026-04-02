@@ -27,12 +27,12 @@ sys.path.insert(0, str(ROOT_DIR / "pcdiff"))
 sys.path.insert(0, str(ROOT_DIR / "voxelization"))
 
 from proxy_eval import (
+    VOXELIZATION_AVAILABLE,
+    ProxySample,
     VoxelizationRunner,
+    compute_metrics_for_sample,
     load_proxy_subset,
     run_pcdiff_inference_on_sample,
-    compute_metrics_for_sample,
-    ProxySample,
-    VOXELIZATION_AVAILABLE,
 )
 from test_completion import Model, get_betas
 
@@ -40,8 +40,9 @@ from test_completion import Model, get_betas
 def load_model(checkpoint_path: Path, device: torch.device, args) -> Model:
     """Load PCDiff model from checkpoint."""
     betas = get_betas(args.schedule_type, args.beta_start, args.beta_end, args.time_num)
-    model = Model(args, betas, args.loss_type, args.model_mean_type, args.model_var_type,
-                  args.width_mult, args.vox_res_mult)
+    model = Model(
+        args, betas, args.loss_type, args.model_mean_type, args.model_var_type, args.width_mult, args.vox_res_mult
+    )
 
     state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
@@ -68,7 +69,7 @@ def load_model(checkpoint_path: Path, device: torch.device, args) -> Model:
             changed = False
             for prefix in prefixes_to_remove:
                 if new_key.startswith(prefix):
-                    new_key = new_key[len(prefix):]
+                    new_key = new_key[len(prefix) :]
                     changed = True
                 # Also handle ".module." and "._orig_mod." anywhere in the key
                 if ".module." in new_key:
@@ -122,7 +123,7 @@ def run_quick_eval(
     total_time = 0
 
     for i, sample in enumerate(samples):
-        logger.info(f"Processing sample {i+1}/{len(samples)}: case {sample.case_id}")
+        logger.info(f"Processing sample {i + 1}/{len(samples)}: case {sample.case_id}")
 
         start_time = time.time()
 
@@ -148,14 +149,16 @@ def run_quick_eval(
         elapsed = time.time() - start_time
         total_time += elapsed
 
-        results.append({
-            "case_id": sample.case_id,
-            "dsc": result.dsc,
-            "bdsc": result.bdsc,
-            "hd95": result.hd95,
-            "time_s": elapsed,
-            "error": result.error,
-        })
+        results.append(
+            {
+                "case_id": sample.case_id,
+                "dsc": result.dsc,
+                "bdsc": result.bdsc,
+                "hd95": result.hd95,
+                "time_s": elapsed,
+                "error": result.error,
+            }
+        )
 
         logger.info(f"  DSC={result.dsc:.4f}, bDSC={result.bdsc:.4f}, HD95={result.hd95:.2f} ({elapsed:.1f}s)")
 
@@ -185,14 +188,14 @@ def run_quick_eval(
         "timestamp": datetime.now().isoformat(),
     }
 
-    logger.info(f"\n=== DDPM-1000 Evaluation Summary ===")
+    logger.info("\n=== DDPM-1000 Evaluation Summary ===")
     logger.info(f"Checkpoint: {checkpoint_path}")
     logger.info(f"Samples: {len(valid_results)}/{len(samples)} valid")
     logger.info(f"Mean DSC: {mean_dsc:.4f}")
     logger.info(f"Mean bDSC: {mean_bdsc:.4f}")
     logger.info(f"Mean HD95: {mean_hd95:.2f}")
     logger.info(f"Total time: {total_time:.1f}s")
-    logger.info(f"=====================================\n")
+    logger.info("=====================================\n")
 
     return summary
 
@@ -233,7 +236,7 @@ def main():
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
 

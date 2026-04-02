@@ -2,7 +2,7 @@ from torch.autograd import Function
 
 from modules.functional.backend import _backend
 
-__all__ = ['avg_voxelize']
+__all__ = ["avg_voxelize"]
 
 
 class AvgVoxelization(Function):

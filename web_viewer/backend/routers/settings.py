@@ -1,15 +1,16 @@
 """
 API endpoints for application settings.
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from web_viewer.backend.database import get_db
 from web_viewer.backend.schemas.settings import (
-    SettingRead,
-    SettingUpdate,
     AllSettingsRead,
     AllSettingsUpdate,
+    SettingRead,
+    SettingUpdate,
     SystemInfoRead,
 )
 from web_viewer.backend.services.settings_service import SettingsService
@@ -27,11 +28,11 @@ def get_all_settings(
 ):
     """Get all application settings."""
     settings_dict = service.get_all_as_dict()
-    
+
     # Check if API key is set (don't expose the actual key)
     runpod_api_key = settings_dict.get("runpod_api_key", "")
     runpod_api_key_set = bool(runpod_api_key and len(runpod_api_key) > 0)
-    
+
     return AllSettingsRead(
         inference_device=settings_dict.get("inference_device", "auto"),
         default_sampling_method=settings_dict.get("default_sampling_method", "ddim"),
@@ -108,15 +109,15 @@ def get_system_info(
 ):
     """Get system information for device selection."""
     info = SettingsService.get_system_info()
-    
+
     # Add cloud configuration status
     settings_dict = service.get_all_as_dict()
     runpod_endpoint_id = settings_dict.get("runpod_endpoint_id", "")
     runpod_api_key = settings_dict.get("runpod_api_key", "")
-    
+
     info["cloud_configured"] = bool(runpod_endpoint_id and runpod_api_key)
     info["runpod_endpoint_id"] = runpod_endpoint_id if runpod_endpoint_id else None
-    
+
     return info
 
 

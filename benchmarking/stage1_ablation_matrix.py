@@ -64,9 +64,7 @@ def build_command(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Generate a reproducible stage-1 ablation matrix and shell script."
-    )
+    parser = argparse.ArgumentParser(description="Generate a reproducible stage-1 ablation matrix and shell script.")
     parser.add_argument(
         "--datasets",
         default="SkullBreak",

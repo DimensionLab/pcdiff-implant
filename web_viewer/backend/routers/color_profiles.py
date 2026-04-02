@@ -25,9 +25,7 @@ def list_profiles(service: ColorProfileService = Depends(_get_service)):
 
 
 @router.post("/", response_model=ColorProfileRead, status_code=201)
-def create_profile(
-    body: ColorProfileCreate, service: ColorProfileService = Depends(_get_service)
-):
+def create_profile(body: ColorProfileCreate, service: ColorProfileService = Depends(_get_service)):
     return service.create_profile(
         name=body.name,
         description=body.description,
@@ -48,9 +46,7 @@ def get_default_profile(service: ColorProfileService = Depends(_get_service)):
 
 
 @router.get("/{profile_id}", response_model=ColorProfileRead)
-def get_profile(
-    profile_id: str, service: ColorProfileService = Depends(_get_service)
-):
+def get_profile(profile_id: str, service: ColorProfileService = Depends(_get_service)):
     profile = service.get_profile(profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="ColorProfile not found")
@@ -63,17 +59,13 @@ def update_profile(
     body: ColorProfileUpdate,
     service: ColorProfileService = Depends(_get_service),
 ):
-    profile = service.update_profile(
-        profile_id, **body.model_dump(exclude_none=True)
-    )
+    profile = service.update_profile(profile_id, **body.model_dump(exclude_none=True))
     if not profile:
         raise HTTPException(status_code=404, detail="ColorProfile not found")
     return profile
 
 
 @router.delete("/{profile_id}", status_code=204)
-def delete_profile(
-    profile_id: str, service: ColorProfileService = Depends(_get_service)
-):
+def delete_profile(profile_id: str, service: ColorProfileService = Depends(_get_service)):
     if not service.delete_profile(profile_id):
         raise HTTPException(status_code=404, detail="ColorProfile not found")

@@ -1,11 +1,14 @@
-import torch
 import time
-import trimesh
+
 import numpy as np
+import torch
+import trimesh
+
 from src.utils import mc_from_psr
 
+
 class Generator3D(object):
-    '''  Generator class for Occupancy Networks.
+    """Generator class for Occupancy Networks.
 
     It provides functions to generate the final mesh as well refining options.
 
@@ -17,11 +20,20 @@ class Generator3D(object):
         padding (float): how much padding should be used for MISE
         sample (bool): whether z should be sampled
         input_type (str): type of input
-    '''
+    """
 
-    def __init__(self, model, points_batch_size=100000,
-                 threshold=0.5, device=None, padding=0.1, 
-                 sample=False, input_type = None, dpsr=None, psr_tanh=True):
+    def __init__(
+        self,
+        model,
+        points_batch_size=100000,
+        threshold=0.5,
+        device=None,
+        padding=0.1,
+        sample=False,
+        input_type=None,
+        dpsr=None,
+        psr_tanh=True,
+    ):
         self.model = model.to(device)
         self.points_batch_size = points_batch_size
         self.threshold = threshold
@@ -31,15 +43,15 @@ class Generator3D(object):
         self.sample = sample
         self.dpsr = dpsr
         self.psr_tanh = psr_tanh
-        
+
     def generate_mesh(self, data, return_stats=False, progress_callback=None):
-        ''' Generates the output mesh.
+        """Generates the output mesh.
 
         Args:
             data (tensor): data tensor
             return_stats (bool): whether stats should be returned
             progress_callback: Optional callable(step_name, step_num, total_steps) for progress reporting
-        '''
+        """
         self.model.eval()
         device = self.device
         stats_dict = {}
@@ -63,10 +75,10 @@ class Generator3D(object):
             progress_callback("Extracting mesh (marching cubes)", 3, 3)
 
         v, f, _ = mc_from_psr(psr_grid, zero_level=self.threshold)
-        stats_dict['pcl'] = t1 - t0
-        stats_dict['dpsr'] = t2 - t1
-        stats_dict['mc'] = time.time() - t2
-        stats_dict['total'] = time.time() - t0
+        stats_dict["pcl"] = t1 - t0
+        stats_dict["dpsr"] = t2 - t1
+        stats_dict["mc"] = time.time() - t2
+        stats_dict["total"] = time.time() - t0
 
         if return_stats:
             return v, f, points, normals, psr_grid, stats_dict

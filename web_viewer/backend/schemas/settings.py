@@ -1,6 +1,7 @@
 """
 Pydantic schemas for application settings.
 """
+
 from datetime import datetime
 from typing import Literal
 

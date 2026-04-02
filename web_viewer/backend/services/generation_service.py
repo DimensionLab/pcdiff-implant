@@ -172,10 +172,10 @@ class GenerationService:
         close_holes: bool = False,
     ) -> GenerationJob:
         """Create a re-voxelization job (only runs voxelization, no diffusion).
-        
+
         This is used to generate a mesh from an existing implant point cloud
         with a different voxelization resolution (level of detail).
-        
+
         Args:
             project_id: Project to associate the job with
             source_implant_pc_id: Existing implant point cloud to re-voxelize
@@ -188,7 +188,7 @@ class GenerationService:
         source_pc = self.db.query(PointCloud).filter(PointCloud.id == source_implant_pc_id).first()
         if not source_pc:
             raise ValueError(f"Source implant point cloud not found: {source_implant_pc_id}")
-        
+
         # Validate input point cloud exists
         input_pc = self.db.query(PointCloud).filter(PointCloud.id == input_pc_id).first()
         if not input_pc:
@@ -197,7 +197,9 @@ class GenerationService:
         # Generate default name if not provided
         if not name:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            res_label = {128: "low", 256: "medium", 512: "high", 1024: "ultra"}.get(voxelization_resolution, str(voxelization_resolution))
+            res_label = {128: "low", 256: "medium", 512: "high", 1024: "ultra"}.get(
+                voxelization_resolution, str(voxelization_resolution)
+            )
             name = f"Revoxel_{source_pc.name}_{res_label}_{timestamp}"
 
         job = GenerationJob(
@@ -255,7 +257,7 @@ class GenerationService:
         include_children: bool = False,
     ) -> list[GenerationJob]:
         """List generation jobs with optional filtering.
-        
+
         By default, only returns parent jobs (jobs without parent_job_id).
         Set include_children=True to also return child jobs.
         """
@@ -268,7 +270,7 @@ class GenerationService:
             # Only return parent jobs (those without a parent)
             q = q.filter(GenerationJob.parent_job_id == None)
         return q.order_by(GenerationJob.created_at.desc()).offset(offset).limit(limit).all()
-    
+
     def get_job_with_children(self, job_id: str) -> GenerationJob | None:
         """Get a generation job by ID with its child jobs loaded."""
         job = self.db.query(GenerationJob).filter(GenerationJob.id == job_id).first()
@@ -276,7 +278,7 @@ class GenerationService:
             # Eagerly load child jobs
             _ = job.child_jobs
         return job
-    
+
     def get_child_jobs(self, parent_job_id: str) -> list[GenerationJob]:
         """Get all child jobs for a parent job."""
         return (
@@ -285,7 +287,7 @@ class GenerationService:
             .order_by(GenerationJob.ensemble_index)
             .all()
         )
-    
+
     def create_child_job(
         self,
         parent_job: GenerationJob,
@@ -314,37 +316,37 @@ class GenerationService:
         self.db.commit()
         self.db.refresh(child_job)
         return child_job
-    
+
     def update_parent_job_status(self, parent_job_id: str) -> GenerationJob | None:
         """Update parent job status based on child job statuses.
-        
+
         Called after a child job completes/fails to update the parent's aggregate status.
         """
         parent_job = self.get_job(parent_job_id)
         if not parent_job:
             return None
-        
+
         child_jobs = self.get_child_jobs(parent_job_id)
         if not child_jobs:
             return parent_job
-        
+
         # Calculate aggregate status
         total = len(child_jobs)
         completed = sum(1 for j in child_jobs if j.status == "completed")
         failed = sum(1 for j in child_jobs if j.status == "failed")
         cancelled = sum(1 for j in child_jobs if j.status == "cancelled")
         running = sum(1 for j in child_jobs if j.status == "running")
-        
+
         # Calculate aggregate progress
         total_progress = sum(j.progress_percent for j in child_jobs)
         parent_job.progress_percent = total_progress // total
-        
+
         # Determine parent status
         if completed == total:
             parent_job.status = "completed"
             parent_job.completed_at = datetime.now(timezone.utc)
             parent_job.current_step = f"All {total} ensembles completed"
-            
+
             # Aggregate output IDs from all children
             all_pc_ids = []
             all_stl_ids = []
@@ -355,13 +357,13 @@ class GenerationService:
                     all_stl_ids.extend(json.loads(child.output_stl_ids_json))
             parent_job.output_pc_ids_json = json.dumps(all_pc_ids)
             parent_job.output_stl_ids_json = json.dumps(all_stl_ids)
-            
+
             # Calculate total generation time
             if parent_job.started_at:
                 parent_job.generation_time_ms = int(
                     (datetime.now(timezone.utc) - parent_job.started_at).total_seconds() * 1000
                 )
-            
+
             self._create_notification(
                 type="generation_completed",
                 title="Generation Completed",
@@ -374,7 +376,7 @@ class GenerationService:
             parent_job.completed_at = datetime.now(timezone.utc)
             parent_job.error_message = f"All {total} ensemble jobs failed or were cancelled"
             parent_job.current_step = "Failed"
-            
+
             self._create_notification(
                 type="generation_failed",
                 title="Generation Failed",
@@ -389,7 +391,7 @@ class GenerationService:
             parent_job.current_step = f"{completed}/{total} ensembles completed"
             if failed > 0:
                 parent_job.error_message = f"{failed} ensemble(s) failed"
-            
+
             # Aggregate output IDs from completed children only
             all_pc_ids = []
             all_stl_ids = []
@@ -401,12 +403,12 @@ class GenerationService:
                         all_stl_ids.extend(json.loads(child.output_stl_ids_json))
             parent_job.output_pc_ids_json = json.dumps(all_pc_ids)
             parent_job.output_stl_ids_json = json.dumps(all_stl_ids)
-            
+
             if parent_job.started_at:
                 parent_job.generation_time_ms = int(
                     (datetime.now(timezone.utc) - parent_job.started_at).total_seconds() * 1000
                 )
-            
+
             self._create_notification(
                 type="generation_completed",
                 title="Generation Partially Completed",
@@ -419,7 +421,7 @@ class GenerationService:
             parent_job.current_step = f"Running: {completed}/{total} completed, {running} in progress"
         else:
             parent_job.current_step = f"Queued: {total} ensemble jobs"
-        
+
         self.db.commit()
         self.db.refresh(parent_job)
         return parent_job
@@ -445,7 +447,7 @@ class GenerationService:
 
     def cancel_job(self, job_id: str) -> GenerationJob | None:
         """Cancel a pending or running job.
-        
+
         For parent jobs, also cancels all child jobs.
         For jobs with active RunPod workers, attempts to cancel them.
         """
@@ -463,7 +465,7 @@ class GenerationService:
                 child.status = "cancelled"
                 child.error_message = "Parent job cancelled"
                 child.completed_at = datetime.now(timezone.utc)
-                
+
                 # Try to cancel RunPod job if one is running
                 self._try_cancel_runpod_job(child)
 
@@ -471,10 +473,10 @@ class GenerationService:
         job.status = "cancelled"
         job.error_message = "Cancelled by user"
         job.completed_at = datetime.now(timezone.utc)
-        
+
         # Try to cancel RunPod job if one is running for this job
         self._try_cancel_runpod_job(job)
-        
+
         self.db.commit()
         self.db.refresh(job)
 
@@ -486,40 +488,40 @@ class GenerationService:
         )
 
         return job
-    
+
     def _try_cancel_runpod_job(self, job: GenerationJob) -> bool:
         """Attempt to cancel a RunPod job if one exists for this generation job.
-        
+
         Returns True if cancellation was attempted, False otherwise.
         """
         try:
             # Check if job has RunPod metadata
             if not job.metrics_json:
                 return False
-            
+
             metrics = json.loads(job.metrics_json)
             runpod_job_id = metrics.get("runpod_job_id")
-            
+
             if not runpod_job_id:
                 return False
-            
+
             # Get RunPod credentials
-            from web_viewer.backend.services.settings_service import SettingsService
             from web_viewer.backend.services.runpod_service import RunpodService
-            
+            from web_viewer.backend.services.settings_service import SettingsService
+
             settings_service = SettingsService(self.db)
             endpoint_id = settings_service.get_value("runpod_endpoint_id", "")
             api_key = settings_service.get_value("runpod_api_key", "")
-            
+
             if not endpoint_id or not api_key:
                 return False
-            
+
             # Cancel the RunPod job
             runpod = RunpodService(endpoint_id=endpoint_id, api_key=api_key)
             runpod.cancel_job_sync(runpod_job_id)
             logger.info(f"Cancelled RunPod job {runpod_job_id} for generation job {job.id}")
             return True
-            
+
         except Exception as e:
             logger.warning(f"Failed to cancel RunPod job for {job.id}: {e}")
             return False
@@ -607,13 +609,13 @@ class GenerationService:
         Execute the full generation pipeline for a job.
 
         This method is designed to be called from a background task.
-        Supports both full generation (PCDiff + voxelization) and 
+        Supports both full generation (PCDiff + voxelization) and
         re-voxelization only (for existing implant point clouds).
         """
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job not found: {job_id}")
-        
+
         # Check if this is a re-voxelization job
         if job.is_revoxelization_job:
             return self._execute_revoxelization(job, vox_model_path, progress_callback)
@@ -721,8 +723,8 @@ class GenerationService:
 
                 # Register as PointCloud
                 pc = PointCloud(
-                    name=f"{job.name} - Implant #{i+1}",
-                    description=f"Generated implant (ensemble {i+1}/{job.num_ensemble}) from {input_pc.name}",
+                    name=f"{job.name} - Implant #{i + 1}",
+                    description=f"Generated implant (ensemble {i + 1}/{job.num_ensemble}) from {input_pc.name}",
                     file_path=str(output_path),
                     file_format="npy",
                     file_size_bytes=get_file_size(output_path),
@@ -732,14 +734,16 @@ class GenerationService:
                     defect_type=input_pc.defect_type,
                     skull_id=input_pc.skull_id,
                     project_id=job.project_id,
-                    metadata_json=json.dumps({
-                        "generation_job_id": job.id,
-                        "ensemble_index": i,
-                        "sampling_method": job.sampling_method,
-                        "sampling_steps": job.sampling_steps,
-                        "shift": shift.tolist(),
-                        "scale": float(scale),
-                    }),
+                    metadata_json=json.dumps(
+                        {
+                            "generation_job_id": job.id,
+                            "ensemble_index": i,
+                            "sampling_method": job.sampling_method,
+                            "sampling_steps": job.sampling_steps,
+                            "shift": shift.tolist(),
+                            "scale": float(scale),
+                        }
+                    ),
                 )
                 self.db.add(pc)
                 self.db.commit()
@@ -763,10 +767,7 @@ class GenerationService:
             # Check if voxelization model exists
             vox_model_exists = Path(vox_model_path).exists()
             if not vox_model_exists:
-                logger.warning(
-                    "Voxelization model not found at %s - skipping mesh generation",
-                    vox_model_path
-                )
+                logger.warning("Voxelization model not found at %s - skipping mesh generation", vox_model_path)
 
             try:
                 if not vox_model_exists:
@@ -779,10 +780,7 @@ class GenerationService:
 
                     # Create voxelization progress callback (use default args to capture values)
                     def vox_progress_callback(
-                        step_desc: str,
-                        _base=base_progress,
-                        _idx=ensemble_idx,
-                        _total=total_ensemble
+                        step_desc: str, _base=base_progress, _idx=ensemble_idx, _total=total_ensemble
                     ):
                         update_progress(_base, f"Voxelizing {_idx}/{_total}: {step_desc}")
 
@@ -810,8 +808,8 @@ class GenerationService:
 
                     # Register as PointCloud record (STL mesh)
                     stl_pc = PointCloud(
-                        name=f"{job.name} - Implant #{i+1} (STL)",
-                        description=f"Generated implant mesh (ensemble {i+1}/{job.num_ensemble})",
+                        name=f"{job.name} - Implant #{i + 1} (STL)",
+                        description=f"Generated implant mesh (ensemble {i + 1}/{job.num_ensemble})",
                         file_path=str(stl_path),
                         file_format="stl",
                         file_size_bytes=get_file_size(stl_path),
@@ -821,11 +819,13 @@ class GenerationService:
                         defect_type=input_pc.defect_type,
                         skull_id=input_pc.skull_id,
                         project_id=job.project_id,
-                        metadata_json=json.dumps({
-                            "generation_job_id": job.id,
-                            "ensemble_index": i,
-                            "source_pc_id": output_pc_ids[i],
-                        }),
+                        metadata_json=json.dumps(
+                            {
+                                "generation_job_id": job.id,
+                                "ensemble_index": i,
+                                "source_pc_id": output_pc_ids[i],
+                            }
+                        ),
                     )
                     self.db.add(stl_pc)
                     self.db.commit()
@@ -859,7 +859,7 @@ class GenerationService:
             self._create_notification(
                 type="generation_completed",
                 title="Generation Complete",
-                message=f"Implant generation '{job.name}' completed successfully in {elapsed_ms/1000:.1f}s.",
+                message=f"Implant generation '{job.name}' completed successfully in {elapsed_ms / 1000:.1f}s.",
                 entity_type="generation_job",
                 entity_id=job.id,
             )
@@ -876,7 +876,9 @@ class GenerationService:
 
             logger.info(
                 "Generation job completed: %s (%d outputs, %dms)",
-                job.id, len(output_pc_ids), elapsed_ms,
+                job.id,
+                len(output_pc_ids),
+                elapsed_ms,
             )
 
         except Exception as e:
@@ -915,7 +917,7 @@ class GenerationService:
     ) -> GenerationJob:
         """
         Execute re-voxelization of an existing implant point cloud.
-        
+
         This skips the PCDiff diffusion step and only runs voxelization
         with the job's specified resolution.
         """
@@ -988,10 +990,10 @@ class GenerationService:
             bbox_max = all_points.max(axis=0)
             center = (bbox_min + bbox_max) / 2
             scale = (bbox_max - bbox_min).max()
-            
+
             # Use a slightly larger bounding box for stability
             shift = center - 0.5 * scale
-            
+
             # Normalize implant points
             implant_normalized = (implant_points_world - shift) / scale
 
@@ -1038,12 +1040,14 @@ class GenerationService:
                 defect_type=input_pc.defect_type,
                 skull_id=input_pc.skull_id,
                 project_id=job.project_id,
-                metadata_json=json.dumps({
-                    "generation_job_id": job.id,
-                    "source_implant_pc_id": job.source_implant_pc_id,
-                    "voxelization_resolution": job.voxelization_resolution,
-                    "is_revoxelization": True,
-                }),
+                metadata_json=json.dumps(
+                    {
+                        "generation_job_id": job.id,
+                        "source_implant_pc_id": job.source_implant_pc_id,
+                        "voxelization_resolution": job.voxelization_resolution,
+                        "is_revoxelization": True,
+                    }
+                ),
             )
             self.db.add(stl_pc)
             self.db.commit()
@@ -1069,7 +1073,7 @@ class GenerationService:
             self._create_notification(
                 type="generation_completed",
                 title="Re-voxelization Complete",
-                message=f"Re-voxelization '{job.name}' completed in {elapsed_ms/1000:.1f}s.",
+                message=f"Re-voxelization '{job.name}' completed in {elapsed_ms / 1000:.1f}s.",
                 entity_type="generation_job",
                 entity_id=job.id,
             )
@@ -1087,7 +1091,9 @@ class GenerationService:
 
             logger.info(
                 "Re-voxelization job completed: %s (resolution: %d³, %dms)",
-                job.id, job.voxelization_resolution, elapsed_ms,
+                job.id,
+                job.voxelization_resolution,
+                elapsed_ms,
             )
 
         except Exception as e:
@@ -1140,8 +1146,8 @@ class GenerationService:
             Updated GenerationJob with results
         """
         from web_viewer.backend.services.runpod_service import (
-            RunpodService,
             RunpodError,
+            RunpodService,
             download_from_s3_url,
             parse_runpod_results,
         )
@@ -1150,14 +1156,14 @@ class GenerationService:
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job not found: {job_id}")
-        
+
         # Check if job was cancelled before we even start
         if job.status == "cancelled":
             logger.info(f"Job {job_id} was cancelled before execution")
             return job
 
         t0 = time.time()
-        
+
         def _check_cancelled() -> bool:
             """Check if job was cancelled. Refreshes job from DB."""
             self.db.refresh(job)
@@ -1235,13 +1241,13 @@ class GenerationService:
             )
 
             logger.info(f"Submitted Runpod job: {runpod_job_id}")
-            
+
             # Store RunPod job ID immediately so it can be cancelled
             job.metrics_json = json.dumps({"runpod_job_id": runpod_job_id, "cloud_generated": True})
             self.db.commit()
-            
+
             update_progress(15, f"Job queued (ID: {runpod_job_id[:8]}...)")
-            
+
             # Check if cancelled after submission
             if _check_cancelled():
                 logger.info(f"Job {job_id} cancelled after RunPod submission, cancelling RunPod job")
@@ -1272,21 +1278,23 @@ class GenerationService:
 
             # Parse results
             output = result.get("output", {})
-            
+
             # Check if output is missing (worker crashed or returned nothing)
             if not output:
                 logger.error(f"RunPod job {runpod_job_id} completed but returned no output. Full response: {result}")
-                raise RunpodError(f"Cloud worker returned no output. This usually means the worker crashed. Check RunPod logs for job {runpod_job_id}")
-            
+                raise RunpodError(
+                    f"Cloud worker returned no output. This usually means the worker crashed. Check RunPod logs for job {runpod_job_id}"
+                )
+
             if output.get("status") == "error":
-                error_msg = output.get('error', 'Unknown error')
-                traceback_info = output.get('traceback', '')
+                error_msg = output.get("error", "Unknown error")
+                traceback_info = output.get("traceback", "")
                 logger.error(f"RunPod job failed: {error_msg}\n{traceback_info}")
                 raise RunpodError(f"Cloud inference failed: {error_msg}")
 
             s3_results = output.get("results", {})
             metadata = output.get("metadata", {})
-            
+
             # Check if results are empty
             if not s3_results:
                 logger.warning(f"RunPod job {runpod_job_id} returned empty results. Output: {output}")
@@ -1300,7 +1308,9 @@ class GenerationService:
 
             # Download implant point cloud(s)
             for i in range(job.num_ensemble):
-                update_progress(80 + int((i / job.num_ensemble) * 15), f"Downloading ensemble {i+1}/{job.num_ensemble}")
+                update_progress(
+                    80 + int((i / job.num_ensemble) * 15), f"Downloading ensemble {i + 1}/{job.num_ensemble}"
+                )
 
                 # Download implant NPY
                 implant_npy_url = s3_results.get("implant_npy")
@@ -1309,16 +1319,16 @@ class GenerationService:
                     try:
                         # Use AWS credentials from environment for authenticated S3 download
                         download_from_s3_url(
-                            implant_npy_url, 
+                            implant_npy_url,
                             local_npy_path,
-                            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
-                            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+                            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                         )
                         implant_pc = np.load(str(local_npy_path))
 
                         # Register as PointCloud
                         pc = PointCloud(
-                            name=f"{job.name} - Implant #{i+1} (Cloud)",
+                            name=f"{job.name} - Implant #{i + 1} (Cloud)",
                             description=f"Generated implant (cloud GPU) from {input_pc.name}",
                             file_path=str(local_npy_path),
                             file_format="npy",
@@ -1329,14 +1339,16 @@ class GenerationService:
                             defect_type=input_pc.defect_type,
                             skull_id=input_pc.skull_id,
                             project_id=job.project_id,
-                            metadata_json=json.dumps({
-                                "generation_job_id": job.id,
-                                "ensemble_index": i,
-                                "cloud_generated": True,
-                                "runpod_job_id": runpod_job_id,
-                                "s3_url": implant_npy_url,
-                                "processing_time_seconds": metadata.get("processing_time_seconds"),
-                            }),
+                            metadata_json=json.dumps(
+                                {
+                                    "generation_job_id": job.id,
+                                    "ensemble_index": i,
+                                    "cloud_generated": True,
+                                    "runpod_job_id": runpod_job_id,
+                                    "s3_url": implant_npy_url,
+                                    "processing_time_seconds": metadata.get("processing_time_seconds"),
+                                }
+                            ),
                         )
                         self.db.add(pc)
                         self.db.commit()
@@ -1352,16 +1364,16 @@ class GenerationService:
                     try:
                         # Use AWS credentials from environment for authenticated S3 download
                         download_from_s3_url(
-                            implant_stl_url, 
+                            implant_stl_url,
                             local_stl_path,
-                            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
-                            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+                            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                         )
 
                         # Register as PointCloud record (STL mesh)
                         stl_pc = PointCloud(
-                            name=f"{job.name} - Implant #{i+1} (STL, Cloud)",
-                            description=f"Generated implant mesh (cloud GPU)",
+                            name=f"{job.name} - Implant #{i + 1} (STL, Cloud)",
+                            description="Generated implant mesh (cloud GPU)",
                             file_path=str(local_stl_path),
                             file_format="stl",
                             file_size_bytes=get_file_size(local_stl_path),
@@ -1371,12 +1383,14 @@ class GenerationService:
                             defect_type=input_pc.defect_type,
                             skull_id=input_pc.skull_id,
                             project_id=job.project_id,
-                            metadata_json=json.dumps({
-                                "generation_job_id": job.id,
-                                "ensemble_index": i,
-                                "cloud_generated": True,
-                                "s3_url": implant_stl_url,
-                            }),
+                            metadata_json=json.dumps(
+                                {
+                                    "generation_job_id": job.id,
+                                    "ensemble_index": i,
+                                    "cloud_generated": True,
+                                    "s3_url": implant_stl_url,
+                                }
+                            ),
                         )
                         self.db.add(stl_pc)
                         self.db.commit()
@@ -1398,13 +1412,15 @@ class GenerationService:
             job.output_stl_ids_json = json.dumps(output_stl_ids)
 
             # Store cloud metadata
-            job.metrics_json = json.dumps({
-                "cloud_generated": True,
-                "runpod_job_id": runpod_job_id,
-                "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
-                "model_source": metadata.get("model_source"),
-                "s3_results": s3_results,
-            })
+            job.metrics_json = json.dumps(
+                {
+                    "cloud_generated": True,
+                    "runpod_job_id": runpod_job_id,
+                    "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                    "model_source": metadata.get("model_source"),
+                    "s3_results": s3_results,
+                }
+            )
 
             # Auto-select first output if only one
             if len(output_pc_ids) == 1:
@@ -1416,7 +1432,7 @@ class GenerationService:
             self._create_notification(
                 type="generation_completed",
                 title="Cloud Generation Complete",
-                message=f"Implant generation '{job.name}' completed on cloud GPU in {elapsed_ms/1000:.1f}s.",
+                message=f"Implant generation '{job.name}' completed on cloud GPU in {elapsed_ms / 1000:.1f}s.",
                 entity_type="generation_job",
                 entity_id=job.id,
             )
@@ -1435,7 +1451,9 @@ class GenerationService:
 
             logger.info(
                 "Cloud generation job completed: %s (%d outputs, %dms)",
-                job.id, len(output_pc_ids), elapsed_ms,
+                job.id,
+                len(output_pc_ids),
+                elapsed_ms,
             )
 
         except Exception as e:
@@ -1473,12 +1491,12 @@ class GenerationService:
     ) -> GenerationJob:
         """
         Execute re-voxelization using Runpod cloud GPU.
-        
+
         This skips PCDiff and only runs voxelization in the cloud.
         """
         from web_viewer.backend.services.runpod_service import (
-            RunpodService,
             RunpodError,
+            RunpodService,
             download_from_s3_url,
         )
         from web_viewer.backend.services.settings_service import SettingsService
@@ -1486,7 +1504,7 @@ class GenerationService:
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job not found: {job_id}")
-        
+
         if not job.is_revoxelization_job:
             raise ValueError(f"Job {job_id} is not a re-voxelization job")
 
@@ -1551,9 +1569,10 @@ class GenerationService:
             )
 
             import asyncio
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             runpod_job_id = loop.run_until_complete(
                 runpod_service.submit_revoxelization_job(
                     implant_points=implant_points,
@@ -1590,16 +1609,16 @@ class GenerationService:
             # Download STL from S3
             output_stl_ids = []
             implant_stl_url = s3_results.get("implant_only_stl")
-            
+
             if implant_stl_url:
                 output_dir = Path(input_pc.file_path).parent
                 local_stl_path = output_dir / f"{job.id}_revox_res{job.voxelization_resolution}.stl"
 
                 download_from_s3_url(
-                    implant_stl_url, 
+                    implant_stl_url,
                     local_stl_path,
-                    aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
-                    aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+                    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                 )
 
                 # Register as PointCloud record
@@ -1618,14 +1637,16 @@ class GenerationService:
                     defect_type=input_pc.defect_type,
                     skull_id=input_pc.skull_id,
                     project_id=job.project_id,
-                    metadata_json=json.dumps({
-                        "generation_job_id": job.id,
-                        "source_implant_pc_id": job.source_implant_pc_id,
-                        "voxelization_resolution": job.voxelization_resolution,
-                        "is_revoxelization": True,
-                        "cloud_generated": True,
-                        "s3_url": implant_stl_url,
-                    }),
+                    metadata_json=json.dumps(
+                        {
+                            "generation_job_id": job.id,
+                            "source_implant_pc_id": job.source_implant_pc_id,
+                            "voxelization_resolution": job.voxelization_resolution,
+                            "is_revoxelization": True,
+                            "cloud_generated": True,
+                            "s3_url": implant_stl_url,
+                        }
+                    ),
                 )
                 self.db.add(stl_pc)
                 self.db.commit()
@@ -1642,16 +1663,18 @@ class GenerationService:
             job.completed_at = datetime.now(timezone.utc)
             job.generation_time_ms = elapsed_ms
             job.output_stl_ids_json = json.dumps(output_stl_ids)
-            
+
             if output_stl_ids:
                 job.selected_output_id = output_stl_ids[0]
 
-            job.metrics_json = json.dumps({
-                "cloud_generated": True,
-                "runpod_job_id": runpod_job_id,
-                "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
-                "voxelization_resolution": job.voxelization_resolution,
-            })
+            job.metrics_json = json.dumps(
+                {
+                    "cloud_generated": True,
+                    "runpod_job_id": runpod_job_id,
+                    "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                    "voxelization_resolution": job.voxelization_resolution,
+                }
+            )
 
             self.db.commit()
             self.db.refresh(job)
@@ -1659,7 +1682,7 @@ class GenerationService:
             self._create_notification(
                 type="generation_completed",
                 title="Cloud Re-voxelization Complete",
-                message=f"Re-voxelization '{job.name}' completed on cloud GPU in {elapsed_ms/1000:.1f}s.",
+                message=f"Re-voxelization '{job.name}' completed on cloud GPU in {elapsed_ms / 1000:.1f}s.",
                 entity_type="generation_job",
                 entity_id=job.id,
             )
@@ -1677,7 +1700,9 @@ class GenerationService:
 
             logger.info(
                 "Cloud re-voxelization completed: %s (resolution: %d³, %dms)",
-                job.id, job.voxelization_resolution, elapsed_ms,
+                job.id,
+                job.voxelization_resolution,
+                elapsed_ms,
             )
 
         except Exception as e:
@@ -1715,20 +1740,20 @@ class GenerationService:
     ) -> GenerationJob:
         """
         Execute a single child job for parallel ensemble generation on cloud.
-        
+
         This is called for each child job in a parallel ensemble batch.
         After completion, it updates the parent job's aggregate status.
-        
+
         Args:
             child_job_id: The child generation job ID
             progress_callback: Optional callback(percent, step_text)
-            
+
         Returns:
             Updated child GenerationJob with results
         """
         from web_viewer.backend.services.runpod_service import (
-            RunpodService,
             RunpodError,
+            RunpodService,
             download_from_s3_url,
         )
         from web_viewer.backend.services.settings_service import SettingsService
@@ -1736,10 +1761,10 @@ class GenerationService:
         job = self.get_job(child_job_id)
         if not job:
             raise ValueError(f"Child job not found: {child_job_id}")
-        
+
         if not job.parent_job_id:
             raise ValueError(f"Job {child_job_id} is not a child job")
-        
+
         # Check if job was cancelled before we even start
         if job.status == "cancelled":
             logger.info(f"Child job {child_job_id} was cancelled before execution")
@@ -1747,7 +1772,7 @@ class GenerationService:
 
         parent_job_id = job.parent_job_id
         t0 = time.time()
-        
+
         def _check_cancelled() -> bool:
             """Check if job was cancelled. Refreshes job from DB."""
             self.db.refresh(job)
@@ -1769,7 +1794,7 @@ class GenerationService:
             job.started_at = datetime.now(timezone.utc)
             job.current_step = "Connecting to cloud GPU"
             self.db.commit()
-            
+
             # Update parent status
             self.update_parent_job_status(parent_job_id)
 
@@ -1827,13 +1852,13 @@ class GenerationService:
             )
 
             logger.info(f"Submitted child Runpod job: {runpod_job_id} (ensemble {job.ensemble_index})")
-            
+
             # Store RunPod job ID immediately so it can be cancelled
             job.metrics_json = json.dumps({"runpod_job_id": runpod_job_id, "cloud_generated": True})
             self.db.commit()
-            
+
             update_progress(15, f"Job queued (ID: {runpod_job_id[:8]}...)")
-            
+
             # Check if cancelled after submission
             if _check_cancelled():
                 logger.info(f"Child job {child_job_id} cancelled after RunPod submission, cancelling RunPod job")
@@ -1863,21 +1888,23 @@ class GenerationService:
 
             # Parse results
             output = result.get("output", {})
-            
+
             # Check if output is missing (worker crashed or returned nothing)
             if not output:
                 logger.error(f"RunPod job {runpod_job_id} completed but returned no output. Full response: {result}")
-                raise RunpodError(f"Cloud worker returned no output. This usually means the worker crashed. Check RunPod logs for job {runpod_job_id}")
-            
+                raise RunpodError(
+                    f"Cloud worker returned no output. This usually means the worker crashed. Check RunPod logs for job {runpod_job_id}"
+                )
+
             if output.get("status") == "error":
-                error_msg = output.get('error', 'Unknown error')
-                traceback_info = output.get('traceback', '')
+                error_msg = output.get("error", "Unknown error")
+                traceback_info = output.get("traceback", "")
                 logger.error(f"RunPod job failed: {error_msg}\n{traceback_info}")
                 raise RunpodError(f"Cloud inference failed: {error_msg}")
 
             s3_results = output.get("results", {})
             metadata = output.get("metadata", {})
-            
+
             # Check if results are empty
             if not s3_results:
                 logger.warning(f"RunPod job {runpod_job_id} returned empty results. Output: {output}")
@@ -1900,8 +1927,8 @@ class GenerationService:
                     download_from_s3_url(
                         implant_npy_url,
                         local_npy_path,
-                        aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
-                        aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+                        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                     )
                     implant_pc = np.load(str(local_npy_path))
 
@@ -1922,15 +1949,17 @@ class GenerationService:
                         defect_type=input_pc.defect_type,
                         skull_id=input_pc.skull_id,
                         project_id=job.project_id,
-                        metadata_json=json.dumps({
-                            "generation_job_id": job.id,
-                            "parent_job_id": parent_job_id,
-                            "ensemble_index": ensemble_idx,
-                            "cloud_generated": True,
-                            "runpod_job_id": runpod_job_id,
-                            "s3_url": implant_npy_url,
-                            "processing_time_seconds": metadata.get("processing_time_seconds"),
-                        }),
+                        metadata_json=json.dumps(
+                            {
+                                "generation_job_id": job.id,
+                                "parent_job_id": parent_job_id,
+                                "ensemble_index": ensemble_idx,
+                                "cloud_generated": True,
+                                "runpod_job_id": runpod_job_id,
+                                "s3_url": implant_npy_url,
+                                "processing_time_seconds": metadata.get("processing_time_seconds"),
+                            }
+                        ),
                     )
                     self.db.add(pc)
                     self.db.commit()
@@ -1949,8 +1978,8 @@ class GenerationService:
                     download_from_s3_url(
                         implant_stl_url,
                         local_stl_path,
-                        aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
-                        aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
+                        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+                        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                     )
 
                     parent_job = self.get_job(parent_job_id)
@@ -1968,13 +1997,15 @@ class GenerationService:
                         defect_type=input_pc.defect_type,
                         skull_id=input_pc.skull_id,
                         project_id=job.project_id,
-                        metadata_json=json.dumps({
-                            "generation_job_id": job.id,
-                            "parent_job_id": parent_job_id,
-                            "ensemble_index": ensemble_idx,
-                            "cloud_generated": True,
-                            "s3_url": implant_stl_url,
-                        }),
+                        metadata_json=json.dumps(
+                            {
+                                "generation_job_id": job.id,
+                                "parent_job_id": parent_job_id,
+                                "ensemble_index": ensemble_idx,
+                                "cloud_generated": True,
+                                "s3_url": implant_stl_url,
+                            }
+                        ),
                     )
                     self.db.add(stl_pc)
                     self.db.commit()
@@ -1995,12 +2026,14 @@ class GenerationService:
             job.output_pc_ids_json = json.dumps(output_pc_ids)
             job.output_stl_ids_json = json.dumps(output_stl_ids)
 
-            job.metrics_json = json.dumps({
-                "cloud_generated": True,
-                "runpod_job_id": runpod_job_id,
-                "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
-                "model_source": metadata.get("model_source"),
-            })
+            job.metrics_json = json.dumps(
+                {
+                    "cloud_generated": True,
+                    "runpod_job_id": runpod_job_id,
+                    "cloud_processing_time_seconds": metadata.get("processing_time_seconds"),
+                    "model_source": metadata.get("model_source"),
+                }
+            )
 
             self.db.commit()
             self.db.refresh(job)
@@ -2010,7 +2043,9 @@ class GenerationService:
 
             logger.info(
                 "Child cloud generation completed: %s (ensemble %d, %dms)",
-                job.id, ensemble_idx, elapsed_ms,
+                job.id,
+                ensemble_idx,
+                elapsed_ms,
             )
 
         except Exception as e:
@@ -2116,7 +2151,9 @@ class GenerationService:
         # Run generation
         with torch.no_grad():
             sample = model.gen_samples(
-                pc_input, noise_shape, device,
+                pc_input,
+                noise_shape,
+                device,
                 clip_denoised=False,
                 sampling_method=sampling_method,
                 sampling_steps=sampling_steps,
@@ -2172,7 +2209,7 @@ class GenerationService:
                     self.attention = True
                     self.dropout = 0.1
                     self.embed_dim = 64
-                    self.sampling_method = 'ddpm'  # Always use ddpm init!
+                    self.sampling_method = "ddpm"  # Always use ddpm init!
                     self.sampling_steps = 1000
 
             model_args = ModelArgs()
@@ -2183,6 +2220,7 @@ class GenerationService:
 
             # Select device based on settings
             from web_viewer.backend.services.settings_service import SettingsService
+
             settings_service = SettingsService(self.db)
             device_name = settings_service.get_inference_device()
             device = torch.device(device_name)
@@ -2190,8 +2228,13 @@ class GenerationService:
 
             # Create model
             model = Model(
-                model_args, betas, "mse", "eps", "fixedsmall",
-                width_mult=1.0, vox_res_mult=1.0,
+                model_args,
+                betas,
+                "mse",
+                "eps",
+                "fixedsmall",
+                width_mult=1.0,
+                vox_res_mult=1.0,
             )
             model = model.to(device)
             model.eval()
@@ -2263,13 +2306,14 @@ class GenerationService:
         defective_normalized = (defective_points - shift) / scale
 
         # Combine defective skull + implant
-        combined_points = np.concatenate(
-            [defective_normalized, implant_points_normalized], axis=0
-        ).astype(np.float32)
+        combined_points = np.concatenate([defective_normalized, implant_points_normalized], axis=0).astype(np.float32)
 
         logger.info(
             "Voxelization input: %d defective + %d implant = %d total points (resolution: %d³)",
-            len(defective_normalized), len(implant_points_normalized), len(combined_points), resolution
+            len(defective_normalized),
+            len(implant_points_normalized),
+            len(combined_points),
+            resolution,
         )
 
         if progress_callback:
@@ -2311,17 +2355,26 @@ class GenerationService:
             if progress_callback:
                 progress_callback(f"Smoothing mesh ({smoothing_iterations} iterations)")
             mesh = _postprocess_smooth(mesh, iterations=smoothing_iterations)
-            logger.info("Smoothing applied (%d iterations): %d vertices, %d faces",
-                       smoothing_iterations, len(mesh.vertices), len(mesh.faces))
+            logger.info(
+                "Smoothing applied (%d iterations): %d vertices, %d faces",
+                smoothing_iterations,
+                len(mesh.vertices),
+                len(mesh.faces),
+            )
 
         # Export as STL
         mesh.export(output_stl_path)
-        logger.info("Saved STL mesh: %s (%d vertices, %d faces, resolution: %d³)",
-                    output_stl_path, len(vertices), len(faces), resolution)
+        logger.info(
+            "Saved STL mesh: %s (%d vertices, %d faces, resolution: %d³)",
+            output_stl_path,
+            len(vertices),
+            len(faces),
+            resolution,
+        )
 
     def _load_voxelization_model(self, model_path: str, resolution: int = 512):
         """Load voxelization model with caching.
-        
+
         Args:
             model_path: Path to the model checkpoint
             resolution: PSR grid resolution (128, 256, 512, or 1024).
@@ -2329,7 +2382,7 @@ class GenerationService:
         """
         # Cache key includes resolution since different resolutions need different DPSR modules
         cache_key = f"voxelization_{resolution}"
-        
+
         with _model_cache["lock"]:
             cached = _model_cache.get(cache_key)
             if cached and cached.get("path") == model_path:
@@ -2343,9 +2396,9 @@ class GenerationService:
             sys.path.insert(0, str(project_root))
             sys.path.insert(0, str(project_root / "voxelization"))
 
+            from voxelization.src import config as vox_config
             from voxelization.src.model import Encode2Points
             from voxelization.src.utils import load_config, load_model_manual
-            from voxelization.src import config as vox_config
 
             # Load config
             config_path = str(project_root / "voxelization" / "configs" / "gen_skullbreak.yaml")
@@ -2353,13 +2406,14 @@ class GenerationService:
             cfg = load_config(config_path, default_config)
 
             # Override model path and resolution
-            cfg['test']['model_file'] = model_path
-            cfg['generation']['psr_resolution'] = resolution
+            cfg["test"]["model_file"] = model_path
+            cfg["generation"]["psr_resolution"] = resolution
             # PSR sigma scales with resolution for consistent smoothing
-            cfg['generation']['psr_sigma'] = 2 if resolution >= 512 else 1
+            cfg["generation"]["psr_sigma"] = 2 if resolution >= 512 else 1
 
             # Select device
             from web_viewer.backend.services.settings_service import SettingsService
+
             settings_service = SettingsService(self.db)
             device_name = settings_service.get_inference_device()
             device = torch.device(device_name)
@@ -2368,7 +2422,7 @@ class GenerationService:
             # Create and load model
             model = Encode2Points(cfg).to(device)
             state_dict = torch.load(model_path, map_location=device)
-            load_model_manual(state_dict['state_dict'], model)
+            load_model_manual(state_dict["state_dict"], model)
             model.eval()
 
             # Get generator with custom resolution

@@ -2,7 +2,7 @@ from torch.autograd import Function
 
 from modules.functional.backend import _backend
 
-__all__ = ['nearest_neighbor_interpolate']
+__all__ = ["nearest_neighbor_interpolate"]
 
 
 class NeighborInterpolation(Function):

@@ -73,7 +73,9 @@ class MeshService:
 
         logger.info(
             "Generating STL mesh from %s (%d points, method=%s)",
-            source_pc.name, len(points), method,
+            source_pc.name,
+            len(points),
+            method,
         )
 
         t0 = time.time()
@@ -87,7 +89,10 @@ class MeshService:
         mesh.export(str(stl_path), file_type="stl")
         logger.info(
             "STL exported: %s (%d faces, watertight=%s, %dms)",
-            stl_path.name, len(mesh.faces), mesh.is_watertight, elapsed_ms,
+            stl_path.name,
+            len(mesh.faces),
+            mesh.is_watertight,
+            elapsed_ms,
         )
 
         # Register as PointCloud
@@ -137,11 +142,7 @@ class MeshService:
 
     def get_stl_for_source(self, source_pc_id: str) -> PointCloud | None:
         """Check if an STL mesh has already been generated for a source point cloud."""
-        all_stl = (
-            self.db.query(PointCloud)
-            .filter(PointCloud.file_format == "stl")
-            .all()
-        )
+        all_stl = self.db.query(PointCloud).filter(PointCloud.file_format == "stl").all()
         for pc in all_stl:
             if pc.metadata_json:
                 try:
@@ -196,9 +197,7 @@ class MeshService:
         # Final fallback
         return self._convex_hull_reconstruct(points)
 
-    def _prepare_point_cloud(
-        self, points: np.ndarray
-    ) -> tuple[o3d.geometry.PointCloud, float]:
+    def _prepare_point_cloud(self, points: np.ndarray) -> tuple[o3d.geometry.PointCloud, float]:
         """Create Open3D point cloud, downsample if needed, estimate normals.
 
         Returns the prepared point cloud and the auto-computed normal radius.
@@ -216,7 +215,9 @@ class MeshService:
             pcd = pcd.uniform_down_sample(every_k)
             logger.info(
                 "Downsampled %d -> %d points (every_k=%d)",
-                n_original, len(pcd.points), every_k,
+                n_original,
+                len(pcd.points),
+                every_k,
             )
 
         # Normal estimation radius from actual nearest-neighbor distances
@@ -226,21 +227,22 @@ class MeshService:
 
         pcd.estimate_normals(
             search_param=o3d.geometry.KDTreeSearchParamHybrid(
-                radius=normal_radius, max_nn=30,
+                radius=normal_radius,
+                max_nn=30,
             )
         )
         pcd.orient_normals_consistent_tangent_plane(k=15)
 
         logger.info(
             "Normals estimated (radius=%.4f, avg_nn_dist=%.4f, %d points)",
-            normal_radius, avg_dist, len(pcd.points),
+            normal_radius,
+            avg_dist,
+            len(pcd.points),
         )
 
         return pcd, normal_radius
 
-    def _poisson_reconstruct(
-        self, points: np.ndarray, depth: int = 9
-    ) -> trimesh.Trimesh:
+    def _poisson_reconstruct(self, points: np.ndarray, depth: int = 9) -> trimesh.Trimesh:
         """Open3D Poisson surface reconstruction."""
         pcd, _nr = self._prepare_point_cloud(points)
 
@@ -294,9 +296,7 @@ class MeshService:
         avg_dist = np.mean(distances)
         radii = [avg_dist * f for f in [1.0, 1.5, 2.0, 3.0]]
 
-        mesh_o3d = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-            pcd, o3d.utility.DoubleVector(radii)
-        )
+        mesh_o3d = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, o3d.utility.DoubleVector(radii))
 
         vertices = np.asarray(mesh_o3d.vertices)
         faces = np.asarray(mesh_o3d.triangles)

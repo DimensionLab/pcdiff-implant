@@ -55,12 +55,8 @@ def get_project(project_id: str, services=Depends(_get_services)):
 
 
 @router.put("/{project_id}", response_model=ProjectRead)
-def update_project(
-    project_id: str, body: ProjectUpdate, services=Depends(_get_services)
-):
-    project = services["project"].update_project(
-        project_id, **body.model_dump(exclude_none=True)
-    )
+def update_project(project_id: str, body: ProjectUpdate, services=Depends(_get_services)):
+    project = services["project"].update_project(project_id, **body.model_dump(exclude_none=True))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project

@@ -49,10 +49,7 @@ def parse_manifest_row(row: list[str], manifest_dir: Path) -> dict[str, object]:
             "ensemble_index": int(row[4]) if len(row) == 5 else 0,
         }
 
-    raise ValueError(
-        "Unsupported voxelization manifest row. Expected 1, 2, 4, or 5 columns, "
-        f"got {len(row)}: {row}"
-    )
+    raise ValueError(f"Unsupported voxelization manifest row. Expected 1, 2, 4, or 5 columns, got {len(row)}: {row}")
 
 
 def _resolve_path(value: str, manifest_dir: Path) -> Path:

@@ -7,9 +7,8 @@ Create Date: 2026-02-03
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "002"
@@ -42,19 +41,11 @@ def upgrade() -> None:
     op.create_index("ix_patients_patient_code", "patients", ["patient_code"])
 
     # --- Add new columns to projects ---
-    op.add_column(
-        "projects", sa.Column("patient_id", sa.String(36), nullable=True)
-    )
-    op.add_column(
-        "projects", sa.Column("reconstruction_type", sa.String(100), nullable=True)
-    )
-    op.add_column(
-        "projects", sa.Column("implant_material", sa.String(100), nullable=True)
-    )
+    op.add_column("projects", sa.Column("patient_id", sa.String(36), nullable=True))
+    op.add_column("projects", sa.Column("reconstruction_type", sa.String(100), nullable=True))
+    op.add_column("projects", sa.Column("implant_material", sa.String(100), nullable=True))
     op.add_column("projects", sa.Column("notes", sa.Text, nullable=True))
-    op.add_column(
-        "projects", sa.Column("region_code", sa.String(10), nullable=True)
-    )
+    op.add_column("projects", sa.Column("region_code", sa.String(10), nullable=True))
     op.add_column("projects", sa.Column("metadata_json", sa.Text, nullable=True))
     # Note: SQLite doesn't enforce foreign keys by default, so we skip the FK constraint
 

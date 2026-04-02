@@ -36,11 +36,13 @@ sys.path.insert(0, str(ROOT_DIR / "pcdiff"))
 sys.path.insert(0, str(ROOT_DIR / "voxelization"))
 
 import nrrd  # noqa: E402
-from pcdiff.test_completion import Model as PCDiffModel, get_betas  # noqa: E402
+
+from pcdiff.test_completion import Model as PCDiffModel  # noqa: E402
+from pcdiff.test_completion import get_betas
 from voxelization.eval_metrics import bdc, dc, hd95  # noqa: E402
 from voxelization.src import config as vox_config  # noqa: E402
 from voxelization.src.model import Encode2Points  # noqa: E402
-from voxelization.src.utils import load_config, load_model_manual, filter_voxels_within_radius  # noqa: E402
+from voxelization.src.utils import filter_voxels_within_radius, load_config, load_model_manual  # noqa: E402
 
 PAPER_METRICS_ENSEMBLE = {
     "dice": 0.87,
@@ -117,10 +119,7 @@ class PCDiffRunner:
     def generate_samples(self, defective_points: np.ndarray) -> np.ndarray:
         sv_points = self.num_points - self.num_nn
         if defective_points.shape[0] < sv_points:
-            raise ValueError(
-                f"Defective cloud has {defective_points.shape[0]} points, "
-                f"but {sv_points} were expected."
-            )
+            raise ValueError(f"Defective cloud has {defective_points.shape[0]} points, but {sv_points} were expected.")
 
         idx = np.random.choice(defective_points.shape[0], sv_points, replace=False)
         partial_points_raw = defective_points[idx]
@@ -246,12 +245,7 @@ def evaluate_sample(
     mean_implant = mean_complete - defective_vol
     mean_implant = np.clip(mean_implant, 0.0, 1.0)
     raw_implant = mean_implant.copy()
-    reference_implant_points = (
-        reference_inputs[:, -pcdiff_runner.num_nn :, :]
-        .detach()
-        .cpu()
-        .squeeze(0)
-    )
+    reference_implant_points = reference_inputs[:, -pcdiff_runner.num_nn :, :].detach().cpu().squeeze(0)
     mean_implant = filter_voxels_within_radius(reference_implant_points, mean_implant)
     if not np.any(mean_implant):
         mean_implant = raw_implant
@@ -269,11 +263,13 @@ def evaluate_sample(
     mean_implant = mean_implant.astype(bool)
 
     gt_implant, _ = nrrd.read(str(sample.implant_nrrd))
-    spacing = np.asarray([
-        header["space directions"][0, 0],
-        header["space directions"][1, 1],
-        header["space directions"][2, 2],
-    ])
+    spacing = np.asarray(
+        [
+            header["space directions"][0, 0],
+            header["space directions"][1, 1],
+            header["space directions"][2, 2],
+        ]
+    )
 
     dice = float(dc(mean_implant, gt_implant))
     bdice = float(bdc(mean_implant, gt_implant, defective_vol, voxelspacing=spacing, distance=10))

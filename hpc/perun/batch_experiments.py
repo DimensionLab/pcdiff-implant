@@ -135,7 +135,13 @@ EXPERIMENTS = [
         "id": "perun_014",
         "name": "amp_bf16_batch32_wide",
         "desc": "AMP bf16 + batch 32 + wide 1.5x",
-        "changes": {"USE_AMP": True, "AMP_DTYPE": "bfloat16", "BATCH_SIZE": 32, "WIDTH_MULT": 1.5, "LEARNING_RATE": 3e-4},
+        "changes": {
+            "USE_AMP": True,
+            "AMP_DTYPE": "bfloat16",
+            "BATCH_SIZE": 32,
+            "WIDTH_MULT": 1.5,
+            "LEARNING_RATE": 3e-4,
+        },
         "time_budget": 7200,
     },
     # === Data augmentation ===
@@ -159,18 +165,17 @@ EXPERIMENTS = [
 def generate_configs():
     """Generate experiment config JSON files."""
     EXPERIMENT_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     for exp in EXPERIMENTS:
         config_path = EXPERIMENT_DIR / f"{exp['id']}.json"
         config_path.write_text(json.dumps(exp, indent=2))
         print(f"  {exp['id']}: {exp['name']} -> {config_path}")
-    
+
     # Write manifest
     manifest = EXPERIMENT_DIR / "manifest.json"
-    manifest.write_text(json.dumps(
-        {"experiments": [e["id"] for e in EXPERIMENTS], "total": len(EXPERIMENTS)},
-        indent=2
-    ))
+    manifest.write_text(
+        json.dumps({"experiments": [e["id"] for e in EXPERIMENTS], "total": len(EXPERIMENTS)}, indent=2)
+    )
     print(f"\nGenerated {len(EXPERIMENTS)} experiment configs in {EXPERIMENT_DIR}")
     print(f"Manifest: {manifest}")
 
@@ -196,7 +201,7 @@ def generate_slurm_script():
 set -euo pipefail
 
 # Map array task ID to experiment
-EXPERIMENTS=({' '.join(e['id'] for e in EXPERIMENTS)})
+EXPERIMENTS=({" ".join(e["id"] for e in EXPERIMENTS)})
 EXP_ID="${{EXPERIMENTS[$SLURM_ARRAY_TASK_ID - 1]}}"
 
 echo "=== PCDiff Experiment: $EXP_ID ==="
@@ -247,7 +252,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["generate", "submit", "results"])
     args = parser.parse_args()
-    
+
     if args.action == "generate":
         generate_configs()
         generate_slurm_script()

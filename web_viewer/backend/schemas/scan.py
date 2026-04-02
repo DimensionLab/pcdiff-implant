@@ -51,7 +51,9 @@ class ScanRead(BaseModel):
     model_config = {"from_attributes": True}
 
     @field_validator(
-        "volume_dims_x", "volume_dims_y", "volume_dims_z",
+        "volume_dims_x",
+        "volume_dims_y",
+        "volume_dims_z",
         "file_size_bytes",
         mode="before",
     )
@@ -63,7 +65,9 @@ class ScanRead(BaseModel):
         return v
 
     @field_validator(
-        "voxel_spacing_x", "voxel_spacing_y", "voxel_spacing_z",
+        "voxel_spacing_x",
+        "voxel_spacing_y",
+        "voxel_spacing_z",
         mode="before",
     )
     @classmethod
