@@ -131,28 +131,26 @@ EXPERIMENTS = [
 
 def main():
     EXPERIMENT_DIR.mkdir(parents=True, exist_ok=True)
-
+    
     for exp in EXPERIMENTS:
         config_path = EXPERIMENT_DIR / f"{exp['id']}.json"
         config_path.write_text(json.dumps(exp, indent=2))
         print(f"  {exp['id']}: {exp['name']} — {exp['desc']}")
 
     # Generate Slurm array script
-    exp_ids = " ".join(e["id"] for e in EXPERIMENTS)
+    exp_ids = ' '.join(e['id'] for e in EXPERIMENTS)
     slurm_script = SCRIPT_DIR / "run_v10_experiments.sh"
     slurm_script.write_text(f"""#!/bin/bash
 #SBATCH --job-name=pcdiff-v10
 #SBATCH --partition=GPU
-#SBATCH --account=perun2501174
-#SBATCH --qos=perun2501174
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
-#SBATCH --output=%x_%A_%a_%j.out
-#SBATCH --error=%x_%A_%a_%j.err
+#SBATCH --output={PROJECT_DIR}/autoresearch/results/perun/logs/v10_exp_%a_%j.out
+#SBATCH --error={PROJECT_DIR}/autoresearch/results/perun/logs/v10_exp_%a_%j.err
 #SBATCH --array=1-{len(EXPERIMENTS)}
 
 set -euo pipefail
@@ -185,7 +183,7 @@ echo "=== Experiment $EXP_ID Complete ==="
 echo "End: $(date)"
 """)
     os.chmod(slurm_script, 0o755)
-
+    
     print(f"\nGenerated {len(EXPERIMENTS)} experiments (all 1h budget)")
     print(f"Submit: sbatch {slurm_script}")
 
