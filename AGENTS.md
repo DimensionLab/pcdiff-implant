@@ -53,6 +53,7 @@ source of truth. The Paperclip API is at `http://127.0.0.1:3100/api`.
 - Keep the CTO current on technical risks and opportunities
 - Clean up tech debt, harden error handling, extract configs
 - Support ML Researcher with environment setup and artifact packaging
+- Create visualizations of experiment results for team review
 
 ### Scope Rules
 - Primary deliverable surface: `web_viewer/` (CrAInial product)
@@ -73,6 +74,7 @@ source of truth. The Paperclip API is at `http://127.0.0.1:3100/api`.
 Agent authenticates to Paperclip API using JWT signed with `PAPERCLIP_AGENT_JWT_SECRET`:
 - Claims: `sub` (agent ID), `company_id`, `adapter_type`, `run_id`
 - Header: `Authorization: Bearer <jwt>`
+- JWT requires a valid `run_id` that exists in the heartbeat_runs table
 
 ---
 
@@ -89,7 +91,7 @@ Agent authenticates to Paperclip API using JWT signed with `PAPERCLIP_AGENT_JWT_
 
 ### Scope Rules
 - Dataset scope: SkullBreak only unless explicitly instructed
-- Prefer RunPod or PERUN supercomputer for heavy training/evaluation
+- Prefer PERUN HPC (H200 GPUs) for heavy training/evaluation; RunPod for serverless inference
 - Use deterministic settings (seeded sampling, explicit manifests)
 - Check experiment registry before launching new runs
 - Do not repeat already-tested directions marked completed/rejected
@@ -169,38 +171,55 @@ When assumptions are required, state them explicitly.
 - Installation guide in `INSTALL.md`
 - Multi-GPU training docs in `wiki-home.md`
 
+### Compute Infrastructure
+- **PERUN HPC** (TUKE): H200 GPUs, Slurm scheduler, SSH key at `/home/mike/.ssh/perun`
+  - User: `mamuke588@login01.perun.tuke.sk`
+  - VPN required: pritunl-client (profile "mitake391 (perun)")
+  - Slurm scripts in `slurm/`
+- **RunPod**: Serverless GPU for inference and autoresearch campaigns
+  - Queue purged as of DIM-48; serverless inference experiments stopped
+- **Local (Hetzner)**: Development server, Paperclip instance, HTTPS via 0h.michaltakac.com
+
 ---
 
-## Current State (as of March 31, 2026)
+## Current State (as of April 2, 2026)
 
 ### Completed Milestones
-- Phase 0: Credentials removed from VCS, dataset CSV paths fixed
-- Phase 1: Config extraction, CI skeleton, error handling, Dockerfile
+- Phase 0: Credentials removed from VCS, dataset CSV paths fixed (DIM-20)
+- Phase 1: Config extraction, CI skeleton, error handling, Dockerfile (DIM-21)
 - Baseline reproduction: 115/115 SkullBreak cases, 0 failures
-- Autoresearch framework built and deployed on RunPod
-- Selected voxelization LR direction: `batch1_lr5e4`
-- Release package for DIM-44 voxelization evaluation
-- Infrastructure: HTTPS via 0h.michaltakac.com, systemd services deployed
+- Autoresearch framework built and deployed on RunPod (DIM-22, DIM-23, DIM-24)
+- Best autoresearch config applied: val_loss 1.03→0.96, 7% improvement (commit 8c3a17c)
+- Selected voxelization LR direction: `batch1_lr5e4` (DIM-44)
+- Infrastructure: HTTPS via 0h.michaltakac.com, systemd services deployed (DIM-37)
 - CEO continuity handoff completed (DIM-35, DIM-36)
+- PERUN HPC setup: Slurm scripts, environment configuration (DIM-46, DIM-47)
+- 67 autoresearch experiments completed on PERUN (best: perun_v7_002 val_loss=0.7728)
+- Experiment visualization: matplotlib plots for autoresearch and ablation (DIM-49)
+- Hermes agent and adapter configuration stabilized (DIM-25, DIM-27, DIM-29)
 
 ### Active Work
-- DIM-8: Prototype occupancy and symmetry-aware stage-2 replacement (CTO, in_progress)
-- DIM-22: Pcdiff and voxelization model improvements with autoresearch on RunPod (ML Researcher, in_progress)
-- DIM-46: Set up running experiments on PERUN supercomputer (CTO, in_progress)
+- DIM-50: Making PCDiff faster — additional experiments on PERUN (in_progress)
+- DIM-22: Pcdiff and voxelization model improvements with autoresearch on RunPod (in_progress, partially superseded by PERUN work)
+- DIM-6: Stage-1 sampling speed ablation and candidate selection (in_progress)
 
 ### Blocked
-- DIM-6: Stage-1 sampling speed ablation and candidate selection (blocked)
 - DIM-7: Adapt voxelization to generated completions (blocked, depends on DIM-6)
+
+### Backlog
+- DIM-8: Prototype occupancy and symmetry-aware stage-2 replacement
 
 ### Key Directories
 - `pcdiff/` — Point cloud diffusion model code
 - `voxelization/` — Voxelization network code
 - `web_viewer/` — CrAInial Next.js web application
 - `autoresearch/` — Automated experiment framework
+- `benchmarking/` — Ablation study scripts and plots
+- `slurm/` — PERUN HPC Slurm job scripts
 - `paper/` — Publication materials
 - `datasets/` — Data directory (SkullBreak)
 
 ---
 
 This file should be revised whenever operating practice or project direction
-materially changes.
+materially changes. Last updated: April 2, 2026.
