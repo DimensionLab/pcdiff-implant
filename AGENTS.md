@@ -197,9 +197,9 @@ When assumptions are required, state them explicitly.
 - 67 autoresearch experiments completed on PERUN (best: perun_v7_002 val_loss=0.7728)
 - Experiment visualization: matplotlib plots for autoresearch and ablation (DIM-49)
 - Hermes agent and adapter configuration stabilized (DIM-25, DIM-27, DIM-29)
+- Full codebase push to GitHub with 129 files: autoresearch audit logging, benchmarking suite, HPC scripts, voxelization improvements, web viewer (DIM-55, commit 876509e)
 
 ### Active Work
-- DIM-50: Making PCDiff faster — additional experiments on PERUN (in_progress)
 - DIM-22: Pcdiff and voxelization model improvements with autoresearch on RunPod (in_progress, partially superseded by PERUN work)
 - DIM-6: Stage-1 sampling speed ablation and candidate selection (in_progress)
 
@@ -208,6 +208,7 @@ When assumptions are required, state them explicitly.
 
 ### Backlog
 - DIM-8: Prototype occupancy and symmetry-aware stage-2 replacement
+- DIM-52: Update AGENTS.md and SOUL.md with latest state
 
 ### Key Directories
 - `pcdiff/` — Point cloud diffusion model code
