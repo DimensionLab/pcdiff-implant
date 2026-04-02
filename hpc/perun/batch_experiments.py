@@ -181,14 +181,16 @@ def generate_slurm_script():
     content = f"""#!/bin/bash
 #SBATCH --job-name=pcdiff-batch
 #SBATCH --partition=GPU
+#SBATCH --account=perun2501174
+#SBATCH --qos=perun2501174
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
-#SBATCH --output={PROJECT_DIR}/autoresearch/results/perun/logs/exp_%a_%j.out
-#SBATCH --error={PROJECT_DIR}/autoresearch/results/perun/logs/exp_%a_%j.err
+#SBATCH --output=%x_%A_%a_%j.out
+#SBATCH --error=%x_%A_%a_%j.err
 #SBATCH --array=1-{len(EXPERIMENTS)}
 
 set -euo pipefail

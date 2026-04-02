@@ -175,7 +175,13 @@ When assumptions are required, state them explicitly.
 - **PERUN HPC** (TUKE): H200 GPUs, Slurm scheduler, SSH key at `/home/mike/.ssh/perun`
   - User: `mamuke588@login01.perun.tuke.sk`
   - VPN required: pritunl-client (profile "mitake391 (perun)")
-  - Slurm scripts in `slurm/`
+  - Slurm scripts in `hpc/perun/`
+  - **MANDATORY: All Slurm jobs MUST include `--account=perun2501174` and `--qos=perun2501174`**
+    Without these flags, usage is not tracked to our project and we cannot see burn in the dashboard.
+  - **Use automatic scratch**: Add `source .activate_scratch` after `set -euo pipefail` in all SBATCH scripts.
+    This uses Lustre fast I/O (~40x faster than NFS home). Results auto-sync to `~/results_job_$SLURM_JOB_ID/`.
+  - Use `%x_%j.out` / `%x_%j.err` output patterns (not hardcoded paths)
+  - Best practices reference: https://wiki.perun.tuke.sk/slurm/example/
 - **RunPod**: Serverless GPU for inference and autoresearch campaigns
   - Queue purged as of DIM-48; serverless inference experiments stopped
 - **Local (Hetzner)**: Development server, Paperclip instance, HTTPS via 0h.michaltakac.com

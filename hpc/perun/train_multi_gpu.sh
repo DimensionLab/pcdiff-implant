@@ -1,14 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=pcdiff-ddp
 #SBATCH --partition=GPU
+#SBATCH --account=perun2501174
+#SBATCH --qos=perun2501174
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:8
 #SBATCH --mem=0
 #SBATCH --time=24:00:00
-#SBATCH --output=/scratch/mamuke588/pcdiff/logs/ddp_%j.out
-#SBATCH --error=/scratch/mamuke588/pcdiff/logs/ddp_%j.err
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
 #
 # Multi-GPU (8× H200) DDP PCDiff training on PERUN
 # Uses all 8 H200 GPUs on a single node with NVLink interconnect.
@@ -18,6 +20,9 @@
 #   sbatch --nodes=2 hpc/perun/train_multi_gpu.sh  # 16 GPUs across 2 nodes
 
 set -euo pipefail
+
+# Activate automatic scratch (Lustre fast I/O)
+source .activate_scratch
 
 echo "=== PCDiff Multi-GPU DDP Training ==="
 echo "Job ID: $SLURM_JOB_ID"
@@ -48,12 +53,8 @@ export NCCL_NET_GDR_LEVEL=5
 export NCCL_P2P_LEVEL=NVL
 export NCCL_DEBUG=WARN
 
-# Scratch paths
-SCRATCH="/scratch/mamuke588/pcdiff"
-CHECKPOINT_DIR="$SCRATCH/checkpoints/$SLURM_JOB_ID"
-mkdir -p "$CHECKPOINT_DIR"
-
-cd ~/pcdiff-implant
+# Working directory is now in scratch (automatic)
+cd ~/pcdiff-implant || true
 
 # Build CUDA extensions
 if [ -d "pcdiff/modules/functional" ]; then
@@ -73,11 +74,8 @@ srun torchrun \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     autoresearch/train_pcdiff.py \
-    --time-budget 82800 \
-    2>&1 | tee "$SCRATCH/logs/ddp_${SLURM_JOB_ID}_console.log"
-
-# Copy results
-cp -r autoresearch/results/* "$SCRATCH/results/" 2>/dev/null || true
+    --time-budget 82800
+# Results automatically synced to ~/results_job_$SLURM_JOB_ID/ by epilog
 
 echo ""
 echo "=== Done ==="

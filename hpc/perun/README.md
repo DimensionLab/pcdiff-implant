@@ -27,8 +27,19 @@ pritunl-client list   # should show "Connected"
 
 ### 2. SSH Access
 ```bash
-ssh mamuke588@login01.perun.tuke.sk -i ~/.ssh/id_ed25519
+ssh mamuke588@login01.perun.tuke.sk -i ~/.ssh/perun
 ```
+
+### MANDATORY: Account and QoS
+All Slurm jobs **MUST** include these two directives:
+```
+#SBATCH --account=perun2501174
+#SBATCH --qos=perun2501174
+```
+Without these, usage is not tracked to our project allocation and won't appear in the dashboard.
+
+Also adopt automatic scratch (`source .activate_scratch`) and `%x_%j.out`/`%x_%j.err` output patterns.
+See https://wiki.perun.tuke.sk/slurm/example/ for full best practices.
 
 ### 3. First-Time Setup on PERUN
 ```bash
