@@ -129,6 +129,8 @@ def submit_jobs(args):
             for defect in DEFECT_FAMILIES:
                 job_key = f"{rid}/{case_id}_{defect}"
                 if job_key in jobs and jobs[job_key].get("status") in ("submitted", "completed"):
+                    # Skip submitted only if runpod_id is still valid (not expired)
+                    pass  # fall through to skip
                     skipped += 1
                     continue
 
@@ -168,6 +170,23 @@ def submit_jobs(args):
                         # Save progress periodically
                         with open(JOBS_FILE, "w") as f:
                             json.dump(jobs, f, indent=2)
+                except requests.exceptions.HTTPError as e:
+                    if e.response is not None and e.response.status_code == 429:
+                        # Exponential backoff on rate limit
+                        backoff = min(60, 2 ** (jobs.get(f"_retry_count_{job_key}", 0)))
+                        jobs[f"_retry_count_{job_key}"] = jobs.get(f"_retry_count_{job_key}", 0) + 1
+                        print(f"  RATE LIMITED {job_key}: backing off {backoff}s")
+                        time.sleep(backoff)
+                        # Don't mark as error, will retry on next submit run
+                        continue
+                    print(f"  ERROR submitting {job_key}: {e}")
+                    jobs[job_key] = {
+                        "status": "error",
+                        "error": str(e),
+                        "config": cfg,
+                        "case_id": case_id,
+                        "defect": defect,
+                    }
                 except Exception as e:
                     print(f"  ERROR submitting {job_key}: {e}")
                     jobs[job_key] = {
@@ -178,8 +197,8 @@ def submit_jobs(args):
                         "defect": defect,
                     }
 
-                # Small delay to avoid rate limits
-                time.sleep(0.1)
+                # Delay to avoid rate limits (0.5s between requests)
+                time.sleep(0.5)
 
     # Save final state
     with open(JOBS_FILE, "w") as f:

@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_005",
+  "name": "best_v3_embed128_lr3e4",
+  "desc": "Larger embed_dim=128 + LR 3e-4 (push capacity further)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 128,
+    "BATCH_SIZE": 8,
+    "LEARNING_RATE": 0.0003
+  },
+  "time_budget": 3600
+}

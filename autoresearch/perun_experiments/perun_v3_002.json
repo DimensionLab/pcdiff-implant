@@ -1,0 +1,10 @@
+{
+  "id": "perun_v3_002",
+  "name": "no_warmup_4h_training",
+  "desc": "No warmup with 4-hour training budget",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 14400
+}

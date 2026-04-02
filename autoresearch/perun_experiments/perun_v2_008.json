@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_008",
+  "name": "cosine_lr_wd_001",
+  "desc": "Cosine LR + weight decay 0.01",
+  "changes": {
+    "WEIGHT_DECAY": 0.01,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

@@ -1,0 +1,10 @@
+{
+  "id": "perun_016",
+  "name": "linear_schedule_batch8",
+  "desc": "Linear noise schedule instead of cosine",
+  "changes": {
+    "SCHEDULE_TYPE": "linear",
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

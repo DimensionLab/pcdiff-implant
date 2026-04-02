@@ -1,0 +1,10 @@
+{
+  "id": "perun_012",
+  "name": "wd1e4_batch8",
+  "desc": "Weight decay 1e-4 for regularization",
+  "changes": {
+    "WEIGHT_DECAY": 0.0001,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

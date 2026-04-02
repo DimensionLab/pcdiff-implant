@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_002",
+  "name": "best_v3_sigmoid_schedule",
+  "desc": "Best V3 config + sigmoid noise schedule (smoother SNR transitions)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "SCHEDULE_TYPE": "sigmoid"
+  },
+  "time_budget": 3600
+}

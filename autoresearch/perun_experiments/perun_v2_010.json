@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_010",
+  "name": "cosine_lr_no_warmup",
+  "desc": "Cosine LR without warmup",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

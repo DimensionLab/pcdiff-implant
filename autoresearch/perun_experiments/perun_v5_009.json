@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_009",
+  "name": "best_v3_2000_timesteps",
+  "desc": "Double diffusion timesteps (2000) for finer noise schedule granularity",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "NUM_TIMESTEPS": 2000
+  },
+  "time_budget": 3600
+}

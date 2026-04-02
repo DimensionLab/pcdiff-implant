@@ -1,0 +1,12 @@
+{
+  "id": "perun_v5_001",
+  "name": "best_v3_1hr_baseline",
+  "desc": "Re-run best V3 config (no_warmup + 1.5x wider + embed96) at fixed 1hr for fair comparison",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

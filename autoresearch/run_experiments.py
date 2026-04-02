@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -40,6 +41,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_FILE = SCRIPT_DIR / "train_pcdiff.py"
 PROGRAM_FILE = SCRIPT_DIR / "program_pcdiff.md"
 RESULTS_DIR = SCRIPT_DIR / "results"
+AUDIT_DIR = RESULTS_DIR / "audit"
 
 # LLM config
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -302,6 +304,7 @@ def run_experiment(time_budget: int, checkpoint: str = None) -> dict:
     print(f"Running: {' '.join(cmd)}")
     print(f"{'='*60}\n")
 
+    started_at = datetime.now(timezone.utc)
     try:
         result = subprocess.run(
             cmd,
@@ -310,6 +313,8 @@ def run_experiment(time_budget: int, checkpoint: str = None) -> dict:
             text=True,
             timeout=time_budget + 300,  # Extra 5 min buffer for eval
         )
+        finished_at = datetime.now(timezone.utc)
+        duration_sec = (finished_at - started_at).total_seconds()
 
         print("STDOUT (last 30 lines):")
         stdout_lines = result.stdout.strip().split("\n")
@@ -321,14 +326,34 @@ def run_experiment(time_budget: int, checkpoint: str = None) -> dict:
             stderr_lines = result.stderr.strip().split("\n")
             for line in stderr_lines[-20:]:
                 print(f"  {line}")
-            return {"error": f"Process exited with code {result.returncode}", "stderr": result.stderr[-2000:]}
+            return {
+                "error": f"Process exited with code {result.returncode}",
+                "stderr": result.stderr[-2000:],
+                "stdout_full": result.stdout,
+                "stderr_full": result.stderr,
+                "returncode": result.returncode,
+                "command": cmd,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "duration_sec": duration_sec,
+            }
 
         # Parse result from output (last line should be JSON)
         for line in reversed(stdout_lines):
             line = line.strip()
             if line.startswith("{"):
                 try:
-                    return json.loads(line)
+                    payload = json.loads(line)
+                    payload["_run_meta"] = {
+                        "command": cmd,
+                        "returncode": result.returncode,
+                        "started_at": started_at.isoformat(),
+                        "finished_at": finished_at.isoformat(),
+                        "duration_sec": duration_sec,
+                        "stdout_full": result.stdout,
+                        "stderr_full": result.stderr,
+                    }
+                    return payload
                 except json.JSONDecodeError:
                     pass
 
@@ -344,20 +369,129 @@ def run_experiment(time_budget: int, checkpoint: str = None) -> dict:
 
         if json_lines:
             try:
-                return json.loads("\n".join(json_lines))
+                payload = json.loads("\n".join(json_lines))
+                payload["_run_meta"] = {
+                    "command": cmd,
+                    "returncode": result.returncode,
+                    "started_at": started_at.isoformat(),
+                    "finished_at": finished_at.isoformat(),
+                    "duration_sec": duration_sec,
+                    "stdout_full": result.stdout,
+                    "stderr_full": result.stderr,
+                }
+                return payload
             except json.JSONDecodeError:
                 pass
 
-        return {"error": "Could not parse results from output", "stdout": result.stdout[-2000:]}
+        return {
+            "error": "Could not parse results from output",
+            "stdout": result.stdout[-2000:],
+            "stdout_full": result.stdout,
+            "stderr_full": result.stderr,
+            "returncode": result.returncode,
+            "command": cmd,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_sec": duration_sec,
+        }
 
     except subprocess.TimeoutExpired:
-        return {"error": "Experiment timed out"}
+        finished_at = datetime.now(timezone.utc)
+        duration_sec = (finished_at - started_at).total_seconds()
+        return {
+            "error": "Experiment timed out",
+            "command": cmd,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_sec": duration_sec,
+        }
     except Exception as e:
-        return {"error": str(e)}
+        finished_at = datetime.now(timezone.utc)
+        duration_sec = (finished_at - started_at).total_seconds()
+        return {
+            "error": str(e),
+            "command": cmd,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_sec": duration_sec,
+        }
+
+
+def persist_experiment_artifacts(
+    experiment_id: str,
+    train_before: str,
+    train_after: str,
+    diff: str,
+    result: dict,
+    accepted: bool,
+) -> Path:
+    """Persist full audit artifacts so every experiment is reproducible and reviewable."""
+    AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    exp_dir = AUDIT_DIR / f"{experiment_id}_{timestamp}"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+
+    (exp_dir / "train_before.py").write_text(train_before)
+    (exp_dir / "train_after.py").write_text(train_after)
+    (exp_dir / "proposal.diff").write_text(diff or "")
+
+    run_meta = result.get("_run_meta", {}) if isinstance(result, dict) else {}
+    if run_meta.get("stdout_full") is not None:
+        (exp_dir / "stdout.log").write_text(run_meta.get("stdout_full", ""))
+    if run_meta.get("stderr_full") is not None:
+        (exp_dir / "stderr.log").write_text(run_meta.get("stderr_full", ""))
+
+    artifact_payload = {
+        "experiment_id": experiment_id,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "accepted": accepted,
+        "result": result,
+    }
+    (exp_dir / "result.json").write_text(json.dumps(artifact_payload, indent=2))
+
+    return exp_dir
+
+
+def maybe_commit_audit_logs(experiment_id: str, accepted: bool) -> None:
+    """Best-effort git commit of experiment artifacts for auditability."""
+    repo_root = SCRIPT_DIR.parent
+    git_dir = repo_root / ".git"
+    if not git_dir.exists():
+        print("Skipping git commit: repository not found.")
+        return
+
+    add_result = subprocess.run(
+        ["git", "add", "autoresearch/results", "autoresearch/train_pcdiff.py"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    if add_result.returncode != 0:
+        print(f"Skipping git commit: git add failed ({add_result.stderr.strip()})")
+        return
+
+    status = "accepted" if accepted else "rejected"
+    message = f"autoresearch: audit {experiment_id} ({status})"
+    commit_result = subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    if commit_result.returncode == 0:
+        print(f"Committed experiment audit logs: {message}")
+        return
+
+    stderr = (commit_result.stderr or "").strip()
+    stdout = (commit_result.stdout or "").strip()
+    if "nothing to commit" in stderr.lower() or "nothing to commit" in stdout.lower():
+        print(f"No changes to commit for {experiment_id}.")
+    else:
+        print(f"Warning: git commit failed for {experiment_id}: {stderr or stdout}")
 
 
 def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: int = DEFAULT_TIME_BUDGET,
-                           dry_run: bool = False):
+                           dry_run: bool = False, commit_logs: bool = False):
     """Main autoresearch loop."""
     RESULTS_DIR.mkdir(exist_ok=True)
 
@@ -468,8 +602,9 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
 
         if proposed_code is None or diff is None or not diff.strip():
             print(f"All attempts failed for experiment {exp_idx + 1}. Logging and moving on.")
+            experiment_id = f"exp_{exp_idx + 1:04d}"
             entry = {
-                "experiment_id": f"exp_{exp_idx + 1:04d}",
+                "experiment_id": experiment_id,
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "metrics": {},
                 "config_summary": {},
@@ -477,9 +612,19 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
                 "diff": diff or "",
                 "error": last_error or "All retries exhausted",
             }
+            persist_experiment_artifacts(
+                experiment_id=experiment_id,
+                train_before=current_code,
+                train_after=current_code,
+                diff=diff or "",
+                result={"error": last_error or "All retries exhausted"},
+                accepted=False,
+            )
             with open(RESULTS_DIR / "experiments.jsonl", "a") as f:
                 f.write(json.dumps(entry) + "\n")
             history.append(entry)
+            if commit_logs:
+                maybe_commit_audit_logs(experiment_id, accepted=False)
             continue
 
         if dry_run:
@@ -495,6 +640,7 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
         latest_ckpt = RESULTS_DIR / "checkpoints" / "latest.pth"
         ckpt_arg = str(latest_ckpt) if latest_ckpt.exists() else None
         result = run_experiment(time_budget, checkpoint=ckpt_arg)
+        experiment_id = f"exp_{exp_idx + 1:04d}"
 
         if "error" in result:
             print(f"\nExperiment FAILED: {result['error']}")
@@ -503,7 +649,7 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
             print("Reverted train_pcdiff.py")
 
             entry = {
-                "experiment_id": f"exp_{exp_idx + 1:04d}",
+                "experiment_id": experiment_id,
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "metrics": {},
                 "config_summary": {},
@@ -511,6 +657,16 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
                 "diff": diff,
                 "error": result["error"],
             }
+            persist_experiment_artifacts(
+                experiment_id=experiment_id,
+                train_before=current_code,
+                train_after=proposed_code,
+                diff=diff,
+                result=result,
+                accepted=False,
+            )
+            if commit_logs:
+                maybe_commit_audit_logs(experiment_id, accepted=False)
         else:
             new_cd = result.get("metrics", {}).get("val_loss_mean", float("inf"))
             accepted = isinstance(new_cd, (int, float)) and new_cd < best_cd
@@ -523,13 +679,23 @@ def run_autoresearch_loop(max_experiments: int = MAX_EXPERIMENTS, time_budget: i
                 print("Reverted train_pcdiff.py")
 
             entry = {
-                "experiment_id": f"exp_{exp_idx + 1:04d}",
+                "experiment_id": experiment_id,
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "metrics": result.get("metrics", {}),
                 "config_summary": result.get("config", {}),
                 "accepted": accepted,
                 "diff": diff,
             }
+            persist_experiment_artifacts(
+                experiment_id=experiment_id,
+                train_before=current_code,
+                train_after=proposed_code,
+                diff=diff,
+                result=result,
+                accepted=accepted,
+            )
+            if commit_logs:
+                maybe_commit_audit_logs(experiment_id, accepted=accepted)
 
         with open(RESULTS_DIR / "experiments.jsonl", "a") as f:
             f.write(json.dumps(entry) + "\n")
@@ -558,10 +724,16 @@ if __name__ == "__main__":
                         help=f"Time budget per experiment in seconds (default: {DEFAULT_TIME_BUDGET})")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show proposed changes without running experiments")
+    parser.add_argument(
+        "--commit-logs",
+        action="store_true",
+        help="After each experiment, git-commit audit logs in autoresearch/results (best effort).",
+    )
     args = parser.parse_args()
 
     run_autoresearch_loop(
         max_experiments=args.max_experiments,
         time_budget=args.time_budget,
         dry_run=args.dry_run,
+        commit_logs=args.commit_logs,
     )

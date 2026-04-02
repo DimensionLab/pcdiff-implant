@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_004",
+  "name": "best_v3_lr3e4",
+  "desc": "Best V3 config + higher LR 3e-4 (between default 2e-4 and tested 5e-4)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "LEARNING_RATE": 0.0003
+  },
+  "time_budget": 3600
+}

@@ -58,17 +58,28 @@ def collect_voxelization_samples(cfg: SplitConfig) -> list[Path]:
         )
 
     samples: list[Path] = []
+    missing = 0
     with csv_path.open() as fp:
         reader = csv.reader(fp)
         for row in reader:
             if not row:
                 continue
             base = Path(row[0]).stem
+            if base.endswith("_surf"):
+                base = base[:-5]
             for defect in DEFECTS:
-                samples.append(cfg.root / "voxelization" / f"{base}_{defect}")
+                sample_base = cfg.root / "voxelization" / f"{base}_{defect}"
+                points_path = Path(str(sample_base) + "_pc.npz")
+                vox_path = Path(str(sample_base) + "_vox.npz")
+                if points_path.exists() and vox_path.exists():
+                    samples.append(sample_base)
+                else:
+                    missing += 1
 
     if not samples:
         raise RuntimeError("No voxelization samples found. Run voxelization/utils/preproc_skullbreak.py first.")
+    if missing:
+        print(f"Skipped {missing} missing voxelization sample entries while building split.")
 
     return samples
 

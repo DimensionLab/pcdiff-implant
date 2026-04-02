@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_004",
+  "name": "cosine_lr_higher_lr",
+  "desc": "Cosine LR + LR=5e-4",
+  "changes": {
+    "LEARNING_RATE": 0.0005,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

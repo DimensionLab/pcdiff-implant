@@ -128,6 +128,9 @@ def process_entry(
 ) -> None:
     defects = ["bilateral", "frontoorbital", "parietotemporal", "random_1", "random_2"]
     base = sample_path.stem  # complete skull filename without extension
+    # skullbreak.csv entries are often "<id>_surf.npy"; dataset files are "<id>_surf.npy" and "<id>.nrrd"
+    if base.endswith("_surf"):
+        base = base[:-5]
 
     for defect in defects:
         defective_pc = root / "defective_skull" / defect / f"{base}_surf.npy"

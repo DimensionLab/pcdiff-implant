@@ -1,0 +1,11 @@
+{
+  "id": "perun_013",
+  "name": "amp_bf16_batch16",
+  "desc": "Mixed precision bf16, batch 16",
+  "changes": {
+    "USE_AMP": true,
+    "AMP_DTYPE": "bfloat16",
+    "BATCH_SIZE": 16
+  },
+  "time_budget": 3600
+}

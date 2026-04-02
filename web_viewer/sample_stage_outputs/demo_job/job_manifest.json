@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "job_id": "demo_job",
+  "dataset": "SkullBreak",
+  "created_at": "2026-03-22T09:12:04Z",
+  "artifact_prefix": "jobs/demo_job",
+  "launcher": {
+    "user": "hermes",
+    "notes": "demo data",
+    "cmd": [
+      "python3",
+      "pcdiff/test_completion.py",
+      "--eval_path",
+      "jobs/demo_job/stage1",
+      "--dataset",
+      "SkullBreak",
+      "--model",
+      "pcdiff/checkpoints/model_best.pth",
+      "--num_ens",
+      "4",
+      "--sampling_method",
+      "ddpm",
+      "--sampling_steps",
+      "250"
+    ],
+    "git": {
+      "commit": "4a2a6a72b9f84b1cbe8a65df98d1c2ab1b9afdc3",
+      "branch": "main",
+      "dirty": false,
+      "status_short": []
+    }
+  },
+  "stage1": {
+    "stage_name": "point-cloud-inference",
+    "stage_dir": "jobs/demo_job/stage1",
+    "report_path": "jobs/demo_job/stage1/benchmark_stage_report.json",
+    "report_sha256": "8e59d6fb0efa64cb644d5b65df40a6ea71204de663838433968c00af66f44b35",
+    "started_at": "2026-03-22T09:12:04Z",
+    "finished_at": "2026-03-22T09:14:13Z",
+    "git": {
+      "commit": "4a2a6a72b9f84b1cbe8a65df98d1c2ab1b9afdc3",
+      "branch": "main",
+      "dirty": false,
+      "status_short": []
+    },
+    "system": {
+      "hostname": "runpod-gpu-1",
+      "platform": "Linux-6.5.0-1008-aws-x86_64-with-glibc2.35",
+      "python_version": "3.10.13",
+      "torch_version": "2.4.0",
+      "cuda_available": true,
+      "cuda_version": "12.1",
+      "gpu": {
+        "index": 0,
+        "name": "NVIDIA L40S",
+        "total_memory_mb": 46068
+      }
+    },
+    "outputs": {
+      "cases_csv": "jobs/demo_job/stage1/benchmark_cases.csv",
+      "summary_json": "jobs/demo_job/stage1/benchmark_summary.json",
+      "syn_dir": "jobs/demo_job/stage1/syn"
+    },
+    "summary": {
+      "runtime_sec": {
+        "count": 2,
+        "mean": 118.61,
+        "std": 8.18,
+        "min": 112.83,
+        "max": 124.39
+      },
+      "gpu_peak_memory_mb": {
+        "count": 2,
+        "mean": 2398.85,
+        "std": 16.45,
+        "min": 2387.2,
+        "max": 2410.5
+      },
+      "case_count": 2,
+      "ensemble_size": 4,
+      "sampling_method": "ddpm",
+      "sampling_steps": 250
+    }
+  },
+  "stage2": {
+    "stage_name": "voxelization-evaluation",
+    "stage_dir": "jobs/demo_job/stage2",
+    "report_path": "jobs/demo_job/stage2/benchmark_stage_report.json",
+    "report_sha256": "43ed4f47efec05607adfec9c7bfafc3653b541653b198708ba6a591d7387f1a3",
+    "started_at": "2026-03-22T09:16:21Z",
+    "finished_at": "2026-03-22T09:23:02Z",
+    "git": {
+      "commit": "4a2a6a72b9f84b1cbe8a65df98d1c2ab1b9afdc3",
+      "branch": "main",
+      "dirty": false,
+      "status_short": []
+    },
+    "system": {
+      "hostname": "runpod-gpu-1",
+      "platform": "Linux-6.5.0-1008-aws-x86_64-with-glibc2.35",
+      "python_version": "3.10.13",
+      "torch_version": "2.4.0",
+      "cuda_available": true,
+      "cuda_version": "12.1",
+      "gpu": {
+        "index": 0,
+        "name": "NVIDIA L40S",
+        "total_memory_mb": 46068
+      }
+    },
+    "outputs": {
+      "cases_csv": "jobs/demo_job/stage2/benchmark_cases.csv",
+      "summary_json": "jobs/demo_job/stage2/benchmark_summary.json",
+      "generation_dir": "jobs/demo_job/stage2",
+      "data_path": "datasets/SkullBreak"
+    },
+    "summary": {
+      "dice": {
+        "count": 2,
+        "mean": 0.941,
+        "std": 0.009899,
+        "min": 0.934,
+        "max": 0.948
+      },
+      "bdice_10mm": {
+        "count": 2,
+        "mean": 0.9125,
+        "std": 0.009192,
+        "min": 0.906,
+        "max": 0.919
+      },
+      "hd95_mm": {
+        "count": 2,
+        "mean": 2.14,
+        "std": 0.240416,
+        "min": 1.97,
+        "max": 2.31
+      },
+      "runtime_sec": {
+        "count": 2,
+        "mean": 95.965,
+        "std": 1.619275,
+        "min": 94.82,
+        "max": 97.11
+      },
+      "gpu_peak_memory_mb": {
+        "count": 2,
+        "mean": 4029.95,
+        "std": 11.950105,
+        "min": 4021.5,
+        "max": 4038.4
+      },
+      "case_count": 2,
+      "num_ensemble": 4,
+      "compute_eval_metrics": true
+    }
+  },
+  "cases": [
+    {
+      "case_name": "SB-001",
+      "stage1": {
+        "case_name": "SB-001",
+        "case_dir": "jobs/demo_job/stage1/syn/SB-001",
+        "input_points_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/input.npy",
+        "sample_points_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/sample.npy",
+        "shift_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/shift.npy",
+        "scale_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/scale.npy",
+        "num_generated_implants": 4,
+        "runtime_sec": 112.83,
+        "gpu_peak_memory_mb": 2387.2
+      },
+      "stage2": {
+        "case_name": "SB-001",
+        "case_dir": "jobs/demo_job/stage2/SB-001",
+        "mean_implant_path": "jobs/demo_job/stage2/SB-001/mean_impl.nrrd",
+        "eval_metrics_path": "jobs/demo_job/stage2/SB-001/eval_metrics.yaml",
+        "dice": 0.934,
+        "bdice_10mm": 0.906,
+        "hd95_mm": 2.31,
+        "runtime_sec": 94.82,
+        "gpu_peak_memory_mb": 4021.5
+      }
+    },
+    {
+      "case_name": "SB-002",
+      "stage1": {
+        "case_name": "SB-002",
+        "case_dir": "jobs/demo_job/stage1/syn/SB-002",
+        "input_points_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/input.npy",
+        "sample_points_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/sample.npy",
+        "shift_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/shift.npy",
+        "scale_path": "s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/scale.npy",
+        "num_generated_implants": 4,
+        "runtime_sec": 124.39,
+        "gpu_peak_memory_mb": 2410.5
+      },
+      "stage2": {
+        "case_name": "SB-002",
+        "case_dir": "jobs/demo_job/stage2/SB-002",
+        "mean_implant_path": "jobs/demo_job/stage2/SB-002/mean_impl.nrrd",
+        "eval_metrics_path": "jobs/demo_job/stage2/SB-002/eval_metrics.yaml",
+        "dice": 0.948,
+        "bdice_10mm": 0.919,
+        "hd95_mm": 1.97,
+        "runtime_sec": 97.11,
+        "gpu_peak_memory_mb": 4038.4
+      }
+    }
+  ],
+  "artifacts": {
+    "pointcloud_samples": [
+      "s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/sample.npy",
+      "s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/sample.npy"
+    ],
+    "mean_implants": [
+      "jobs/demo_job/stage2/SB-001/mean_impl.nrrd",
+      "jobs/demo_job/stage2/SB-002/mean_impl.nrrd"
+    ],
+    "eval_metrics": [
+      "jobs/demo_job/stage2/SB-001/eval_metrics.yaml",
+      "jobs/demo_job/stage2/SB-002/eval_metrics.yaml"
+    ]
+  }
+}

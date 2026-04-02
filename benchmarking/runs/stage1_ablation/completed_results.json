@@ -1,0 +1,77 @@
+{
+  "ddpm-steps1000-ens1/100_frontoorbital": {
+    "metadata": {
+      "available_pcdiff_variants": [
+        "best",
+        "latest"
+      ],
+      "job_type": "full",
+      "mesh_faces": 2005124,
+      "mesh_vertices": 1004916,
+      "model_source": "embedded",
+      "num_ensemble": 1,
+      "num_implant_points": 3072,
+      "pcdiff_model": "/app/models/pcdiff_best.pth",
+      "pcdiff_model_variant": "best",
+      "processing_time_seconds": 1220.374657,
+      "sampling_steps": 1000,
+      "voxelization_model": "/app/models/voxelization_best.pt",
+      "voxelization_resolution": 512
+    },
+    "results": {
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/ablation/ddpm-steps1000-ens1/100_frontoorbital/20260401_053304/implant.npy",
+      "implant_only_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/ablation/ddpm-steps1000-ens1/100_frontoorbital/20260401_053304/implant_only.stl"
+    },
+    "status": "success"
+  },
+  "ddpm-steps1000-ens1/100_parietotemporal": {
+    "metadata": {
+      "available_pcdiff_variants": [
+        "best",
+        "latest"
+      ],
+      "job_type": "full",
+      "mesh_faces": 1961986,
+      "mesh_vertices": 983365,
+      "model_source": "embedded",
+      "num_ensemble": 1,
+      "num_implant_points": 3072,
+      "pcdiff_model": "/app/models/pcdiff_best.pth",
+      "pcdiff_model_variant": "best",
+      "processing_time_seconds": 943.04564,
+      "sampling_steps": 1000,
+      "voxelization_model": "/app/models/voxelization_best.pt",
+      "voxelization_resolution": 512
+    },
+    "results": {
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/ablation/ddpm-steps1000-ens1/100_parietotemporal/20260401_053211/implant.npy",
+      "implant_only_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/ablation/ddpm-steps1000-ens1/100_parietotemporal/20260401_053211/implant_only.stl"
+    },
+    "status": "success"
+  },
+  "ddpm-steps1000-ens1/100_random_1": {
+    "metadata": {
+      "available_pcdiff_variants": [
+        "best",
+        "latest"
+      ],
+      "job_type": "full",
+      "mesh_faces": 1889366,
+      "mesh_vertices": 947061,
+      "model_source": "embedded",
+      "num_ensemble": 1,
+      "num_implant_points": 3072,
+      "pcdiff_model": "/app/models/pcdiff_best.pth",
+      "pcdiff_model_variant": "best",
+      "processing_time_seconds": 1007.624856,
+      "sampling_steps": 1000,
+      "voxelization_model": "/app/models/voxelization_best.pt",
+      "voxelization_resolution": 512
+    },
+    "results": {
+      "implant_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/ablation/ddpm-steps1000-ens1/100_random_1/20260401_054901/implant.npy",
+      "implant_only_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/ablation/ddpm-steps1000-ens1/100_random_1/20260401_054901/implant_only.stl"
+    },
+    "status": "success"
+  }
+}

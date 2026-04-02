@@ -118,8 +118,42 @@ python autoresearch/prepare_pcdiff.py  # Should show "10 eval cases"
 ### 6. Run Experiments
 ```bash
 cd /workspace/pcdiff-implant/autoresearch
-OPENROUTER_API_KEY=<key> python run_experiments.py --time-budget 900 --max-experiments 50
+OPENROUTER_API_KEY=<key> python run_experiments.py --time-budget 900 --max-experiments 50 --commit-logs
 ```
+
+`--commit-logs` performs a best-effort git commit after each experiment so audit logs stay in repo history.
+
+### 7. Push Audit Commits
+```bash
+cd /workspace/pcdiff-implant
+git push origin <branch>
+```
+
+Audit artifacts are written to `autoresearch/results/audit/` and include per-experiment stdout/stderr, diffs, model-script snapshots, and result metadata.
+
+### 8. Run Pre-Approved Manual Variant Family
+Use this when campaign variants are pre-defined and approved (no LLM proposal loop).
+
+```bash
+cd /workspace/pcdiff-implant/autoresearch
+python run_manual_variant_campaign.py --campaign attn_dropout_ablation_long --time-budget 5400 --commit-logs
+```
+
+Artifacts are written to `autoresearch/results/manual_campaigns/<campaign>/` with per-variant `stdout.log`, `stderr.log`, `result.json`, and `overrides.json`.
+
+### 9. Run Voxelization Variant Batch (DIM-22)
+Use this to execute voxelization-side ablations on SkullBreak.
+
+```bash
+cd /workspace/pcdiff-implant/autoresearch
+python check_voxelization_env.py
+python ../voxelization/utils/preproc_skullbreak.py --root ../pcdiff/datasets/SkullBreak --csv ../pcdiff/datasets/SkullBreak/skullbreak.csv
+python ../voxelization/utils/split_skullbreak.py --root ../pcdiff/datasets/SkullBreak
+python run_voxelization_variant_campaign.py --campaign vox_skullbreak_ablation_v1 --epochs 80 --dry-run
+# remove --dry-run to execute
+```
+
+Artifacts are written to `autoresearch/results/voxelization_campaigns/<campaign>/`.
 
 ## API Authentication
 - API key: stored in `/home/mike/pcdiff-implant/web_viewer/.env` as `RUNPOD_API_KEY`

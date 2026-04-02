@@ -1,0 +1,10 @@
+{
+  "id": "perun_003",
+  "name": "batch32_baseline",
+  "desc": "Batch size 32 \u2014 large batch training",
+  "changes": {
+    "BATCH_SIZE": 32,
+    "LEARNING_RATE": 0.0004
+  },
+  "time_budget": 3600
+}

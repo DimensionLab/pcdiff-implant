@@ -1,0 +1,13 @@
+{
+  "id": "perun_v4_005",
+  "name": "best_combo_wd001",
+  "desc": "Best config + weight decay 0.01 (regularization)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "WEIGHT_DECAY": 0.01,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 7200
+}

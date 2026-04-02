@@ -16,13 +16,21 @@ uv.lock
 *.npz
 *.obj
 
-# Model output
+# Model output & weights
 /output*
 /pcdiff/output
 /pcdiff/checkpoints/*
 /voxelization/output
 /voxelization/out
 /voxelization/checkpoints/*
+*.pth
+*.pt
+
+# Autoresearch large results (keep experiment logs, exclude heavy artifacts)
+/autoresearch/results/perun/
+/autoresearch/results/runpod/
+/autoresearch/results/checkpoints/
+/autoresearch/results/audit/
 
 # Log-files
 *.log
@@ -66,4 +74,6 @@ wandb/
 /web_viewer/frontend/.env
 /web_viewer/frontend/.env.local
 /web_viewer/backend/__pycache__/
+/web_viewer/node_modules/
+/web_viewer/.next/
 *.pyc

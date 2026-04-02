@@ -1,0 +1,12 @@
+{
+  "id": "perun_v4_003",
+  "name": "best_combo_embed128",
+  "desc": "No warmup + 1.5x wider + embed128 (push embedding further)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 128,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 7200
+}

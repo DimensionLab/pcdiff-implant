@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_003",
+  "name": "best_v3_beta1_0.9",
+  "desc": "Best V3 config + Adam beta1=0.9 (was 0.5, standard modern default)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "BETA1": 0.9
+  },
+  "time_budget": 3600
+}

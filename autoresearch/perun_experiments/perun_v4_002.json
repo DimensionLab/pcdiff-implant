@@ -1,0 +1,13 @@
+{
+  "id": "perun_v4_002",
+  "name": "best_combo_lr5e4",
+  "desc": "Best config + higher LR (5e-4)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "LEARNING_RATE": 0.0005,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 7200
+}

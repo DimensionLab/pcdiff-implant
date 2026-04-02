@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_011",
+  "name": "cosine_lr_higher_embed",
+  "desc": "Cosine LR + embed_dim=128",
+  "changes": {
+    "EMBED_DIM": 128,
+    "BATCH_SIZE": 4
+  },
+  "time_budget": 3600
+}

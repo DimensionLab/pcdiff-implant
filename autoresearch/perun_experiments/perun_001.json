@@ -1,0 +1,9 @@
+{
+  "id": "perun_001",
+  "name": "batch8_baseline",
+  "desc": "Baseline config with batch_size=8 (2x RunPod best)",
+  "changes": {
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

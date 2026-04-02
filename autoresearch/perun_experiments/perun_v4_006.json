@@ -1,0 +1,12 @@
+{
+  "id": "perun_v4_006",
+  "name": "best_combo_bs4",
+  "desc": "Best config but BS=4 (more gradient updates per epoch)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 4
+  },
+  "time_budget": 7200
+}

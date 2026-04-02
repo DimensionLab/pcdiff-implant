@@ -1,0 +1,14 @@
+{
+  "id": "perun_v6_002",
+  "name": "combined_best_bs4_4h",
+  "desc": "Combined best + bs=4 (more gradient updates), 4hr budget",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 4,
+    "SCHEDULE_TYPE": "sigmoid",
+    "BETA1": 0.9
+  },
+  "time_budget": 14400
+}

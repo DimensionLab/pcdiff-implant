@@ -1,0 +1,15 @@
+{
+  "id": "perun_v6_003",
+  "name": "combined_best_lr3e4_4h",
+  "desc": "Combined best + lr=3e-4, 4hr budget",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "SCHEDULE_TYPE": "sigmoid",
+    "BETA1": 0.9,
+    "LEARNING_RATE": 0.0003
+  },
+  "time_budget": 14400
+}

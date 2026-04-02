@@ -1,0 +1,9 @@
+{
+  "id": "perun_002",
+  "name": "batch16_baseline",
+  "desc": "Batch size 16 \u2014 leverage H200 VRAM",
+  "changes": {
+    "BATCH_SIZE": 16
+  },
+  "time_budget": 3600
+}

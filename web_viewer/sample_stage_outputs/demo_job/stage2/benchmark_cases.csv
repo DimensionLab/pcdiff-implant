@@ -1,0 +1,3 @@
+case_name,case_dir,mean_implant_path,eval_metrics_path,dice,bdice_10mm,hd95_mm,runtime_sec,gpu_peak_memory_mb
+SB-001,jobs/demo_job/stage2/SB-001,jobs/demo_job/stage2/SB-001/mean_impl.nrrd,jobs/demo_job/stage2/SB-001/eval_metrics.yaml,0.934,0.906,2.31,94.82,4021.5
+SB-002,jobs/demo_job/stage2/SB-002,jobs/demo_job/stage2/SB-002/mean_impl.nrrd,jobs/demo_job/stage2/SB-002/eval_metrics.yaml,0.948,0.919,1.97,97.11,4038.4

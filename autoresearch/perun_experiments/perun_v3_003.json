@@ -1,0 +1,12 @@
+{
+  "id": "perun_v3_003",
+  "name": "no_warmup_wider_lr5e4",
+  "desc": "No warmup + 1.5x wider + LR=5e-4",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "LEARNING_RATE": 5e-4,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 7200
+}

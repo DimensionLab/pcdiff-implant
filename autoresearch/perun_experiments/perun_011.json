@@ -1,0 +1,10 @@
+{
+  "id": "perun_011",
+  "name": "dropout02_batch8",
+  "desc": "Higher dropout (0.2) for regularization",
+  "changes": {
+    "DROPOUT": 0.2,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

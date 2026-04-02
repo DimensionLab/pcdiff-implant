@@ -1,0 +1,11 @@
+{
+  "id": "perun_009",
+  "name": "combined_wide_batch16",
+  "desc": "Wide 1.5x + batch 16 + LR 3e-4",
+  "changes": {
+    "WIDTH_MULT": 1.5,
+    "BATCH_SIZE": 16,
+    "LEARNING_RATE": 0.0003
+  },
+  "time_budget": 7200
+}

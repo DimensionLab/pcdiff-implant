@@ -1,0 +1,9 @@
+{
+  "id": "perun_v2_001",
+  "name": "cosine_lr_baseline_bs8",
+  "desc": "Cosine LR baseline, batch 8, 1hr",
+  "changes": {
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

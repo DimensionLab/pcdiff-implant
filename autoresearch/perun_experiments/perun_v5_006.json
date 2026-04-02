@@ -1,0 +1,14 @@
+{
+  "id": "perun_v5_006",
+  "name": "best_v3_bfloat16_amp",
+  "desc": "Best V3 config + bfloat16 AMP (H200 native, 2x throughput)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "USE_AMP": true,
+    "AMP_DTYPE": "bfloat16"
+  },
+  "time_budget": 3600
+}

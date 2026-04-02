@@ -1,0 +1,3 @@
+case_name,case_dir,input_points_path,sample_points_path,shift_path,scale_path,num_generated_implants,runtime_sec,gpu_peak_memory_mb
+SB-001,jobs/demo_job/stage1/syn/SB-001,s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/input.npy,s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/sample.npy,s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/shift.npy,s3://test-crainial/jobs/demo_job/stage1/syn/SB-001/scale.npy,4,112.83,2387.2
+SB-002,jobs/demo_job/stage1/syn/SB-002,s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/input.npy,s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/sample.npy,s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/shift.npy,s3://test-crainial/jobs/demo_job/stage1/syn/SB-002/scale.npy,4,124.39,2410.5

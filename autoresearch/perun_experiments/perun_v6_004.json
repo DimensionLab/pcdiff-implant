@@ -1,0 +1,14 @@
+{
+  "id": "perun_v6_004",
+  "name": "combined_best_8h",
+  "desc": "Combined best with 8hr budget for maximum training",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "SCHEDULE_TYPE": "sigmoid",
+    "BETA1": 0.9
+  },
+  "time_budget": 28800
+}

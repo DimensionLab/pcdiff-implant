@@ -1,0 +1,11 @@
+{
+  "id": "perun_v3_005",
+  "name": "no_warmup_wider_4h",
+  "desc": "No warmup + 1.5x wider + 4-hour training",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 14400
+}

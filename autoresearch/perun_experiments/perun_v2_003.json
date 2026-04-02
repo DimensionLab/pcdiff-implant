@@ -1,0 +1,9 @@
+{
+  "id": "perun_v2_003",
+  "name": "cosine_lr_longer_4h",
+  "desc": "Cosine LR + 4-hour training",
+  "changes": {
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 14400
+}

@@ -1,0 +1,40 @@
+{
+  "dice": {
+    "count": 2,
+    "mean": 0.941,
+    "std": 0.009899,
+    "min": 0.934,
+    "max": 0.948
+  },
+  "bdice_10mm": {
+    "count": 2,
+    "mean": 0.9125,
+    "std": 0.009192,
+    "min": 0.906,
+    "max": 0.919
+  },
+  "hd95_mm": {
+    "count": 2,
+    "mean": 2.14,
+    "std": 0.240416,
+    "min": 1.97,
+    "max": 2.31
+  },
+  "runtime_sec": {
+    "count": 2,
+    "mean": 95.965,
+    "std": 1.619275,
+    "min": 94.82,
+    "max": 97.11
+  },
+  "gpu_peak_memory_mb": {
+    "count": 2,
+    "mean": 4029.95,
+    "std": 11.950105,
+    "min": 4021.5,
+    "max": 4038.4
+  },
+  "case_count": 2,
+  "num_ensemble": 4,
+  "compute_eval_metrics": true
+}

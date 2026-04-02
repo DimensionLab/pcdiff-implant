@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "stage_name": "voxelization-evaluation",
+  "dataset": "SkullBreak",
+  "started_at": "2026-03-22T09:16:21Z",
+  "finished_at": "2026-03-22T09:23:02Z",
+  "command": [
+    "python3",
+    "voxelization/generate.py",
+    "voxelization/configs/gen_skullbreak.yaml"
+  ],
+  "args": {
+    "config": "voxelization/configs/gen_skullbreak.yaml",
+    "no_cuda": false,
+    "seed": 42,
+    "iter": null,
+    "dist_backend": "nccl"
+  },
+  "config": {
+    "data": {
+      "dset": "SkullBreak",
+      "path": "datasets/SkullBreak/eval_cases"
+    },
+    "train": {
+      "out_dir": "jobs/demo_job/stage2"
+    },
+    "generation": {
+      "generation_dir": "stage2",
+      "num_ensemble": 4,
+      "compute_eval_metrics": true,
+      "batch_size": 1,
+      "num_workers": 4,
+      "refinement": {
+        "strategy": "occupancy_symmetry",
+        "occupancy_threshold": 0.35,
+        "symmetry_weight": 0.5,
+        "symmetry_axis": "sagittal",
+        "symmetry_defect_only": true
+      },
+      "postprocess": {
+        "method": "bounding_box",
+        "bbox_margin_voxels": 6,
+        "radius_scale": 1.1,
+        "fallback": "largest_cc"
+      }
+    },
+    "test": {
+      "model_file": "voxelization/checkpoints/model_best.pt"
+    }
+  },
+  "git": {
+    "commit": "4a2a6a72b9f84b1cbe8a65df98d1c2ab1b9afdc3",
+    "branch": "main",
+    "dirty": false,
+    "status_short": []
+  },
+  "system": {
+    "hostname": "runpod-gpu-1",
+    "platform": "Linux-6.5.0-1008-aws-x86_64-with-glibc2.35",
+    "python_version": "3.10.13",
+    "torch_version": "2.4.0",
+    "cuda_available": true,
+    "cuda_version": "12.1",
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA L40S",
+      "total_memory_mb": 46068.0
+    }
+  },
+  "outputs": {
+    "generation_dir": "jobs/demo_job/stage2",
+    "cases_csv": "jobs/demo_job/stage2/benchmark_cases.csv",
+    "summary_json": "jobs/demo_job/stage2/benchmark_summary.json",
+    "data_path": "datasets/SkullBreak"
+  },
+  "summary": {
+    "dice": {
+      "count": 2,
+      "mean": 0.941,
+      "std": 0.009899,
+      "min": 0.934,
+      "max": 0.948
+    },
+    "bdice_10mm": {
+      "count": 2,
+      "mean": 0.9125,
+      "std": 0.009192,
+      "min": 0.906,
+      "max": 0.919
+    },
+    "hd95_mm": {
+      "count": 2,
+      "mean": 2.14,
+      "std": 0.240416,
+      "min": 1.97,
+      "max": 2.31
+    },
+    "runtime_sec": {
+      "count": 2,
+      "mean": 95.965,
+      "std": 1.619275,
+      "min": 94.82,
+      "max": 97.11
+    },
+    "gpu_peak_memory_mb": {
+      "count": 2,
+      "mean": 4029.95,
+      "std": 11.950105,
+      "min": 4021.5,
+      "max": 4038.4
+    },
+    "case_count": 2,
+    "num_ensemble": 4,
+    "compute_eval_metrics": true
+  },
+  "extra": {
+    "model_checkpoint": "voxelization/checkpoints/model_best.pt"
+  }
+}

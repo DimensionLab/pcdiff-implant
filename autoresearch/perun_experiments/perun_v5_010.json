@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_010",
+  "name": "best_v3_cosine_lr_decay",
+  "desc": "Best V3 config + CosineAnnealingLR decay (not just no warmup, active decay)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "LR_GAMMA": 0.999
+  },
+  "time_budget": 3600
+}

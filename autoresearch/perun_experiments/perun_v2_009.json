@@ -1,0 +1,11 @@
+{
+  "id": "perun_v2_009",
+  "name": "cosine_lr_wider_bs16_lr3e4",
+  "desc": "Cosine LR + 1.5x wide + batch 16 + LR 3e-4",
+  "changes": {
+    "WIDTH_MULT": 1.5,
+    "BATCH_SIZE": 16,
+    "LEARNING_RATE": 0.0003
+  },
+  "time_budget": 7200
+}

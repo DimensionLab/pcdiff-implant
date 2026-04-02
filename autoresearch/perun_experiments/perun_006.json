@@ -1,0 +1,11 @@
+{
+  "id": "perun_006",
+  "name": "wide1.5_batch8",
+  "desc": "1.5x wider model, batch 8",
+  "changes": {
+    "WIDTH_MULT": 1.5,
+    "BATCH_SIZE": 8,
+    "LEARNING_RATE": 0.00015
+  },
+  "time_budget": 5400
+}

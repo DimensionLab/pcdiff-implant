@@ -1,0 +1,10 @@
+{
+  "id": "perun_010",
+  "name": "long_train_batch8",
+  "desc": "Standard config, 4-hour training (more epochs)",
+  "changes": {
+    "BATCH_SIZE": 8,
+    "EVAL_EVERY_EPOCHS": 100
+  },
+  "time_budget": 14400
+}

@@ -1,0 +1,10 @@
+{
+  "id": "perun_015",
+  "name": "augment_batch8",
+  "desc": "Enable rotation augmentation",
+  "changes": {
+    "AUGMENT": true,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

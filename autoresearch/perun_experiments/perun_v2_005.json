@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_005",
+  "name": "cosine_lr_augment",
+  "desc": "Cosine LR + rotation augment",
+  "changes": {
+    "AUGMENT": true,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

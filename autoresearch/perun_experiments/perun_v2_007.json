@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_007",
+  "name": "cosine_lr_dropout_0.2",
+  "desc": "Cosine LR + dropout 0.2",
+  "changes": {
+    "DROPOUT": 0.2,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

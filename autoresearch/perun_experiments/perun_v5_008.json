@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_008",
+  "name": "best_v3_dropout0",
+  "desc": "Best V3 config + no dropout (remove regularization, small dataset may need all capacity)",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "DROPOUT": 0.0
+  },
+  "time_budget": 3600
+}

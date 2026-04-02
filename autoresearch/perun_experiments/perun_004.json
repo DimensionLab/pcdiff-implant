@@ -1,0 +1,11 @@
+{
+  "id": "perun_004",
+  "name": "lr1e3_cosine_anneal",
+  "desc": "Higher LR with cosine annealing schedule",
+  "changes": {
+    "LEARNING_RATE": 0.001,
+    "BATCH_SIZE": 8,
+    "LR_GAMMA": 0.998
+  },
+  "time_budget": 3600
+}

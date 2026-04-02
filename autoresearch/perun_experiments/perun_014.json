@@ -1,0 +1,13 @@
+{
+  "id": "perun_014",
+  "name": "amp_bf16_batch32_wide",
+  "desc": "AMP bf16 + batch 32 + wide 1.5x",
+  "changes": {
+    "USE_AMP": true,
+    "AMP_DTYPE": "bfloat16",
+    "BATCH_SIZE": 32,
+    "WIDTH_MULT": 1.5,
+    "LEARNING_RATE": 0.0003
+  },
+  "time_budget": 7200
+}

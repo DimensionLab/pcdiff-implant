@@ -1,0 +1,9 @@
+{
+  "id": "perun_v2_002",
+  "name": "cosine_lr_bs16",
+  "desc": "Cosine LR + batch 16",
+  "changes": {
+    "BATCH_SIZE": 16
+  },
+  "time_budget": 3600
+}

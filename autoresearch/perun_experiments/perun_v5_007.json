@@ -1,0 +1,13 @@
+{
+  "id": "perun_v5_007",
+  "name": "best_v3_bs16_lr_scaled",
+  "desc": "BS=16 with linear LR scaling (4e-4) for more gradient updates per epoch",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 16,
+    "LEARNING_RATE": 0.0004
+  },
+  "time_budget": 3600
+}

@@ -1,0 +1,11 @@
+{
+  "id": "perun_v3_001",
+  "name": "no_warmup_wider_1.5x",
+  "desc": "Combine top 2: no warmup + 1.5x wider model",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 7200
+}

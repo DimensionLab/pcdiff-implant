@@ -1,0 +1,10 @@
+{
+  "id": "perun_008",
+  "name": "voxres1.5_batch8",
+  "desc": "1.5x voxel resolution, batch 8",
+  "changes": {
+    "VOX_RES_MULT": 1.5,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 5400
+}

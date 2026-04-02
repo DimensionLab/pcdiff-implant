@@ -1,0 +1,126 @@
+CrAInial Web Viewer Execution Plan
+=================================
+Context
+-------
+The cranial implant pipeline now emits structured stage artifacts:
+- Stage 1 (pcdiff/test_completion.py) produces case directories under <eval_path>/syn with benchmark_cases.csv and benchmark_summary.json.
+- Stage 2 (voxelization/generate.py) consumes those completions, writes per-case mean_impl.nrrd plus eval_metrics.yaml, and emits generation_dir/benchmark_{cases,summary,stage_report}.
+A product-facing viewer needs to present these artifacts, orchestrate new inference runs, and surface runtime/metric health quickly.
+
+Product Goals
+-------------
+1. Let clinicians browse inference jobs (queued, running, finished) together with aggregate metrics.
+2. Allow case-level inspection: render defective skull + implant variants, show Dice/bDSC/HD95, download raw files.
+3. Provide a single launch point for new jobs that snapshots git SHA, model checkpoint, dataset split, and selected inference options.
+4. Enforce provenance: every view references the benchmark_stage_report.json emitted by each stage.
+
+Data & Storage
+--------------
+- Object store: AWS S3 bucket test-crainial (eu-central-1) per .env.
+- GPU orchestration: RunPod API (key provided) for spinning up inference pods that run stage 1 + stage 2.
+- Metadata DB: start with S3 object listings plus job-manifest.json written at launch; migrate to DynamoDB/Postgres later.
+- Secrets: keep RUNPOD_API_KEY, AWS creds, OPENROUTER key in backend-only env vars.
+
+Minimum Viable Flow
+-------------------
+1. User uploads a defective skull volume bundle or selects an existing dataset case ID.
+2. Backend archives request metadata to S3: jobs/<job_id>/request.json.
+3. Backend invokes RunPod template with env {JOB_ID, DATA_ROOT, CHECKPOINTS}, monitors status, and streams logs.
+4. Stage 1 writes outputs to /tmp/out/syn; stage 2 writes voxelization/out/<job_id>; completion hook uploads all artifacts under s3://test-crainial/jobs/<job_id>/.
+5. Backend marks job complete by writing jobs/<job_id>/manifest.json summarizing stage reports + metrics.
+6. Frontend polls /api/jobs -> lists job cards with status, runtime stats, metrics once available.
+7. Clicking a job fetches /api/jobs/{id}, returning job manifest, stage reports, case list, S3 pre-signed URLs.
+8. Viewer renders 3D using three.js + @react-three/drei for implants & skull meshes. Use marching cubes on the client for quick iso-surface from NRRD or precompute .ply server side.
+
+Architecture Draft
+------------------
+App stack: Next.js 15 (app router) with TypeScript.
+Packages:
+- 3D viz: three, @react-three/fiber, @react-three/drei, nrrd-js for decoding volumes, itk-wasm optional.
+- UI: Tailwind + shadcn/ui for rapid form + tables.
+- Backend routes implement AWS + RunPod clients using aws-sdk v3.
+- Job scheduler: server actions + background worker (Next Cron or separate FastAPI service). For MVP, issue RunPod jobs synchronously and rely on callbacks.
+
+API Surface
+-----------
+POST /api/jobs
+  body: {dataset:"SkullBreak"|"SkullFix", case_id?:string, upload_key?:string, ensemble:int, sampling_method:"ddpm"|"ddim"}
+  response: {job_id, status:"queued"}
+GET /api/jobs
+  query: status filter, dataset filter
+  response: list of {job_id, dataset, created_at, status, latest_metrics, latest_runtime}
+GET /api/jobs/{id}
+  response: job manifest (stage reports, metrics summary, case table, presigned URLs)
+GET /api/jobs/{id}/cases/{case}
+  response: {case_name, metrics, download links, viewer payload (pre-computed mesh or downsampled volume)}
+PUT /api/jobs/{id}/cancel
+  response: cancellation status
+
+Job Manifest Schema (S3)
+------------------------
+{
+  "job_id": "UUID",
+  "dataset": "SkullBreak",
+  "launcher": {
+    "user": "slack_handle",
+    "git": {"commit": "...", "branch": "..."},
+    "cmd": "python3 ..."
+  },
+  "stage1": {
+    "report_path": "jobs/<id>/stage1/benchmark_stage_report.json",
+    "cases_csv": "...",
+    "summary": {"runtime_sec": {...}, "gpu_peak_memory_mb": {...}}
+  },
+  "stage2": {
+    "report_path": "jobs/<id>/stage2/benchmark_stage_report.json",
+    "metrics": {"dice": {...}, "bdice_10mm": {...}, "hd95_mm": {...}}
+  },
+  "artifacts": {
+    "mean_implants": ["jobs/<id>/stage2/<case>/mean_impl.nrrd", ...],
+    "pointcloud_samples": ["jobs/<id>/stage1/<case>/sample.npy", ...]
+  }
+}
+
+Implementation Checkpoints
+--------------------------
+1. Repo bootstrap
+   - Initialize Next.js project inside web_viewer/ (pnpm create next-app --ts --eslint --tailwind).
+   - Configure .env (NEXT_PUBLIC_API_BASE for future) and server env reading of RUNPOD/AWS keys.
+2. AWS + RunPod clients
+   - wrap aws-sdk S3Client with helper for putObject/getObject/presign.
+   - wrap RunPod API (pods.create/runs.status) to launch our docker image.
+3. Job API scaffold
+   - Data layer: file-based store `jobs/<id>/manifest.json` locally, S3 in production.
+   - Implement POST /api/jobs (validate body, create manifest stub, kick RunPod job, return job info).
+   - Implement GET /api/jobs (list manifests from store) + GET /api/jobs/{id}.
+4. Artifact ingestion hook
+   - Provide CLI `scripts/upload_job_artifacts.py --job-id --stage1-dir --stage2-dir` to sync outputs to S3 and finalize manifest.
+   - Expose as RunPod container exit hook or Next API endpoint that stage runner calls via curl.
+5. Frontend pages
+   - /jobs: table with dataset, started_at, status, runtime, dice/bdsc/hd95.
+   - /jobs/[id]: summary header, metrics cards, timeline, case table with download + "Open Viewer" button.
+   - /jobs/[id]/cases/[case]: load presigned URLs, fetch mean_impl.nrrd, run marching cubes for viewer, show metrics + downloads.
+6. Reliability instrumentation
+   - Each job manifest stores stage report checksums; viewer warns if missing.
+   - Backend exposes /api/health with S3 + RunPod status checks.
+
+Testing Strategy
+----------------
+- Unit-test AWS + RunPod helpers via moto + httpx mock.
+- Snapshot test API responses (validation, manifest schema).
+- Frontend: Playwright smoke for job list + detail, React Testing Library for components.
+- Stage-runner integration: write fake stage outputs to tmp dir, run upload script, ensure manifest is complete.
+
+Open Risks
+----------
+1. No web_viewer source exists yet → baseline work is scaffolding the Next.js app and backend. Need time allocation.
+2. Stage outputs require heavy binaries (nrrd). Need server-side downsampling to avoid multi-GB downloads in browser.
+3. RunPod orchestration must handle long (>15 min) runs; Next.js serverless functions have timeouts. Might require separate worker (FastAPI + Celery) quickly.
+4. Dataset paths baked into configs reference local "datasets/..."; remote GPU pods must mount the same layout or accept zipped input.
+5. Security: viewer handles PHI; must ensure authentication/authorization (not scoped yet) before exposing beyond dev.
+
+Immediate Next Steps
+--------------------
+- Stand up the Next.js workspace with lint/test tooling and commit initial package.json/tsconfig.
+- Implement shared lib describing manifest schema + StageSummary types to guarantee parity with benchmarking outputs.
+- Prototype a CLI that ingests stage outputs into a manifest JSON (runs locally for now) so frontend devs have mock data.

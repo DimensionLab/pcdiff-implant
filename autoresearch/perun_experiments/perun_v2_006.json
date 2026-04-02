@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_006",
+  "name": "cosine_lr_wider_1.5x",
+  "desc": "Cosine LR + 1.5x wider model",
+  "changes": {
+    "WIDTH_MULT": 1.5,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

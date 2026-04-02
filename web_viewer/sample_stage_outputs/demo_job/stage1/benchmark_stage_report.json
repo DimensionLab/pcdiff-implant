@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "stage_name": "point-cloud-inference",
+  "dataset": "SkullBreak",
+  "started_at": "2026-03-22T09:12:04Z",
+  "finished_at": "2026-03-22T09:14:13Z",
+  "command": [
+    "python3",
+    "pcdiff/test_completion.py",
+    "--eval_path",
+    "jobs/demo_job/stage1",
+    "--dataset",
+    "SkullBreak",
+    "--model",
+    "pcdiff/checkpoints/model_best.pth",
+    "--num_ens",
+    "4",
+    "--sampling_method",
+    "ddpm",
+    "--sampling_steps",
+    "250"
+  ],
+  "args": {
+    "dataset": "SkullBreak",
+    "model": "pcdiff/checkpoints/model_best.pth",
+    "num_ens": 4,
+    "sampling_method": "ddpm",
+    "sampling_steps": 250,
+    "eval_path": "jobs/demo_job/stage1",
+    "bs": 1,
+    "workers": 8,
+    "beta_start": 0.0001,
+    "beta_end": 0.02,
+    "schedule_type": "linear",
+    "time_num": 1000,
+    "attention": true,
+    "dropout": 0.1,
+    "embed_dim": 64,
+    "loss_type": "mse",
+    "model_mean_type": "eps",
+    "model_var_type": "fixedsmall",
+    "vox_res_mult": 1.0,
+    "width_mult": 1.0,
+    "distr_train": false,
+    "eval_recon_mvr": true,
+    "eval_saved": true,
+    "nc": 3,
+    "num_points": 30720,
+    "num_nn": 3072,
+    "manualSeed": 48,
+    "gpu": 0
+  },
+  "git": {
+    "commit": "4a2a6a72b9f84b1cbe8a65df98d1c2ab1b9afdc3",
+    "branch": "main",
+    "dirty": false,
+    "status_short": []
+  },
+  "system": {
+    "hostname": "runpod-gpu-1",
+    "platform": "Linux-6.5.0-1008-aws-x86_64-with-glibc2.35",
+    "python_version": "3.10.13",
+    "torch_version": "2.4.0",
+    "cuda_available": true,
+    "cuda_version": "12.1",
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA L40S",
+      "total_memory_mb": 46068.0
+    }
+  },
+  "outputs": {
+    "syn_dir": "jobs/demo_job/stage1/syn",
+    "cases_csv": "jobs/demo_job/stage1/benchmark_cases.csv",
+    "summary_json": "jobs/demo_job/stage1/benchmark_summary.json"
+  },
+  "summary": {
+    "runtime_sec": {
+      "count": 2,
+      "mean": 118.61,
+      "std": 8.18,
+      "min": 112.83,
+      "max": 124.39
+    },
+    "gpu_peak_memory_mb": {
+      "count": 2,
+      "mean": 2398.85,
+      "std": 16.45,
+      "min": 2387.2,
+      "max": 2410.5
+    },
+    "case_count": 2,
+    "ensemble_size": 4,
+    "sampling_method": "ddpm",
+    "sampling_steps": 250
+  },
+  "extra": {
+    "model_checkpoint": "pcdiff/checkpoints/model_best.pth"
+  }
+}

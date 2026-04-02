@@ -1,0 +1,10 @@
+{
+  "id": "perun_v2_012",
+  "name": "cosine_lr_voxres_1.5",
+  "desc": "Cosine LR + 1.5x voxel resolution",
+  "changes": {
+    "VOX_RES_MULT": 1.5,
+    "BATCH_SIZE": 8
+  },
+  "time_budget": 3600
+}

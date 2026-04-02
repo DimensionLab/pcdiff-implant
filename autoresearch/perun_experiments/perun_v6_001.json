@@ -1,0 +1,14 @@
+{
+  "id": "perun_v6_001",
+  "name": "combined_best_4h",
+  "desc": "All best findings combined: no_warmup + 1.5x wider + embed96 + sigmoid schedule + beta1=0.9, 4hr budget",
+  "changes": {
+    "LR_WARMUP_EPOCHS": 0,
+    "WIDTH_MULT": 1.5,
+    "EMBED_DIM": 96,
+    "BATCH_SIZE": 8,
+    "SCHEDULE_TYPE": "sigmoid",
+    "BETA1": 0.9
+  },
+  "time_budget": 14400
+}
