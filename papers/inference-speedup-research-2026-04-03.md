@@ -182,6 +182,48 @@ PCDiff's value is **methodological novelty** (first point cloud diffusion for im
 
 ---
 
+## Part 5: Additional Papers Found (2025-2026 Update)
+
+### Stage-1 Speedup (New Findings)
+
+| Paper | ID | Year | Relevance |
+|-------|-----|------|-----------|
+| PUFM: Point Cloud Upsampling via Flow Matching | 2501.15286 | 2025 (AAAI) | Flow matching for efficient PC upsampling — applicable paradigm |
+| Not-So-Optimal Transport Flows (NVIDIA) | 2502.12456 | 2025 | Simple scalable flow matching for PC gen via offline OT |
+| MDT-dist: Few-step Flow Distillation for 3D | 2509.04406 | 2025 (AAAI) | Novel few-step distillation specifically for 3D generation |
+| Few-Step Diffusion via Instance-Aware Discretizations | 2603.17671 | 2026 | Instance-aware ODE/SDE discretization — latest acceleration technique |
+| SuperPC: Unified Diffusion for PC Tasks | 2503.14558 | 2025 | Unified model outperforms specialized models on 4 PC tasks |
+| Rethinking Metrics and Diffusion for 3D PC | 2511.05308 | 2025 | Improved architectures for PC generation |
+
+### Stage-2 / Surface Reconstruction (New Findings)
+
+| Paper | ID | Year | Relevance |
+|-------|-----|------|-----------|
+| Neuralangelo (NVIDIA) | 2306.03092 | 2023 | Hash-grid neural surfaces — downloaded PDF |
+| Convolutional Occupancy Networks | 2003.04618 | 2020 | Feature plane decomposition — downloaded PDF |
+| High-Fidelity Lightweight Mesh Reconstruction | CVPR 2025 | 2025 | Adaptive resolution meshing from point clouds |
+| Neural Shortest Path for Surface Recon | 2502.06047 | 2025 | Implicit neural representation for distance functions |
+
+### Cranial Implant Domain (New Competitors)
+
+| Paper | Year | Key Claim |
+|-------|------|-----------|
+| SCAI-Net (Comp Bio Med 2025) | 2025 | "Fast and resource-efficient" skull implant generation |
+| IDNet (Bioengineering) | 2025 | Diffusion model for cranio-maxillofacial defects |
+| Deep Learnable Symmetry (CMPB 2025) | 2025 | Symmetry enforcement for automatic skull reconstruction |
+| CRIGNet (Bioengineering 2025) | 2025 | End-to-end AI framework for cranial defect + PEEK implants |
+| Direct Defect Shape Prediction (MBEC 2025) | 2025 | Direct shape prediction approach (comparison study) |
+
+### Updated Technique Recommendations
+
+**NEW immediate win:** Instance-aware discretizations (2603.17671, Mar 2026) — this is even more recent than our original survey and could be combined with DPM-Solver++ for better step allocation.
+
+**NEW distillation option:** MDT-dist (2509.04406) provides a marginal-data transport distillation framework specifically designed for 3D generation — may outperform vanilla consistency distillation for our use case.
+
+**Competitive landscape update:** SCAI-Net (2025) explicitly claims faster inference than PCDiff. We should benchmark against their approach. The cranial implant field is increasingly crowded — speed IS a competitive differentiator, reinforcing the urgency of inference optimization.
+
+---
+
 ## Conclusion
 
 The single highest-leverage action is **applying DPM-Solver++ to our existing PCDiff model** — zero retraining, ~50x inference speedup. For RunPod serverless (24-96GB GPUs), this could reduce stage-1 inference from ~60s to ~1-2s.
@@ -189,3 +231,25 @@ The single highest-leverage action is **applying DPM-Solver++ to our existing PC
 The full optimization pipeline (Phases 1-3) can plausibly achieve **sub-second total inference** for the complete skull-scan-to-implant pipeline, enabling real-time clinical workflows.
 
 PCDiff's accuracy gap vs. Wodzinski et al. (0.86 vs 0.94+ DSC) should be addressed in parallel — our differentiator (multi-proposal probabilistic generation) is real, but the accuracy gap is substantial.
+
+**2025-2026 update:** The field is moving fast. Flow matching (PUFM, Not-So-OT-Flows) and instance-aware discretizations represent the latest frontier. Multiple new cranial implant papers (SCAI-Net, IDNet, CRIGNet) make speed optimization urgent for competitive positioning.
+
+### All Downloaded Papers (18 total in pdfs/)
+1. pcdiff-implant-2303.08061.pdf (baseline)
+2. dpm-solver-plus-plus-2211.01095.pdf (immediate sampler speedup)
+3. consistency-models-2303.01469.pdf (few-step distillation)
+4. conticom3d-consistency-2509.01492.pdf (3D consistency models)
+5. progressive-distillation-2202.00512.pdf (controlled step reduction)
+6. flow-matching-2210.02747.pdf (better training objective)
+7. spvd-sparse-point-voxel-2408.06145.pdf (sparse architecture)
+8. nksr-2305.19590.pdf (fast surface reconstruction)
+9. rectified-flow-implant-zhou2025.pdf (direct competitor)
+10. wodzinski-cranial-augmentation-2406.06372.pdf (accuracy SOTA)
+11. neuralangelo-2306.03092.pdf (hash-grid surfaces)
+12. convolutional-occupancy-2003.04618.pdf (feature plane decomposition)
+13. not-so-optimal-transport-2502.12456.pdf (NVIDIA flow matching for PC)
+14. mixed-precision-pointpillars-2601.12638.pdf (FP16/INT8 deployment)
+15. 3d-pc-pruning-2408.14601.pdf (model pruning for 3D)
+16. pufm-flow-matching-2501.15286.pdf (flow matching for PC upsampling)
+17. mdt-dist-2509.04406.pdf (few-step flow distillation for 3D)
+18. few-step-instance-aware-2603.17671.pdf (latest: instance-aware discretization)
