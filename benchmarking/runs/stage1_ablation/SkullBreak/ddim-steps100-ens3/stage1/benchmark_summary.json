@@ -1,0 +1,20 @@
+{
+  "case_count": 115,
+  "ensemble_size": 3,
+  "gpu_peak_memory_mb": {
+    "count": 97,
+    "max": 4835.4,
+    "mean": 4835.4,
+    "min": 4835.4,
+    "std": 0.0
+  },
+  "runtime_sec": {
+    "count": 115,
+    "max": 73.436,
+    "mean": 61.07241826086957,
+    "min": 0.0,
+    "std": 26.424017217916237
+  },
+  "sampling_method": "ddim",
+  "sampling_steps": 100
+}
