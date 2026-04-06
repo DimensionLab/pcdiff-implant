@@ -62,7 +62,7 @@ class GatingConfig:
     max_epochs: int = 700
 
     # Proxy eval frequency
-    proxy_eval_freq: int = 50
+    proxy_eval_freq: int = 200
 
     # Divergence detection thresholds
     nan_check: bool = True
@@ -616,7 +616,7 @@ class CheckpointManager:
     def load_best_loss(self, checkpoint_path: str):
         """Load best loss from a checkpoint if resuming."""
         if checkpoint_path and os.path.exists(checkpoint_path):
-            ckpt = torch.load(checkpoint_path, map_location='cpu')
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
             if 'loss' in ckpt:
                 self.best_loss = ckpt['loss']
 
@@ -1627,7 +1627,7 @@ def train(gpu, opt, output_dir, noises_init):
 
     start_epoch = 0
     if opt.model:
-        checkpoint = torch.load(opt.model, map_location="cpu")
+        checkpoint = torch.load(opt.model, map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint['model_state'])
         optimizer.load_state_dict(checkpoint['optimizer_state'])
         start_epoch = checkpoint.get('epoch', -1) + 1
