@@ -131,3 +131,59 @@ Check the documentation of torch.load to learn more about types accepted by defa
 2026-04-06 06:54:09,357 : [ 69/5000][  0/  7]    loss:     0.1890,    grad_norm:     0.0986
 2026-04-06 06:54:22,423 : [ 70/5000][  0/  7]    loss:     0.1542,    grad_norm:     0.3053
 2026-04-06 06:54:35,474 : [ 71/5000][  0/  7]    loss:     0.1467,    grad_norm:     0.2405
+2026-04-06 06:54:48,541 : [ 72/5000][  0/  7]    loss:     0.2601,    grad_norm:     0.2840
+2026-04-06 06:55:01,598 : [ 73/5000][  0/  7]    loss:     0.1590,    grad_norm:     0.3187
+2026-04-06 06:55:14,653 : [ 74/5000][  0/  7]    loss:     0.3272,    grad_norm:     0.2022
+2026-04-06 06:55:27,697 : [ 75/5000][  0/  7]    loss:     0.1462,    grad_norm:     0.1622
+2026-04-06 06:55:40,767 : [ 76/5000][  0/  7]    loss:     0.1781,    grad_norm:     0.1872
+2026-04-06 06:55:53,816 : [ 77/5000][  0/  7]    loss:     0.2820,    grad_norm:     0.1310
+2026-04-06 06:56:06,885 : [ 78/5000][  0/  7]    loss:     0.0880,    grad_norm:     0.2810
+2026-04-06 06:56:19,979 : [ 79/5000][  0/  7]    loss:     0.1188,    grad_norm:     0.2212
+2026-04-06 06:56:33,009 : [ 80/5000][  0/  7]    loss:     0.2679,    grad_norm:     0.2388
+2026-04-06 06:56:46,109 : [ 81/5000][  0/  7]    loss:     0.1855,    grad_norm:     0.2252
+2026-04-06 06:56:58,501 : New best model saved at epoch 81 with loss 0.156877
+2026-04-06 06:57:00,273 : [ 82/5000][  0/  7]    loss:     0.2185,    grad_norm:     0.4025
+2026-04-06 06:57:13,351 : [ 83/5000][  0/  7]    loss:     0.1245,    grad_norm:     0.1590
+2026-04-06 06:57:26,398 : [ 84/5000][  0/  7]    loss:     0.2058,    grad_norm:     0.2265
+2026-04-06 06:57:39,458 : [ 85/5000][  0/  7]    loss:     0.1562,    grad_norm:     0.1398
+2026-04-06 06:57:52,491 : [ 86/5000][  0/  7]    loss:     0.1663,    grad_norm:     0.3229
+2026-04-06 06:58:05,542 : [ 87/5000][  0/  7]    loss:     0.2557,    grad_norm:     0.1275
+2026-04-06 06:58:18,607 : [ 88/5000][  0/  7]    loss:     0.1599,    grad_norm:     0.0859
+2026-04-06 06:58:31,639 : [ 89/5000][  0/  7]    loss:     0.2830,    grad_norm:     0.1262
+2026-04-06 06:58:44,683 : [ 90/5000][  0/  7]    loss:     0.2245,    grad_norm:     0.2562
+2026-04-06 06:58:57,744 : [ 91/5000][  0/  7]    loss:     0.1323,    grad_norm:     0.2721
+2026-04-06 06:59:10,799 : [ 92/5000][  0/  7]    loss:     0.1869,    grad_norm:     0.3011
+2026-04-06 06:59:23,864 : [ 93/5000][  0/  7]    loss:     0.2020,    grad_norm:     0.2777
+2026-04-06 06:59:36,952 : [ 94/5000][  0/  7]    loss:     0.2581,    grad_norm:     0.2206
+2026-04-06 06:59:50,007 : [ 95/5000][  0/  7]    loss:     0.1892,    grad_norm:     0.2155
+2026-04-06 07:00:03,058 : [ 96/5000][  0/  7]    loss:     0.2323,    grad_norm:     0.2689
+2026-04-06 07:00:16,092 : [ 97/5000][  0/  7]    loss:     0.1740,    grad_norm:     0.1075
+2026-04-06 07:00:29,146 : [ 98/5000][  0/  7]    loss:     0.1502,    grad_norm:     0.1531
+2026-04-06 07:00:41,717 : New best model saved at epoch 98 with loss 0.154436
+2026-04-06 07:00:43,519 : [ 99/5000][  0/  7]    loss:     0.2265,    grad_norm:     0.2058
+2026-04-06 07:00:55,864 : Periodic checkpoint saved: /mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints/model_epoch_99.pth
+2026-04-06 07:00:57,636 : [100/5000][  0/  7]    loss:     0.2735,    grad_norm:     0.2111
+2026-04-06 07:01:07,888 : Epoch 100: All ranks completed 7 steps ✓
+2026-04-06 07:01:10,171 : Periodic checkpoint saved: /mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints/model_epoch_100.pth
+2026-04-06 07:01:10,175 : Decision checkpoint saved at epoch 100
+2026-04-06 07:01:10,176 : === PROXY EVALUATION at epoch 100 ===
+2026-04-06 07:01:10,177 : Running proxy evaluation on 10 samples with DDIM-50
+2026-04-06 07:01:10,192 : Failed to initialize voxelization runner: Weights only load failed. This file can still be loaded, to do so you have two options, [1mdo those steps only if you trust the source of the checkpoint[0m. 
+	(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.
+	(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.
+	WeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray.scalar was not an allowed global by default. Please use `torch.serialization.add_safe_globals([scalar])` or the `torch.serialization.safe_globals([scalar])` context manager to allowlist this global if you trust this class/function.
+
+Check the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.
+2026-04-06 07:01:10,192 :   Proxy eval failed: vox_init_failed: Weights only load failed. This file can still be loaded, to do so you have two options, [1mdo those steps only if you trust the source of the checkpoint[0m. 
+	(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.
+	(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.
+	WeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray.scalar was not an allowed global by default. Please use `torch.serialization.add_safe_globals([scalar])` or the `torch.serialization.safe_globals([scalar])` context manager to allowlist this global if you trust this class/function.
+
+Check the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.
+2026-04-06 07:01:10,192 : ==================================================
+2026-04-06 07:01:10,194 : === GATING DECISION at epoch 100 ===
+2026-04-06 07:01:10,194 :   Loss (last 50 ep): median=0.1904, p10=0.1250, p90=0.2658
+2026-04-06 07:01:10,194 :   Decision: continue
+2026-04-06 07:01:10,194 :   Details: Continuing to next checkpoint
+2026-04-06 07:01:10,194 : ==================================================
+2026-04-06 07:01:11,957 : [101/5000][  0/  7]    loss:     0.2454,    grad_norm:     0.1428
