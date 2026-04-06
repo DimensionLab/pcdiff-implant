@@ -1,0 +1,150 @@
+{
+  "timestamp": "2026-04-06T06:38:36.971578",
+  "git_commit": null,
+  "git_commit_short": null,
+  "seed": 1234,
+  "cli_args": {
+    "path": "pcdiff/datasets/SkullBreak/train.csv",
+    "dataset": "SkullBreak",
+    "bs": 64,
+    "workers": 16,
+    "prefetch_factor": 4,
+    "niter": 5000,
+    "nc": 3,
+    "num_points": 30720,
+    "num_nn": 3072,
+    "beta_start": 0.0001,
+    "beta_end": 0.02,
+    "schedule_type": "cosine",
+    "time_num": 1000,
+    "augment": false,
+    "attention": true,
+    "dropout": 0.1,
+    "embed_dim": 96,
+    "loss_type": "mse_minsnr",
+    "min_snr_gamma": 5.0,
+    "model_mean_type": "eps",
+    "model_var_type": "fixedsmall",
+    "vox_res_mult": 1.0,
+    "width_mult": 1.5,
+    "lr": 0.000566,
+    "lr_base_batch": 64,
+    "lr_warmup_epochs": 50,
+    "lr_warmup_start_factor": 0.0177,
+    "beta1": 0.5,
+    "decay": 0,
+    "grad_clip": 1.0,
+    "ema_decay": 0.9999,
+    "lr_gamma": 1,
+    "lr_scheduler": "cosine",
+    "cosine_T_max": 5000,
+    "cosine_eta_min": 1e-06,
+    "disable_compile": true,
+    "compile_backend": "inductor",
+    "compile_mode": null,
+    "compile_fullgraph": false,
+    "amp": false,
+    "amp_dtype": "float16",
+    "no_fused_adam": false,
+    "ddp_static_graph": false,
+    "nondeterministic": false,
+    "disable_tf32": false,
+    "matmul_precision": "high",
+    "model": "",
+    "checkpoint_dir": "/mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints",
+    "checkpoint_freq": 100,
+    "keep_last_n": 5,
+    "gpu": null,
+    "dist_backend": "nccl",
+    "saveIter": 1000,
+    "diagIter": 2000,
+    "vizIter": 2000,
+    "print_freq": 10,
+    "manualSeed": 1234,
+    "wandb_project": "pcdiff-implant",
+    "wandb_entity": null,
+    "wandb_name": null,
+    "no_wandb": true,
+    "experiment_tag": null,
+    "gating_enabled": true,
+    "gating_max_epochs": 5000,
+    "gating_decision_epochs": "50,100,200,500,700",
+    "gating_proxy_eval_freq": 50,
+    "gating_grad_norm_threshold": 1000000.0,
+    "gating_loss_spike_threshold": 10.0,
+    "gating_plateau_delta": 0.005,
+    "gating_plateau_variance": 0.3,
+    "proxy_eval_enabled": true,
+    "proxy_eval_subset": "pcdiff/proxy_validation_subset.json",
+    "proxy_eval_vox_config": "voxelization/configs/gen_skullbreak.yaml",
+    "proxy_eval_vox_checkpoint": "voxelization/checkpoints/model_best.pt",
+    "proxy_eval_num_ens": 1,
+    "proxy_eval_sampling_method": "ddim",
+    "proxy_eval_sampling_steps": 50,
+    "gating_decision_epochs_list": [
+      50,
+      100,
+      200,
+      500,
+      700
+    ]
+  },
+  "dataset": {
+    "name": "SkullBreak",
+    "csv_path": "pcdiff/datasets/SkullBreak/train.csv",
+    "csv_hash": "5957df55b8930f38"
+  },
+  "gpu_info": {
+    "cuda_available": true,
+    "device_count": 8,
+    "devices": [
+      {
+        "index": 0,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 1,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 2,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 3,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 4,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 5,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 6,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      },
+      {
+        "index": 7,
+        "name": "NVIDIA H200",
+        "total_memory_gb": 139.8
+      }
+    ]
+  },
+  "environment": {
+    "pytorch_version": "2.6.0+cu124",
+    "cuda_version": "12.4",
+    "cudnn_version": 90100,
+    "world_size": 8
+  },
+  "run_directory": "/mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836"
+}

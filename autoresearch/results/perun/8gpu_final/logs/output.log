@@ -1,0 +1,133 @@
+2026-04-06 06:38:36,998 : Run directory: /mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836
+2026-04-06 06:38:36,998 : Checkpoints: /mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints
+2026-04-06 06:38:37,000 : Initialized distributed training: world_size=8, rank=0, local_rank=0, timeout=30min
+2026-04-06 06:38:37,001 : Batch size: 8 per GPU × 8 GPUs = 64 effective global batch
+2026-04-06 06:38:37,001 : Dataset: 455 samples, 7 batches/epoch/rank
+2026-04-06 06:38:40,772 : EMA enabled with decay=0.9999
+2026-04-06 06:38:40,773 : Namespace(path='pcdiff/datasets/SkullBreak/train.csv', dataset='SkullBreak', bs=64, workers=16, prefetch_factor=4, niter=5000, nc=3, num_points=30720, num_nn=3072, beta_start=0.0001, beta_end=0.02, schedule_type='cosine', time_num=1000, augment=False, attention=True, dropout=0.1, embed_dim=96, loss_type='mse_minsnr', min_snr_gamma=5.0, model_mean_type='eps', model_var_type='fixedsmall', vox_res_mult=1.0, width_mult=1.5, lr=0.000566, lr_base_batch=64, lr_warmup_epochs=50, lr_warmup_start_factor=0.0177, beta1=0.5, decay=0, grad_clip=1.0, ema_decay=0.9999, lr_gamma=1, lr_scheduler='cosine', cosine_T_max=5000, cosine_eta_min=1e-06, disable_compile=True, compile_backend='inductor', compile_mode=None, compile_fullgraph=False, amp=False, amp_dtype='float16', no_fused_adam=False, ddp_static_graph=False, nondeterministic=False, disable_tf32=False, matmul_precision='high', model='', checkpoint_dir='/mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints', checkpoint_freq=100, keep_last_n=5, gpu=None, dist_backend='nccl', saveIter=1000, diagIter=2000, vizIter=2000, print_freq=10, manualSeed=1234, wandb_project='pcdiff-implant', wandb_entity=None, wandb_name=None, no_wandb=True, experiment_tag=None, gating_enabled=True, gating_max_epochs=5000, gating_decision_epochs='50,100,200,500,700', gating_proxy_eval_freq=50, gating_grad_norm_threshold=1000000.0, gating_loss_spike_threshold=10.0, gating_plateau_delta=0.005, gating_plateau_variance=0.3, proxy_eval_enabled=True, proxy_eval_subset='pcdiff/proxy_validation_subset.json', proxy_eval_vox_config='voxelization/configs/gen_skullbreak.yaml', proxy_eval_vox_checkpoint='voxelization/checkpoints/model_best.pt', proxy_eval_num_ens=1, proxy_eval_sampling_method='ddim', proxy_eval_sampling_steps=50, gating_decision_epochs_list=[50, 100, 200, 500, 700])
+2026-04-06 06:38:40,773 : Effective LR scaled to 5.660000e-04 using factor 1.000 (baseline batch=64, current batch=64)
+2026-04-06 06:38:40,773 : Applying LR warmup for 50 epochs (start_factor=0.018) before CosineAnnealingLR(T_max=5000, eta_min=1.0e-06)
+2026-04-06 06:38:40,773 : AMP: off (dtype=float16, grad_scaler=off)
+2026-04-06 06:38:40,773 : Using fused Adam optimizer kernels
+2026-04-06 06:38:40,774 : Checkpoints will be saved to: /mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints
+2026-04-06 06:38:40,774 : Checkpoint frequency: every 100 epochs, keeping last 5
+2026-04-06 06:38:40,774 : Gating loop: enabled=True, max_epochs=5000, decision_epochs=[50, 100, 200, 500, 700]
+2026-04-06 06:38:40,774 : Effective max epochs: 5000 (niter=5000, gating_max=5000)
+2026-04-06 06:38:41,011 : Loading CUDA backend for PVCNN operations...
+2026-04-06 06:38:42,024 : CUDA backend loaded successfully.
+2026-04-06 06:38:43,991 : [  0/5000][  0/  7]    loss:     1.0364,    grad_norm:    33.6411
+2026-04-06 06:38:54,243 : Epoch 0: All ranks completed 7 steps ✓
+2026-04-06 06:38:56,331 : New best model saved at epoch 0 with loss 0.777654
+2026-04-06 06:38:58,098 : [  1/5000][  0/  7]    loss:     0.6945,    grad_norm:     2.3570
+2026-04-06 06:39:10,417 : New best model saved at epoch 1 with loss 0.699705
+2026-04-06 06:39:12,199 : [  2/5000][  0/  7]    loss:     0.5734,    grad_norm:     6.6604
+2026-04-06 06:39:24,544 : New best model saved at epoch 2 with loss 0.653193
+2026-04-06 06:39:26,314 : [  3/5000][  0/  7]    loss:     0.4520,    grad_norm:     2.8372
+2026-04-06 06:39:38,605 : New best model saved at epoch 3 with loss 0.635090
+2026-04-06 06:39:40,373 : [  4/5000][  0/  7]    loss:     0.5622,    grad_norm:     6.4265
+2026-04-06 06:39:52,687 : New best model saved at epoch 4 with loss 0.548758
+2026-04-06 06:39:54,478 : [  5/5000][  0/  7]    loss:     0.5566,    grad_norm:     8.3601
+2026-04-06 06:40:06,962 : New best model saved at epoch 5 with loss 0.480314
+2026-04-06 06:40:08,726 : [  6/5000][  0/  7]    loss:     0.5729,    grad_norm:    11.0480
+2026-04-06 06:40:21,796 : [  7/5000][  0/  7]    loss:     0.5301,    grad_norm:     8.6713
+2026-04-06 06:40:34,082 : New best model saved at epoch 7 with loss 0.435001
+2026-04-06 06:40:35,856 : [  8/5000][  0/  7]    loss:     0.2306,    grad_norm:     1.8436
+2026-04-06 06:40:48,179 : New best model saved at epoch 8 with loss 0.428356
+2026-04-06 06:40:49,945 : [  9/5000][  0/  7]    loss:     0.4386,    grad_norm:     2.7658
+2026-04-06 06:41:02,981 : [ 10/5000][  0/  7]    loss:     0.3125,    grad_norm:     3.3932
+2026-04-06 06:41:15,513 : New best model saved at epoch 10 with loss 0.385715
+2026-04-06 06:41:17,275 : [ 11/5000][  0/  7]    loss:     0.3018,    grad_norm:     5.6254
+2026-04-06 06:41:29,655 : New best model saved at epoch 11 with loss 0.320339
+2026-04-06 06:41:31,428 : [ 12/5000][  0/  7]    loss:     0.3246,    grad_norm:     3.9293
+2026-04-06 06:41:44,473 : [ 13/5000][  0/  7]    loss:     0.3934,    grad_norm:     4.5784
+2026-04-06 06:41:57,517 : [ 14/5000][  0/  7]    loss:     0.2928,    grad_norm:     3.0710
+2026-04-06 06:42:10,572 : [ 15/5000][  0/  7]    loss:     0.3721,    grad_norm:     3.0710
+2026-04-06 06:42:23,611 : [ 16/5000][  0/  7]    loss:     0.1797,    grad_norm:     1.5300
+2026-04-06 06:42:36,021 : New best model saved at epoch 16 with loss 0.272456
+2026-04-06 06:42:37,789 : [ 17/5000][  0/  7]    loss:     0.2874,    grad_norm:     4.6614
+2026-04-06 06:42:50,823 : [ 18/5000][  0/  7]    loss:     0.1821,    grad_norm:     1.2138
+2026-04-06 06:43:03,892 : [ 19/5000][  0/  7]    loss:     0.3288,    grad_norm:     1.5606
+2026-04-06 06:43:16,958 : [ 20/5000][  0/  7]    loss:     0.2005,    grad_norm:     1.4825
+2026-04-06 06:43:30,000 : [ 21/5000][  0/  7]    loss:     0.2298,    grad_norm:     1.0343
+2026-04-06 06:43:42,386 : New best model saved at epoch 21 with loss 0.267408
+2026-04-06 06:43:44,155 : [ 22/5000][  0/  7]    loss:     0.3350,    grad_norm:     1.1615
+2026-04-06 06:43:57,238 : [ 23/5000][  0/  7]    loss:     0.2519,    grad_norm:     1.0673
+2026-04-06 06:44:10,310 : [ 24/5000][  0/  7]    loss:     0.3365,    grad_norm:     2.4434
+2026-04-06 06:44:22,793 : New best model saved at epoch 24 with loss 0.261677
+2026-04-06 06:44:24,564 : [ 25/5000][  0/  7]    loss:     0.3286,    grad_norm:     1.4580
+2026-04-06 06:44:36,909 : New best model saved at epoch 25 with loss 0.261299
+2026-04-06 06:44:38,674 : [ 26/5000][  0/  7]    loss:     0.3569,    grad_norm:     1.2936
+2026-04-06 06:44:51,131 : New best model saved at epoch 26 with loss 0.251123
+2026-04-06 06:44:52,900 : [ 27/5000][  0/  7]    loss:     0.2235,    grad_norm:     1.3908
+2026-04-06 06:45:05,436 : New best model saved at epoch 27 with loss 0.249076
+2026-04-06 06:45:07,206 : [ 28/5000][  0/  7]    loss:     0.2824,    grad_norm:     1.0016
+2026-04-06 06:45:19,739 : New best model saved at epoch 28 with loss 0.229674
+2026-04-06 06:45:21,519 : [ 29/5000][  0/  7]    loss:     0.3198,    grad_norm:     1.5902
+2026-04-06 06:45:34,613 : [ 30/5000][  0/  7]    loss:     0.1158,    grad_norm:     0.3962
+2026-04-06 06:45:46,977 : New best model saved at epoch 30 with loss 0.195773
+2026-04-06 06:45:48,749 : [ 31/5000][  0/  7]    loss:     0.1613,    grad_norm:     0.9204
+2026-04-06 06:46:01,771 : [ 32/5000][  0/  7]    loss:     0.3442,    grad_norm:     1.4228
+2026-04-06 06:46:14,962 : [ 33/5000][  0/  7]    loss:     0.2449,    grad_norm:     0.9484
+2026-04-06 06:46:28,001 : [ 34/5000][  0/  7]    loss:     0.1502,    grad_norm:     0.3471
+2026-04-06 06:46:41,050 : [ 35/5000][  0/  7]    loss:     0.2304,    grad_norm:     0.4555
+2026-04-06 06:46:54,114 : [ 36/5000][  0/  7]    loss:     0.2110,    grad_norm:     0.6149
+2026-04-06 06:47:07,168 : [ 37/5000][  0/  7]    loss:     0.3042,    grad_norm:     0.2451
+2026-04-06 06:47:20,217 : [ 38/5000][  0/  7]    loss:     0.1803,    grad_norm:     0.3403
+2026-04-06 06:47:33,249 : [ 39/5000][  0/  7]    loss:     0.1989,    grad_norm:     0.6129
+2026-04-06 06:47:46,295 : [ 40/5000][  0/  7]    loss:     0.2031,    grad_norm:     0.2315
+2026-04-06 06:47:59,349 : [ 41/5000][  0/  7]    loss:     0.2794,    grad_norm:     0.9256
+2026-04-06 06:48:12,370 : [ 42/5000][  0/  7]    loss:     0.1345,    grad_norm:     0.2403
+2026-04-06 06:48:24,749 : New best model saved at epoch 42 with loss 0.173256
+2026-04-06 06:48:26,530 : [ 43/5000][  0/  7]    loss:     0.2452,    grad_norm:     0.5232
+2026-04-06 06:48:39,571 : [ 44/5000][  0/  7]    loss:     0.2103,    grad_norm:     0.6942
+2026-04-06 06:48:52,610 : [ 45/5000][  0/  7]    loss:     0.2758,    grad_norm:     0.8401
+2026-04-06 06:49:05,686 : [ 46/5000][  0/  7]    loss:     0.1730,    grad_norm:     0.4862
+2026-04-06 06:49:18,739 : [ 47/5000][  0/  7]    loss:     0.2569,    grad_norm:     0.1378
+2026-04-06 06:49:31,771 : [ 48/5000][  0/  7]    loss:     0.2231,    grad_norm:     0.4732
+2026-04-06 06:49:44,796 : [ 49/5000][  0/  7]    loss:     0.2422,    grad_norm:     0.5070
+2026-04-06 06:49:57,883 : [ 50/5000][  0/  7]    loss:     0.3095,    grad_norm:     1.1072
+2026-04-06 06:50:10,174 : Periodic checkpoint saved: /mnt/data/home/mamuke588/pcdiff-implant/pcdiff/runs/SkullBreak/20260406_063836/checkpoints/model_epoch_50.pth
+2026-04-06 06:50:10,178 : Decision checkpoint saved at epoch 50
+2026-04-06 06:50:10,179 : === PROXY EVALUATION at epoch 50 ===
+2026-04-06 06:50:10,180 : Running proxy evaluation on 10 samples with DDIM-50
+2026-04-06 06:50:10,200 : Failed to initialize voxelization runner: Weights only load failed. This file can still be loaded, to do so you have two options, [1mdo those steps only if you trust the source of the checkpoint[0m. 
+	(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.
+	(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.
+	WeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray.scalar was not an allowed global by default. Please use `torch.serialization.add_safe_globals([scalar])` or the `torch.serialization.safe_globals([scalar])` context manager to allowlist this global if you trust this class/function.
+
+Check the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.
+2026-04-06 06:50:10,200 :   Proxy eval failed: vox_init_failed: Weights only load failed. This file can still be loaded, to do so you have two options, [1mdo those steps only if you trust the source of the checkpoint[0m. 
+	(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.
+	(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.
+	WeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray.scalar was not an allowed global by default. Please use `torch.serialization.add_safe_globals([scalar])` or the `torch.serialization.safe_globals([scalar])` context manager to allowlist this global if you trust this class/function.
+
+Check the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.
+2026-04-06 06:50:10,200 : ==================================================
+2026-04-06 06:50:10,202 : === GATING DECISION at epoch 50 ===
+2026-04-06 06:50:10,202 :   Loss (last 50 ep): median=0.2721, p10=0.1803, p90=0.5305
+2026-04-06 06:50:10,202 :   Decision: continue
+2026-04-06 06:50:10,202 :   Details: Continuing to next checkpoint
+2026-04-06 06:50:10,202 : ==================================================
+2026-04-06 06:50:11,963 : [ 51/5000][  0/  7]    loss:     0.1229,    grad_norm:     0.6598
+2026-04-06 06:50:25,029 : [ 52/5000][  0/  7]    loss:     0.2020,    grad_norm:     0.3329
+2026-04-06 06:50:38,069 : [ 53/5000][  0/  7]    loss:     0.1983,    grad_norm:     0.2255
+2026-04-06 06:50:51,120 : [ 54/5000][  0/  7]    loss:     0.2218,    grad_norm:     0.2589
+2026-04-06 06:51:04,147 : [ 55/5000][  0/  7]    loss:     0.2223,    grad_norm:     0.2735
+2026-04-06 06:51:17,221 : [ 56/5000][  0/  7]    loss:     0.1669,    grad_norm:     0.2288
+2026-04-06 06:51:30,265 : [ 57/5000][  0/  7]    loss:     0.1673,    grad_norm:     0.1221
+2026-04-06 06:51:42,675 : New best model saved at epoch 57 with loss 0.166228
+2026-04-06 06:51:44,449 : [ 58/5000][  0/  7]    loss:     0.1923,    grad_norm:     0.2732
+2026-04-06 06:51:57,730 : [ 59/5000][  0/  7]    loss:     0.2063,    grad_norm:     0.1830
+2026-04-06 06:52:10,790 : [ 60/5000][  0/  7]    loss:     0.2175,    grad_norm:     0.2689
+2026-04-06 06:52:23,831 : [ 61/5000][  0/  7]    loss:     0.1170,    grad_norm:     0.2640
+2026-04-06 06:52:36,890 : [ 62/5000][  0/  7]    loss:     0.2464,    grad_norm:     0.2059
+2026-04-06 06:52:49,949 : [ 63/5000][  0/  7]    loss:     0.1552,    grad_norm:     0.1515
+2026-04-06 06:53:02,353 : New best model saved at epoch 63 with loss 0.158611
+2026-04-06 06:53:04,141 : [ 64/5000][  0/  7]    loss:     0.1859,    grad_norm:     0.4537
+2026-04-06 06:53:17,213 : [ 65/5000][  0/  7]    loss:     0.1951,    grad_norm:     0.1819
+2026-04-06 06:53:30,271 : [ 66/5000][  0/  7]    loss:     0.2279,    grad_norm:     0.2829
+2026-04-06 06:53:43,291 : [ 67/5000][  0/  7]    loss:     0.2126,    grad_norm:     0.2734
+2026-04-06 06:53:56,328 : [ 68/5000][  0/  7]    loss:     0.3024,    grad_norm:     0.1537
+2026-04-06 06:54:09,357 : [ 69/5000][  0/  7]    loss:     0.1890,    grad_norm:     0.0986
+2026-04-06 06:54:22,423 : [ 70/5000][  0/  7]    loss:     0.1542,    grad_norm:     0.3053
+2026-04-06 06:54:35,474 : [ 71/5000][  0/  7]    loss:     0.1467,    grad_norm:     0.2405
