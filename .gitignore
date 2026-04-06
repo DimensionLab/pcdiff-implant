@@ -76,4 +76,4 @@ wandb/
 /web_viewer/backend/__pycache__/
 /web_viewer/node_modules/
 /web_viewer/.next/
-*.pyc
+*.pycautoresearch/results/perun/8gpu_final/checkpoints/*.pth
