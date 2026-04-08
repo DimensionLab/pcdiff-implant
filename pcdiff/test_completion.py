@@ -331,6 +331,55 @@ class GaussianDiffusion:
         assert img_t[:, :, self.sv_points :].shape == shape
         return img_t
 
+    def dpm_solver_sample_loop(
+        self, partial_x, denoise_fn, shape, device, noise_fn=torch.randn, sampling_steps=20, order=3,
+        algorithm_type="dpmsolver++", skip_type="time_uniform", method="multistep",
+    ):
+        """
+        Sample using DPM-Solver++ (Lu et al., 2022) — a higher-order ODE solver
+        that achieves much better quality than DDIM at the same step count.
+        Requires: pcdiff/utils/dpm_solver_pytorch.py
+        """
+        from utils.dpm_solver_pytorch import NoiseScheduleVP, model_wrapper, DPM_Solver
+
+        noise_schedule = NoiseScheduleVP(schedule="discrete", alphas_cumprod=self.alphas_cumprod)
+
+        # Wrap the denoise function to match DPM-Solver's expected interface.
+        # Our model predicts epsilon (noise prediction).
+        # The wrapper expects model_fn(x, t) where t is in [0, 1] continuous range.
+        def dpm_model_fn(x, t_continuous):
+            # DPM-Solver passes t_continuous in [0,1]. Convert to discrete timestep.
+            t_discrete = torch.round(t_continuous * (self.num_timesteps - 1)).long().clamp(0, self.num_timesteps - 1)
+            # Our denoise_fn expects concatenated [partial_x, x_noisy] and discrete t
+            data = torch.cat([partial_x.expand(x.shape[0], -1, -1), x], dim=-1)
+            return denoise_fn(data, t_discrete)
+
+        model_fn = model_wrapper(
+            dpm_model_fn,
+            noise_schedule,
+            model_type="noise",  # epsilon-prediction
+            model_kwargs={},
+            guidance_type="uncond",
+        )
+
+        dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type=algorithm_type)
+
+        # Generate initial noise
+        x_T = noise_fn(size=shape, dtype=torch.float, device=device)
+
+        # DPM-Solver returns x_0 directly
+        x_0 = dpm_solver.sample(
+            x_T,
+            steps=sampling_steps,
+            order=order,
+            skip_type=skip_type,
+            method=method,
+        )
+
+        # Concatenate partial_x back for consistent interface
+        result = torch.cat([partial_x.expand(x_0.shape[0], -1, -1), x_0], dim=-1)
+        return result
+
     """
     ----- Losses -----
     """
@@ -596,8 +645,17 @@ class Model(nn.Module):
                 clip_denoised=clip_denoised,
                 sampling_steps=sampling_steps,
             )
+        if sampling_method == "dpm_solver":
+            return self.diffusion.dpm_solver_sample_loop(
+                partial_x,
+                self._denoise,
+                shape=shape,
+                device=device,
+                noise_fn=noise_fn,
+                sampling_steps=sampling_steps,
+            )
         else:
-            raise NotImplementedError("Not implemented. Use 'ddpm' or 'ddim'.")
+            raise NotImplementedError("Not implemented. Use 'ddpm', 'ddim', or 'dpm_solver'.")
 
     def train(self):
         self.model.train()

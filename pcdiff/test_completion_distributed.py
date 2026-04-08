@@ -482,7 +482,7 @@ def parse_args():
         "--sampling_method",
         type=str,
         default="ddim",
-        choices=["ddpm", "ddim"],
+        choices=["ddpm", "ddim", "dpm_solver"],
         help="Sampling method (ddim for fast, ddpm for full)",
     )
     parser.add_argument(
