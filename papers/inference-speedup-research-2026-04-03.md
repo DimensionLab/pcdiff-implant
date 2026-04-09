@@ -253,3 +253,49 @@ PCDiff's accuracy gap vs. Wodzinski et al. (0.86 vs 0.94+ DSC) should be address
 16. pufm-flow-matching-2501.15286.pdf (flow matching for PC upsampling)
 17. mdt-dist-2509.04406.pdf (few-step flow distillation for 3D)
 18. few-step-instance-aware-2603.17671.pdf (latest: instance-aware discretization)
+
+---
+
+## Part 6: April 2026 Literature Update
+
+**Date added:** 2026-04-07
+**Author:** CTO (ba6d3030)
+
+### New Papers Found (March-April 2026)
+
+#### Fast Samplers / Acceleration
+
+| Paper | ID | Year | Venue | Relevance |
+|-------|-----|------|-------|-----------|
+| TC-Padé: Trajectory-Consistent Padé Approximation | 2603.02943 | 2026 | CVPR 2026 | Pade (rational function) approximation replaces Taylor caching; 2.88x speedup on FLUX. Novel alternative to polynomial caching. |
+| DiffSparse: Accelerating DiTs with Learned Token Sparsity | 2604.03674 | 2026 | ICLR 2026 | Differentiable layer-wise token sparsity; 54% compute reduction at 20 steps. Applicable to voxelization stage. |
+| FDS: Training-Free Refinement of Flow Matching | 2604.04646 | 2026 | Apr 2026 | Plug-and-play training-free framework using velocity field divergence to refine flow matching inference. Zero retraining. |
+| WaDi: Weight Direction-aware Distillation | 2603.08258 | 2026 | CVPR 2026 | One-step distillation with low-rank weight rotation; SOTA FID with ~10% trainable params. |
+| Salt: Self-Consistent Distribution Matching with Cache-Aware Training | 2604.03118 | 2026 | Apr 2026 | Targets 2-4 NFE with self-consistent DMD and KV-cache-aware training. |
+| HiCache: Hierarchical Timestep-Aware Caching | Springer 2026 | 2026 | Apr 2026 | Hierarchical caching with semantic-guided loss; >50% cache ratios on DiTs. |
+
+#### 3D Generation
+
+| Paper | ID | Year | Relevance |
+|-------|-----|------|-----------|
+| Points-to-3D: Structure-Aware 3D Generation | 2603.18782 | 2026 | CVPR 2026 | Point cloud priors into TRELLIS latent diffusion for controllable 3D gen. |
+| UniRecGen: Unifying Reconstruction and Generation | 2604.01479 | 2026 | Apr 2026 | Unified reconstruction + generation for sparse-view 3D. |
+
+#### Cranial Implant
+
+| Paper | Year | Source | Note |
+|-------|------|--------|------|
+| MAF-UNet3+ for Mandibular Defect Reconstruction | 2026 | Information Fusion | Frequency-spatial features for craniofacial reconstruction. |
+
+### Updated Priority Assessment
+
+The dominant acceleration paradigm has shifted from ODE solver improvements toward:
+1. **Feature caching** (TC-Padé, HiCache, DiffSparse)
+2. **Smart distillation** (WaDi, Salt)
+3. **Training-free inference refinements** (FDS)
+
+**FDS (2604.04646)** is particularly interesting for us — if we adopt flow matching in Phase 3, FDS provides a plug-and-play inference refinement with zero retraining. Should be added to the Phase 3 plan.
+
+**DiffSparse** could directly benefit our voxelization stage if we move to DiT-style architectures.
+
+No new cranial implant-specific papers found — the field still relies on 2024-2025 methods. This may represent a competitive opportunity.

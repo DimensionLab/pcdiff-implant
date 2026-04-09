@@ -302,6 +302,8 @@ class GaussianDiffusion:
         mean_pred = x_start * torch.sqrt(alpha_bar_prev) + torch.sqrt(1 - alpha_bar_prev - sigma**2) * eps
         nonzero_mask = (t != 0).float().view(-1, *([1] * (len(data.shape) - 1)))  # no noise when t == 0
         sample = mean_pred + nonzero_mask * sigma * noise
+        # Clamp generated portion to prevent outlier accumulation across DDIM steps
+        sample = sample.clamp(-1.0, 1.0)
         sample = torch.cat([data[:, :, : self.sv_points], sample], dim=-1)
         return sample
 
