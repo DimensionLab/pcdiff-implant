@@ -354,7 +354,9 @@ class GaussianDiffusion:
             t_discrete = torch.round(t_continuous * (self.num_timesteps - 1)).long().clamp(0, self.num_timesteps - 1)
             # Our denoise_fn expects concatenated [partial_x, x_noisy] and discrete t
             data = torch.cat([partial_x.expand(x.shape[0], -1, -1), x], dim=-1)
-            return denoise_fn(data, t_discrete)
+            # denoise_fn returns full output (B, 3, N_total). Extract only the implant
+            # portion (the last num_nn points) so DPM-Solver gets (B, 3, num_nn).
+            return denoise_fn(data, t_discrete)[:, :, self.sv_points:]
 
         model_fn = model_wrapper(
             dpm_model_fn,
@@ -687,6 +689,15 @@ def get_betas(schedule_type, b_start, b_end, time_num):
         betas = b_end * np.ones(time_num, dtype=np.float64)
         warmup_time = int(time_num * 0.5)
         betas[:warmup_time] = np.linspace(b_start, b_end, warmup_time, dtype=np.float64)
+
+    elif schedule_type == "cosine":
+        # Cosine schedule from "Improved DDPM" (Nichol & Dhariwal, 2021)
+        s = 0.008  # offset to prevent singularities at t=0
+        steps = np.arange(time_num + 1, dtype=np.float64)
+        alphas_cumprod = np.cos(((steps / time_num) + s) / (1 + s) * np.pi * 0.5) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = 1.0 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        betas = np.clip(betas, 0.0, 0.999)
 
     else:
         raise NotImplementedError(schedule_type)

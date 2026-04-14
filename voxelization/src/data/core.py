@@ -86,11 +86,42 @@ class SkullEval(data.Dataset):
         # Rescale to (0, 512) full size
         samples = samples * scale + shift
 
+        # Load defective skull input points and denormalize them too.
+        # The voxelization model (Encode2Points) was trained on combined
+        # skull + implant point clouds and needs both for correct spatial
+        # alignment.  Without skull context the PSR grid lands in the wrong
+        # coordinate space (DSC ≈ 0).
+        input_path = os.path.join(data_dir, "input.npy")
+        skull_points = None
+        if os.path.exists(input_path):
+            skull_norm = np.load(input_path)
+            # input.npy stores the *normalized* skull points used by PCDiff,
+            # same scale/shift as sample.npy
+            skull_points = skull_norm * scale + shift
+
+        if skull_points is not None:
+            skull_flat = skull_points.reshape(-1, 3)  # (N_skull, 3)
+            # Build per-ensemble combined clouds: skull points (shared) +
+            # implant points (different per ensemble draw).
+            num_ens = samples.shape[0]
+            combined_list = []
+            for e in range(num_ens):
+                impl_flat = samples[e].reshape(-1, 3)  # (N_impl, 3)
+                combined_list.append(
+                    np.concatenate([skull_flat, impl_flat], axis=0)
+                )
+            combined = np.stack(combined_list, axis=0)  # (num_ens, N_total, 3)
+        else:
+            combined = samples  # fallback: implant-only (legacy path)
+
         # Scale to (0,1) space
-        samples /= 512
+        combined = combined / 512
 
         data["name"] = data_dir
-        data["inputs"] = torch.from_numpy(samples).float()
+        data["inputs"] = torch.from_numpy(combined).float()
+        # Store skull point count so generate.py can separate defect points
+        if skull_points is not None:
+            data["skull_point_count"] = skull_flat.shape[0]
 
         return data
 

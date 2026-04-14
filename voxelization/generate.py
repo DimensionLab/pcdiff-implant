@@ -136,7 +136,7 @@ def main():
         print("\n---------- Load model----------")
         print("Load best model from: " + model_file + "\n")
     try:
-        state_dict = torch.load(model_file, map_location="cpu")
+        state_dict = torch.load(model_file, map_location="cpu", weights_only=False)
     except Exception as e:
         raise RuntimeError(f"Failed to load checkpoint '{model_file}': {e}") from e
     module = ddp_model.module if isinstance(ddp_model, DistributedDataParallel) else ddp_model
@@ -184,7 +184,15 @@ def main():
 
         inputs = data["inputs"][0, :, :, :]
         defect_point_count = int(cfg["generation"].get("defect_point_count", 3072))
-        defect_points = inputs[0, max(inputs.shape[1] - defect_point_count, 0) :, :].detach().cpu().numpy() * 512
+        # If SkullEval provided skull_point_count, extract defect points from
+        # the skull portion (first N points) instead of the tail of the array.
+        skull_pt_count = data.get("skull_point_count")
+        if skull_pt_count is not None and skull_pt_count > 0:
+            defect_points = (
+                inputs[0, :skull_pt_count, :].detach().cpu().numpy() * 512
+            )
+        else:
+            defect_points = inputs[0, max(inputs.shape[1] - defect_point_count, 0) :, :].detach().cpu().numpy() * 512
         completes = np.zeros((512, 512, 512))
 
         if cfg["generation"]["num_ensemble"] >= 2:
