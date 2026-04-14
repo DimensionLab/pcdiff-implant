@@ -34,17 +34,22 @@ echo "Project root: ${PROJECT_ROOT}"
 echo ""
 
 # Check if model files exist
-if [ ! -f "output_m1_test/2025-12-28_22-22-17/best.pth" ]; then
-    echo "Error: PCDiff model not found at output_m1_test/2025-12-28_22-22-17/best.pth"
+if [ ! -f "pcdiff/checkpoints/model_best.pth" ]; then
+    echo "Error: PCDiff model not found at pcdiff/checkpoints/model_best.pth"
     exit 1
 fi
 
-if [ ! -f "voxelization/checkpoints/model_best.pt" ]; then
-    echo "Error: Voxelization model not found at voxelization/checkpoints/model_best.pt"
+if [ ! -f "voxelization/out/skullbreak_6gpu/model_best.pt" ]; then
+    echo "Error: Voxelization model not found at voxelization/out/skullbreak_6gpu/model_best.pt"
     exit 1
 fi
 
-echo "✓ Model files found"
+if [ ! -f "wodzinski_baseline/model_best.pt" ]; then
+    echo "Error: Wodzinski (cran-2) model not found at wodzinski_baseline/model_best.pt"
+    exit 1
+fi
+
+echo "✓ Model files found (PCDiff + Voxelization + Wodzinski/cran-2)"
 echo ""
 
 # Build the image

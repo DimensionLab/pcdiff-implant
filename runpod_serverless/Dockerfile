@@ -80,6 +80,9 @@ COPY pcdiff/checkpoints/model_latest.pth /app/models/pcdiff_latest.pth
 # Voxelization model from voxelization/checkpoints/
 COPY voxelization/checkpoints/model_best.pt /app/models/voxelization_best.pt
 
+# Wodzinski (cran-2) model — direct volumetric UNet inference
+COPY wodzinski_baseline/model_best.pt /app/models/wodzinski_best.pt
+
 # Set environment variables
 ENV PYTHONPATH=/app:/app/pcdiff:/app/voxelization
 ENV PYTHONUNBUFFERED=1

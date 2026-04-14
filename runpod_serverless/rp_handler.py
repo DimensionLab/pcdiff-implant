@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """
-Runpod Serverless Handler for PCDiff + Voxelization Inference Pipeline
+Runpod Serverless Handler for CrAInial Implant Generation Pipeline
 
-This handler processes skull implant generation requests:
-1. Downloads defective skull point cloud from input (base64 or S3 URL)
-2. Runs PCDiff to generate implant point cloud
-3. Runs Voxelization to convert to volumetric mesh
-4. Uploads results to AWS S3
-5. Returns URLs to the generated files
+Supports two inference backends:
+1. PCDiff + Voxelization (job_type: "full") — two-stage point cloud diffusion pipeline
+2. Wodzinski "cran-2" (job_type: "cran2") — direct volumetric UNet (faster, higher quality)
 
 Model Loading Priority:
 1. Network Volume (/runpod-volume/models/) - Best for frequent model updates
@@ -22,6 +19,7 @@ Environment Variables Required:
 Optional Environment Variables:
 - PCDIFF_MODEL_PATH: Override path to PCDiff model
 - VOXELIZATION_MODEL_PATH: Override path to voxelization model
+- WODZINSKI_MODEL_PATH: Override path to Wodzinski (cran-2) model
 """
 
 import base64
@@ -45,6 +43,7 @@ PROJECT_ROOT = Path("/app")
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "pcdiff"))
 sys.path.insert(0, str(PROJECT_ROOT / "voxelization"))
+sys.path.insert(0, str(PROJECT_ROOT / "runpod_serverless"))
 
 # Network volume path (Runpod mounts network volumes here)
 NETWORK_VOLUME_PATH = Path("/runpod-volume")
@@ -55,6 +54,10 @@ PCDIFF_MODEL_VARIANTS = {
     "latest": "pcdiff_latest.pth",
 }
 DEFAULT_PCDIFF_MODEL = "best"
+
+# Wodzinski (cran-2) model config
+WODZINSKI_MODEL_FILENAME = "wodzinski_best.pt"
+WODZINSKI_BASE_FILTERS = 32
 
 
 # Model paths with priority: Network Volume > Environment Variable > Embedded
@@ -122,6 +125,7 @@ VOXELIZATION_CONFIG_PATH = "/app/voxelization/configs/gen_skullbreak.yaml"
 pcdiff_model = None
 voxelization_model = None
 voxelization_generator = None
+wodzinski_model = None  # Wodzinski (cran-2) model
 device = None
 current_model_paths = None  # Track which models are loaded
 current_pcdiff_variant = None  # Track which PCDiff variant is loaded
@@ -629,11 +633,141 @@ def export_results(
     return results
 
 
+# ======================= Wodzinski (cran-2) Functions =======================
+
+
+def get_wodzinski_model_path():
+    """Resolve Wodzinski model path with priority: env > network volume > embedded."""
+    if os.environ.get("WODZINSKI_MODEL_PATH"):
+        return Path(os.environ["WODZINSKI_MODEL_PATH"])
+
+    nv_path = NETWORK_VOLUME_PATH / "models" / WODZINSKI_MODEL_FILENAME
+    if nv_path.exists():
+        print(f"Using Wodzinski model from network volume: {nv_path}")
+        return nv_path
+
+    embedded = Path("/app/models") / WODZINSKI_MODEL_FILENAME
+    print(f"Using embedded Wodzinski model: {embedded}")
+    return embedded
+
+
+def load_wodzinski():
+    """Load Wodzinski (cran-2) model into GPU memory."""
+    global wodzinski_model, device
+
+    from wodzinski_inference import load_wodzinski_model
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model_path = get_wodzinski_model_path()
+    print(f"Loading Wodzinski (cran-2) model from: {model_path}")
+    if not Path(model_path).exists():
+        raise FileNotFoundError(f"Wodzinski model not found: {model_path}")
+
+    wodzinski_model = load_wodzinski_model(str(model_path), device, base_filters=WODZINSKI_BASE_FILTERS)
+    print(f"Wodzinski (cran-2) model loaded successfully ({sum(p.numel() for p in wodzinski_model.parameters()) / 1e6:.1f}M params)")
+
+
+def run_cran2_inference(defective_volume, threshold=0.5, output_resolution=None):
+    """Run Wodzinski (cran-2) direct volumetric inference.
+
+    Args:
+        defective_volume: numpy array (H, W, D) — binary defective skull volume.
+        threshold: Binarization threshold for output.
+        output_resolution: If set, resize output volume to this resolution.
+
+    Returns:
+        implant_volume: numpy uint8 array — predicted binary implant volume.
+        inference_time: float — seconds.
+    """
+    global wodzinski_model, device
+
+    from wodzinski_inference import preprocess_volume, postprocess_output
+
+    input_tensor = preprocess_volume(defective_volume, target_resolution=256).to(device)
+
+    import time
+    start = time.time()
+    with torch.no_grad():
+        output = wodzinski_model(input_tensor)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    inference_time = time.time() - start
+
+    implant_volume = postprocess_output(output, threshold=threshold)
+
+    # Resize if requested
+    if output_resolution and output_resolution != 256:
+        from scipy.ndimage import zoom
+        factors = [output_resolution / s for s in implant_volume.shape]
+        implant_volume = zoom(implant_volume.astype(np.float32), factors, order=1)
+        implant_volume = (implant_volume > 0.5).astype(np.uint8)
+
+    return implant_volume, inference_time
+
+
+def export_cran2_results(output_dir, implant_volume, defective_volume, spacing=(1.0, 1.0, 1.0),
+                         smoothing_iterations=0, close_holes=False):
+    """Export cran-2 results: implant STL mesh, NRRD volumes.
+
+    Args:
+        output_dir: Directory to write output files.
+        implant_volume: numpy uint8 (R, R, R) binary implant prediction.
+        defective_volume: numpy (H, W, D) original defective skull.
+        spacing: Voxel spacing for mesh generation.
+        smoothing_iterations: Laplacian smoothing iterations.
+        close_holes: Whether to close mesh holes.
+
+    Returns:
+        dict mapping key names to local file paths.
+    """
+    import trimesh
+    from skimage.measure import marching_cubes
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    results = {}
+
+    # 1. Export implant NRRD volume
+    try:
+        import nrrd
+        nrrd_path = output_dir / "implant_volume.nrrd"
+        nrrd.write(str(nrrd_path), implant_volume.astype(np.float32))
+        results["implant_volume_nrrd"] = nrrd_path
+    except ImportError:
+        print("Warning: nrrd not available, skipping NRRD export")
+
+    # 2. Generate implant mesh via marching cubes
+    if np.sum(implant_volume) > 0:
+        vertices, faces, normals, _ = marching_cubes(implant_volume, level=0.5, spacing=spacing)
+        mesh = trimesh.Trimesh(vertices=vertices, faces=faces, vertex_normals=normals)
+
+        mesh = postprocess_mesh(mesh, smoothing_iterations=smoothing_iterations, close_holes=close_holes)
+
+        stl_path = output_dir / "implant.stl"
+        mesh.export(str(stl_path))
+        results["implant_stl"] = stl_path
+
+        ply_path = output_dir / "implant.ply"
+        mesh.export(str(ply_path))
+        results["implant_ply"] = ply_path
+    else:
+        print("Warning: empty implant prediction, no mesh generated")
+
+    # 3. Save numpy volume
+    npy_path = output_dir / "implant_volume.npy"
+    np.save(npy_path, implant_volume)
+    results["implant_volume_npy"] = npy_path
+
+    return results
+
+
 def handler(event):
     """
     Runpod Serverless Handler Function
 
-    Supports two job types:
+    Supports three job types:
 
     1. FULL GENERATION (job_type: "full" or omitted):
     {
@@ -661,17 +795,30 @@ def handler(event):
         }
     }
 
-    Output format (both job types):
+    3. WODZINSKI CRAN-2 (job_type: "cran2"):
+    {
+        "input": {
+            "job_type": "cran2",
+            "defective_skull": <base64 encoded .npy/.nrrd OR S3 URL>,
+            "input_format": "base64" | "s3_url",
+            "threshold": 0.5,  # optional, binarization threshold
+            "output_prefix": "cran2_123",
+            "smoothing_iterations": 0,
+            "close_holes": false
+        }
+    }
+
+    Output format (all job types):
     {
         "status": "success",
         "results": {
-            "implant_only_stl": "https://...",
-            "implant_npy": "https://..."  # only for full generation
+            "implant_stl": "https://...",
+            "implant_volume_nrrd": "https://..."
         },
         "metadata": {
-            "processing_time_seconds": 123.45,
-            "job_type": "full" | "revoxelize",
-            "voxelization_resolution": 512,
+            "processing_time_seconds": 0.2,
+            "job_type": "cran2",
+            "inference_time_seconds": 0.19,
             ...
         }
     }
@@ -703,7 +850,98 @@ def handler(event):
             output_dir = temp_dir / "output"
             output_dir.mkdir()
 
-            if job_type == "revoxelize":
+            if job_type == "cran2":
+                # WODZINSKI CRAN-2 — Direct volumetric UNet inference
+                print("=== CRAN-2 (Wodzinski) JOB ===")
+
+                defective_data = job_input.get("defective_skull")
+                if not defective_data:
+                    return {"error": "Missing 'defective_skull' in input"}
+
+                threshold = job_input.get("threshold", 0.5)
+                cran2_smoothing = job_input.get("smoothing_iterations", smoothing_iterations)
+                cran2_close_holes = job_input.get("close_holes", close_holes)
+
+                # Ensure Wodzinski model is loaded
+                if wodzinski_model is None:
+                    load_wodzinski()
+
+                # Load input volume
+                input_path = temp_dir / "input"
+                if input_format == "base64":
+                    raw_bytes = base64.b64decode(defective_data)
+                    with open(input_path, "wb") as f:
+                        f.write(raw_bytes)
+                    # Try NRRD first, then numpy
+                    try:
+                        import nrrd
+                        defective_volume, _ = nrrd.read(str(input_path))
+                        defective_volume = (defective_volume > 0).astype(np.float32)
+                    except Exception:
+                        defective_volume = np.load(str(input_path))
+                        if len(defective_volume.shape) == 4:
+                            defective_volume = defective_volume[0]
+                elif input_format == "s3_url":
+                    download_from_s3(defective_data, input_path)
+                    try:
+                        import nrrd
+                        defective_volume, _ = nrrd.read(str(input_path))
+                        defective_volume = (defective_volume > 0).astype(np.float32)
+                    except Exception:
+                        defective_volume = np.load(str(input_path))
+                        if len(defective_volume.shape) == 4:
+                            defective_volume = defective_volume[0]
+                else:
+                    return {"error": f"Unknown input_format: {input_format}"}
+
+                print(f"Loaded defective volume: {defective_volume.shape}")
+
+                # Run inference
+                implant_volume, inference_time = run_cran2_inference(
+                    defective_volume, threshold=threshold
+                )
+                print(f"Inference complete: {inference_time:.3f}s, implant voxels: {np.sum(implant_volume)}")
+
+                # Export results
+                local_results = export_cran2_results(
+                    output_dir, implant_volume, defective_volume,
+                    smoothing_iterations=cran2_smoothing,
+                    close_holes=cran2_close_holes,
+                )
+
+                # Upload to S3
+                print("Uploading cran-2 results to S3...")
+                s3_results = {}
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                for key, local_path in local_results.items():
+                    s3_key = f"inference_results/{output_prefix}/{timestamp}/{local_path.name}"
+                    try:
+                        url = upload_to_s3(local_path, s3_key)
+                        s3_results[key] = url
+                        print(f"  Uploaded: {key} -> {url}")
+                    except Exception as e:
+                        print(f"  Failed to upload {key}: {e}")
+
+                processing_time = (datetime.now() - start_time).total_seconds()
+
+                return {
+                    "status": "success",
+                    "results": s3_results,
+                    "metadata": {
+                        "processing_time_seconds": processing_time,
+                        "inference_time_seconds": inference_time,
+                        "job_type": "cran2",
+                        "model": "wodzinski_residual_unet3d",
+                        "input_shape": list(defective_volume.shape),
+                        "output_shape": list(implant_volume.shape),
+                        "threshold": threshold,
+                        "smoothing_iterations": cran2_smoothing,
+                        "close_holes": cran2_close_holes,
+                        "implant_voxel_count": int(np.sum(implant_volume)),
+                    },
+                }
+
+            elif job_type == "revoxelize":
                 # RE-VOXELIZATION ONLY - skip PCDiff, just run voxelization
                 print(f"=== RE-VOXELIZATION JOB (resolution: {voxelization_resolution}³) ===")
 
@@ -920,7 +1158,7 @@ def handler(event):
 
 # Load models at startup (cold start optimization)
 print("=" * 60)
-print("  PCDiff + Voxelization Serverless Worker")
+print("  CrAInial Serverless Worker (PCDiff + Wodzinski cran-2)")
 print("=" * 60)
 
 # CUDA diagnostics
@@ -941,11 +1179,23 @@ print(f"Network volume exists: {NETWORK_VOLUME_PATH.exists()}")
 if NETWORK_VOLUME_PATH.exists():
     print(f"Network volume contents: {list(NETWORK_VOLUME_PATH.iterdir()) if NETWORK_VOLUME_PATH.exists() else 'N/A'}")
 
-try:
-    load_models()
-except Exception as e:
-    print(f"⚠ Warning: Could not pre-load models: {e}")
-    print("Models will be loaded on first request")
+# Determine which models to load based on CRAN2_ENABLED env var
+CRAN2_ENABLED = os.environ.get("CRAN2_ENABLED", "true").lower() in ("true", "1", "yes")
+PCDIFF_ENABLED = os.environ.get("PCDIFF_ENABLED", "true").lower() in ("true", "1", "yes")
+
+if PCDIFF_ENABLED:
+    try:
+        load_models()
+    except Exception as e:
+        print(f"Warning: Could not pre-load PCDiff models: {e}")
+        print("PCDiff models will be loaded on first request")
+
+if CRAN2_ENABLED:
+    try:
+        load_wodzinski()
+    except Exception as e:
+        print(f"Warning: Could not pre-load Wodzinski (cran-2) model: {e}")
+        print("Wodzinski model will be loaded on first request")
 
 # Start the serverless worker
 if __name__ == "__main__":
