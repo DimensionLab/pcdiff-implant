@@ -20,7 +20,7 @@ torchrun --nproc_per_node=6 \
     --epochs 500 \
     --batch_size 1 \
     --lr 1e-3 \
-    --base_filters 48 \
+    --base_filters 32 \
     --dropout 0.1 \
     --dice_w 0.5 \
     --bce_w 0.2 \

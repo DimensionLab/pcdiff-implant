@@ -31,8 +31,9 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch.amp import autocast, GradScaler
+from torch.utils.checkpoint import checkpoint
 from scipy.ndimage import zoom, rotate, binary_dilation, binary_erosion
-from scipy.ndimage import distance_transform_edt
 from sklearn.model_selection import train_test_split
 
 BASE_DIR = Path("/mnt/data/home/mamuke588/pcdiff-implant/datasets/SkullBreak")
@@ -111,9 +112,9 @@ class ResidualUNet3D(nn.Module):
     def forward(self, x):
         s1, p1 = self.enc1(x)
         s2, p2 = self.enc2(p1)
-        s3, p3 = self.enc3(p2)
-        s4, p4 = self.enc4(p3)
-        b = self.bottleneck(p4)
+        s3, p3 = checkpoint(self.enc3, p2, use_reentrant=False)
+        s4, p4 = checkpoint(self.enc4, p3, use_reentrant=False)
+        b = checkpoint(self.bottleneck, p4, use_reentrant=False)
         d4 = self.dec4(b, s4)
         d3 = self.dec3(d4, s3)
         d2 = self.dec2(d3, s2)
@@ -137,30 +138,32 @@ class SoftDiceLoss(nn.Module):
 
 
 class BoundaryDiceLoss(nn.Module):
-    """Surface/boundary dice loss for print-ready surface quality."""
-    def __init__(self, smooth=1.0, thickness=3):
+    """Surface/boundary dice loss using Laplacian edge detection (memory-efficient)."""
+    def __init__(self, smooth=1.0):
         super().__init__()
         self.smooth = smooth
-        self.thickness = thickness
 
     def forward(self, pred, target):
-        pred_bin = (torch.sigmoid(pred) > 0.5).float()
-        pred_boundary = self._extract_boundary(pred_bin, self.thickness)
-        target_boundary = self._extract_boundary(target, self.thickness)
         pred_soft = torch.sigmoid(pred)
-        pred_boundary_soft = pred_soft * pred_boundary
-        intersection = (pred_boundary_soft * target_boundary).sum(dim=(2, 3, 4))
-        union = pred_boundary_soft.sum(dim=(2, 3, 4)) + target_boundary.sum(dim=(2, 3, 4))
+        pred_boundary = self._laplacian_boundary(pred_soft)
+        target_boundary = self._laplacian_boundary(target)
+        intersection = (pred_boundary * target_boundary).sum(dim=(2, 3, 4))
+        union = pred_boundary.sum(dim=(2, 3, 4)) + target_boundary.sum(dim=(2, 3, 4))
         dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
         return 1.0 - dice.mean()
 
     @staticmethod
-    def _extract_boundary(vol, thickness):
-        kernel_size = 2 * thickness + 1
-        padding = thickness
-        pool = F.max_pool3d(vol, kernel_size, stride=1, padding=padding)
-        eroded = -F.max_pool3d(-vol, kernel_size, stride=1, padding=padding)
-        return pool - eroded
+    def _laplacian_boundary(vol):
+        kernel = torch.zeros(1, 1, 3, 3, 3, device=vol.device, dtype=vol.dtype)
+        kernel[0, 0, 1, 1, 1] = -6.0
+        kernel[0, 0, 0, 1, 1] = 1.0
+        kernel[0, 0, 2, 1, 1] = 1.0
+        kernel[0, 0, 1, 0, 1] = 1.0
+        kernel[0, 0, 1, 2, 1] = 1.0
+        kernel[0, 0, 1, 1, 0] = 1.0
+        kernel[0, 0, 1, 1, 2] = 1.0
+        edge = F.conv3d(vol, kernel, padding=1)
+        return torch.abs(edge)
 
 
 class SymmetryLoss(nn.Module):
@@ -467,6 +470,7 @@ def train(args):
         boundary_w=args.boundary_w, symmetry_w=args.symmetry_w
     )
 
+    scaler = GradScaler('cuda')
     best_val_dice = 0.0
     log_lines = []
     patience_counter = 0
@@ -485,17 +489,19 @@ def train(args):
             implant = implant.to(device)
 
             optimizer.zero_grad()
-            pred = model(inputs)
+            with autocast('cuda'):
+                pred = model(inputs)
+                defective_skull = inputs[:, 0:1] if args.symmetry_w > 0 else None
+                loss = criterion(pred, implant, defective_skull)
 
-            defective_skull = inputs[:, 0:1] if args.symmetry_w > 0 else None
-            loss = criterion(pred, implant, defective_skull)
-            loss.backward()
-
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
 
             train_loss += loss.item()
-            train_dice_sum += dice_score(pred.detach(), implant)
+            train_dice_sum += dice_score(pred.float().detach(), implant)
             n_batches += 1
 
             if is_main and (batch_idx + 1) % 20 == 0:
@@ -515,11 +521,12 @@ def train(args):
                 for inputs, implant in val_loader:
                     inputs = inputs.to(device)
                     implant = implant.to(device)
-                    pred = model(inputs)
-                    defective_skull = inputs[:, 0:1] if args.symmetry_w > 0 else None
-                    loss = criterion(pred, implant, defective_skull)
+                    with autocast('cuda'):
+                        pred = model(inputs)
+                        defective_skull = inputs[:, 0:1] if args.symmetry_w > 0 else None
+                        loss = criterion(pred, implant, defective_skull)
                     val_loss += loss.item()
-                    val_dice_sum += dice_score(pred, implant)
+                    val_dice_sum += dice_score(pred.float(), implant)
                     val_batches += 1
 
             avg_val_loss = val_loss / max(val_batches, 1)
