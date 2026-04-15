@@ -96,7 +96,7 @@ class ResidualUNet3D(nn.Module):
         self.dec1 = DecoderBlock(base_filters * 2, base_filters, base_filters)
 
         # Output
-        self.output_conv = nn.Conv3d(base_filters, 1, 1)
+        self.out_conv = nn.Conv3d(base_filters, 1, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -115,7 +115,7 @@ class ResidualUNet3D(nn.Module):
         d2 = self.dec2(d3, s2)
         d1 = self.dec1(d2, s1)
 
-        return self.sigmoid(self.output_conv(d1))
+        return self.sigmoid(self.out_conv(d1))
 
 
 # ======================= Inference =======================
