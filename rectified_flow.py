@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
-from torch.cuda.amp import autocast, GradScaler
 
 import sys; sys.path.insert(0, "pcdiff"); from train_completion import PVCNN2
 from modules import Swish  # noqa
@@ -163,7 +162,6 @@ def train():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    scaler = GradScaler()
 
     start_epoch = 0
     best_loss = float('inf')
@@ -185,7 +183,7 @@ def train():
 
     if local_rank == 0:
         print(f"Training RF: {len(dataset)} samples, batch_size={args.batch_size}, "
-              f"gpus={args.gpus}, num_points={args.num_points}, AMP=on")
+              f"gpus={args.gpus}, num_points={args.num_points}")
 
     for epoch in range(start_epoch, args.epochs):
         if args.gpus > 1:
@@ -198,16 +196,13 @@ def train():
         for batch_idx, batch in enumerate(dataloader):
             combined = batch["train_points"].to(device).permute(0, 2, 1)
 
-            with autocast():
-                losses = rf.training_losses(model, combined)
-                loss = losses.mean()
+            losses = rf.training_losses(model, combined)
+            loss = losses.mean()
 
             optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
 
             with torch.no_grad():
                 for p_ema, p in zip(ema_model.parameters(),
