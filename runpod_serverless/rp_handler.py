@@ -651,9 +651,12 @@ def get_wodzinski_model_path():
     return embedded
 
 
+wodzinski_in_channels = None
+
+
 def load_wodzinski():
     """Load Wodzinski (cran-2) model into GPU memory."""
-    global wodzinski_model, device
+    global wodzinski_model, wodzinski_in_channels, device
 
     from wodzinski_inference import load_wodzinski_model
 
@@ -665,27 +668,40 @@ def load_wodzinski():
     if not Path(model_path).exists():
         raise FileNotFoundError(f"Wodzinski model not found: {model_path}")
 
-    wodzinski_model = load_wodzinski_model(str(model_path), device, base_filters=WODZINSKI_BASE_FILTERS)
-    print(f"Wodzinski (cran-2) model loaded successfully ({sum(p.numel() for p in wodzinski_model.parameters()) / 1e6:.1f}M params)")
+    wodzinski_model, wodzinski_in_channels = load_wodzinski_model(
+        str(model_path), device, base_filters=WODZINSKI_BASE_FILTERS
+    )
+    print(
+        f"Wodzinski (cran-2) model loaded successfully "
+        f"({sum(p.numel() for p in wodzinski_model.parameters()) / 1e6:.1f}M params, "
+        f"in_channels={wodzinski_in_channels})"
+    )
 
 
-def run_cran2_inference(defective_volume, threshold=0.5, output_resolution=None):
+def run_cran2_inference(defective_volume, threshold=0.5, output_resolution=None, defect_type=None):
     """Run Wodzinski (cran-2) direct volumetric inference.
 
     Args:
         defective_volume: numpy array (H, W, D) — binary defective skull volume.
         threshold: Binarization threshold for output.
         output_resolution: If set, resize output volume to this resolution.
+        defect_type: SkullBreak defect-type label. Required when the loaded
+            model expects a defect-type channel (v3_full / v3_nosym).
 
     Returns:
         implant_volume: numpy uint8 array — predicted binary implant volume.
         inference_time: float — seconds.
     """
-    global wodzinski_model, device
+    global wodzinski_model, wodzinski_in_channels, device
 
     from wodzinski_inference import preprocess_volume, postprocess_output
 
-    input_tensor = preprocess_volume(defective_volume, target_resolution=256).to(device)
+    input_tensor = preprocess_volume(
+        defective_volume,
+        target_resolution=256,
+        defect_type=defect_type,
+        in_channels=wodzinski_in_channels or 1,
+    ).to(device)
 
     import time
     start = time.time()
@@ -695,7 +711,8 @@ def run_cran2_inference(defective_volume, threshold=0.5, output_resolution=None)
         torch.cuda.synchronize()
     inference_time = time.time() - start
 
-    implant_volume = postprocess_output(output, threshold=threshold)
+    is_logits = getattr(wodzinski_model, "_wodzinski_variant", "baseline") == "v3"
+    implant_volume = postprocess_output(output, threshold=threshold, is_logits=is_logits)
 
     # Resize if requested
     if output_resolution and output_resolution != 256:
@@ -802,6 +819,8 @@ def handler(event):
             "defective_skull": <base64 encoded .npy/.nrrd OR S3 URL>,
             "input_format": "base64" | "s3_url",
             "threshold": 0.5,  # optional, binarization threshold
+            "defect_type": "bilateral" | "frontoorbital" | "parietotemporal" | "random_1" | "random_2",
+                # required for v3 checkpoints (2-channel input), ignored by the 1-channel baseline
             "output_prefix": "cran2_123",
             "smoothing_iterations": 0,
             "close_holes": false
@@ -861,10 +880,19 @@ def handler(event):
                 threshold = job_input.get("threshold", 0.5)
                 cran2_smoothing = job_input.get("smoothing_iterations", smoothing_iterations)
                 cran2_close_holes = job_input.get("close_holes", close_holes)
+                defect_type = job_input.get("defect_type")
 
                 # Ensure Wodzinski model is loaded
                 if wodzinski_model is None:
                     load_wodzinski()
+
+                if wodzinski_in_channels and wodzinski_in_channels >= 2 and not defect_type:
+                    return {
+                        "error": (
+                            "Loaded cran-2 model requires a 'defect_type' input "
+                            "(one of bilateral/frontoorbital/parietotemporal/random_1/random_2)."
+                        )
+                    }
 
                 # Load input volume
                 input_path = temp_dir / "input"
@@ -898,7 +926,7 @@ def handler(event):
 
                 # Run inference
                 implant_volume, inference_time = run_cran2_inference(
-                    defective_volume, threshold=threshold
+                    defective_volume, threshold=threshold, defect_type=defect_type
                 )
                 print(f"Inference complete: {inference_time:.3f}s, implant voxels: {np.sum(implant_volume)}")
 
@@ -932,6 +960,8 @@ def handler(event):
                         "inference_time_seconds": inference_time,
                         "job_type": "cran2",
                         "model": "wodzinski_residual_unet3d",
+                        "in_channels": wodzinski_in_channels,
+                        "defect_type": defect_type,
                         "input_shape": list(defective_volume.shape),
                         "output_shape": list(implant_volume.shape),
                         "threshold": threshold,

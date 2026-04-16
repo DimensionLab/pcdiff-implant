@@ -155,6 +155,15 @@ class GenerationService:
             self._fail(job, f"Input NRRD missing on disk: {scan_path}")
             return
 
+        if not scan.defect_type:
+            self._fail(
+                job,
+                "Scan is missing 'defect_type' — cran-2 v3 requires one of "
+                "bilateral / frontoorbital / parietotemporal / random_1 / random_2. "
+                "Edit the scan and set its defect type before generating.",
+            )
+            return
+
         job.status = "running"
         job.started_at = datetime.now(timezone.utc)
         job.current_step = "Uploading defective skull to cran-2"
@@ -191,6 +200,7 @@ class GenerationService:
                 defective_skull_nrrd=nrrd_bytes,
                 threshold=job.threshold,
                 output_prefix=output_prefix,
+                defect_type=scan.defect_type,
             )
             job.runpod_job_id = runpod_job_id
             job.current_step = "cran-2 job submitted, waiting for GPU"

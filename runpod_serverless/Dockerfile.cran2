@@ -1,0 +1,54 @@
+# Runpod Serverless Dockerfile for Wodzinski "cran-2" Implant Generation
+#
+# Lean image: only the volumetric UNet model (~103MB).
+# No PCDiff, no voxelization, no pytorch3d, no torch-scatter.
+# Result: faster builds, smaller image, faster cold starts.
+#
+# Bundles the DIM-88 v3_full checkpoint (Dice+BCE+boundary+symmetry, 2-channel
+# defect-type-conditioned input, 500 epochs, DSC 0.8763 on SkullBreak val).
+#
+# Build from project root:
+#   docker build --platform linux/amd64 -t dimensionlab/cran-2-serverless:v3-full -f runpod_serverless/Dockerfile.cran2 .
+#
+# Push:
+#   docker push dimensionlab/cran-2-serverless:v3-full
+
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04
+
+WORKDIR /app
+
+# System deps (minimal — no CUDA compilation needed)
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir "numpy>=1.24.0,<2.0.0" "scipy>=1.11.0,<1.14.0" && \
+    pip install --no-cache-dir \
+    runpod>=1.6.0 \
+    boto3>=1.28.0 \
+    trimesh>=4.0.0 \
+    "scikit-image>=0.21.0" \
+    pynrrd>=1.0.0
+
+# Copy only what cran-2 needs
+COPY runpod_serverless/rp_handler.py /app/runpod_serverless/rp_handler.py
+COPY runpod_serverless/wodzinski_inference.py /app/runpod_serverless/wodzinski_inference.py
+
+# Create models dir and copy Wodzinski checkpoint (v3_full, DIM-88).
+RUN mkdir -p /app/models
+COPY pcdiff/runs/wodzinski/v3_full/model_best.pt /app/models/wodzinski_best.pt
+
+# Environment
+ENV PYTHONPATH=/app:/app/runpod_serverless
+ENV PYTHONUNBUFFERED=1
+ENV RUNPOD_NETWORK_VOLUME_PATH=/runpod-volume
+
+# Disable PCDiff loading (not present in this image)
+ENV PCDIFF_ENABLED=false
+ENV CRAN2_ENABLED=true
+
+CMD ["python", "-u", "/app/runpod_serverless/rp_handler.py"]

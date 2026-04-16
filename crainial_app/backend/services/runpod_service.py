@@ -10,6 +10,8 @@ Endpoint contract (job_type=cran2):
         "defective_skull": <base64-encoded NRRD bytes>,
         "input_format": "base64",
         "threshold": <float 0..1>,
+        "defect_type": "bilateral" | "frontoorbital" | "parietotemporal" | "random_1" | "random_2",
+            # required for v3 checkpoints (2-channel input); ignored by baseline
         "output_prefix": <string>,
     }
     output.results = {
@@ -79,6 +81,7 @@ class RunpodService:
         defective_skull_nrrd: bytes | str,
         threshold: float = 0.5,
         output_prefix: str | None = None,
+        defect_type: str | None = None,
     ) -> str:
         """Submit a cran-2 inference job.
 
@@ -86,6 +89,9 @@ class RunpodService:
             defective_skull_nrrd: NRRD volume as raw bytes OR a base64 string.
             threshold: Binarization threshold for the predicted implant mask.
             output_prefix: S3 key prefix for results.
+            defect_type: SkullBreak defect-type label. Required when the
+                deployed endpoint runs a v3 checkpoint (2-channel input);
+                ignored by the 1-channel baseline.
 
         Returns:
             RunPod job ID for polling.
@@ -95,14 +101,18 @@ class RunpodService:
         else:
             encoded = defective_skull_nrrd
 
+        input_payload: dict = {
+            "job_type": "cran2",
+            "defective_skull": encoded,
+            "input_format": "base64",
+            "threshold": float(threshold),
+            "output_prefix": output_prefix or f"cran2_{int(time.time())}",
+        }
+        if defect_type:
+            input_payload["defect_type"] = defect_type
+
         payload = {
-            "input": {
-                "job_type": "cran2",
-                "defective_skull": encoded,
-                "input_format": "base64",
-                "threshold": float(threshold),
-                "output_prefix": output_prefix or f"cran2_{int(time.time())}",
-            },
+            "input": input_payload,
             # cran-2 inference is fast (~0.5s GPU); 5 minute cap covers cold starts.
             "policy": {"executionTimeout": 300000},
         }
@@ -237,9 +247,10 @@ class RunpodService:
         defective_skull_nrrd: bytes | str,
         threshold: float = 0.5,
         output_prefix: str | None = None,
+        defect_type: str | None = None,
     ) -> str:
         return self._run_async(
-            self.submit_cran2_job(defective_skull_nrrd, threshold, output_prefix)
+            self.submit_cran2_job(defective_skull_nrrd, threshold, output_prefix, defect_type)
         )
 
     def get_job_status_sync(self, job_id: str) -> dict:

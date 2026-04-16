@@ -218,21 +218,31 @@ export function ImplantGeneratorPage() {
                   No defective-skull NRRDs in this project. Import one in the Data Viewer.
                 </p>
               ) : (
-                <select
-                  value={selectedScanId ?? ''}
-                  onChange={(e) => {
-                    setSelectedScanId(e.target.value || null);
-                    setSelectedJobId(null);
-                  }}
-                  style={styles.select}
-                >
-                  <option value="">Select scan…</option>
-                  {defectiveNrrds.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    value={selectedScanId ?? ''}
+                    onChange={(e) => {
+                      setSelectedScanId(e.target.value || null);
+                      setSelectedJobId(null);
+                    }}
+                    style={styles.select}
+                  >
+                    <option value="">Select scan…</option>
+                    {defectiveNrrds.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.defect_type ? `· ${s.defect_type}` : '· (no defect_type)'}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedScanId &&
+                    !defectiveNrrds.find((s) => s.id === selectedScanId)?.defect_type && (
+                      <p style={styles.warnText}>
+                        This scan has no <code>defect_type</code>. cran-2 v3 needs one of
+                        bilateral / frontoorbital / parietotemporal / random_1 / random_2.
+                        Set it on the scan in the Data Viewer before generating.
+                      </p>
+                    )}
+                </>
               )}
             </section>
           )}
@@ -375,12 +385,17 @@ export function ImplantGeneratorPage() {
                 threshold === null ||
                 !cloudReady ||
                 isJobActive ||
-                createJob.isPending
+                createJob.isPending ||
+                !defectiveNrrds.find((s) => s.id === selectedScanId)?.defect_type
               }
               style={{
                 ...styles.generateButton,
                 opacity:
-                  !selectedScanId || !cloudReady || isJobActive || createJob.isPending
+                  !selectedScanId ||
+                  !cloudReady ||
+                  isJobActive ||
+                  createJob.isPending ||
+                  !defectiveNrrds.find((s) => s.id === selectedScanId)?.defect_type
                     ? 0.5
                     : 1,
               }}
@@ -646,6 +661,12 @@ const styles: Record<string, CSSProperties> = {
   label: { fontSize: '12px', fontWeight: 500, color: '#aaa' },
   slider: { width: '100%', accentColor: '#2563eb' },
   hint: { fontSize: '11px', color: '#666', margin: 0 },
+  warnText: {
+    marginTop: '8px',
+    fontSize: '11px',
+    color: '#f59e0b',
+    lineHeight: 1.4,
+  },
   warningBox: {
     padding: '8px 10px',
     background: 'rgba(245, 158, 11, 0.1)',
