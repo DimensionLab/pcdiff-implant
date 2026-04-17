@@ -69,11 +69,18 @@ wandb/
 /screenshots*
 
 # Web Viewer
-/web_viewer/frontend/node_modules/
-/web_viewer/frontend/dist/
-/web_viewer/frontend/.env
-/web_viewer/frontend/.env.local
-/web_viewer/backend/__pycache__/
-/web_viewer/node_modules/
-/web_viewer/.next/
-*.pycautoresearch/results/perun/8gpu_final/checkpoints/*.pth
+/crainial_app/frontend/node_modules/
+/crainial_app/frontend/dist/
+/crainial_app/frontend/.env
+/crainial_app/frontend/.env.local
+/crainial_app/backend/__pycache__/
+/crainial_app/node_modules/
+/crainial_app/.next/
+/crainial_app/screenshots/
+/crainial_app/videos/
+/crainial_app/pass*.mjs
+/crainial_app/playwright_walkthrough.mjs
+/crainial_app/test_browser.mjs
+/crainial_app/data/
+*.pyc
+autoresearch/results/perun/8gpu_final/checkpoints/*.pth

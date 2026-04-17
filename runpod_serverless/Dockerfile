@@ -1,10 +1,14 @@
-# Runpod Serverless Dockerfile for PCDiff + Voxelization Inference
+# Runpod Serverless Dockerfile for CrAInial Implant Generation Pipeline
 # 
+# Supports two inference backends:
+#   1. PCDiff + Voxelization (job_type: "full") — two-stage point cloud diffusion
+#   2. Wodzinski "cran-2" (job_type: "cran2") — direct volumetric UNet (faster, higher quality)
+#
 # Build from project root:
-#   docker build --platform linux/amd64 -t YOUR_USERNAME/pcdiff-implant-serverless:v1.0 -f runpod_serverless/Dockerfile .
+#   docker build --platform linux/amd64 -t YOUR_USERNAME/pcdiff-implant-serverless:v2.0 -f runpod_serverless/Dockerfile .
 #
 # Push:
-#   docker push YOUR_USERNAME/pcdiff-implant-serverless:v1.0
+#   docker push YOUR_USERNAME/pcdiff-implant-serverless:v2.0
 #
 # Model Loading Priority:
 #   1. Network Volume (/runpod-volume/models/) - Best for frequent model updates
@@ -84,12 +88,16 @@ COPY voxelization/checkpoints/model_best.pt /app/models/voxelization_best.pt
 COPY wodzinski_baseline/model_best.pt /app/models/wodzinski_best.pt
 
 # Set environment variables
-ENV PYTHONPATH=/app:/app/pcdiff:/app/voxelization
+ENV PYTHONPATH=/app:/app/pcdiff:/app/voxelization:/app/runpod_serverless
 ENV PYTHONUNBUFFERED=1
 
 # Network volume mount point (Runpod mounts network volumes here)
 # Models in /runpod-volume/models/ will take priority over embedded models
 ENV RUNPOD_NETWORK_VOLUME_PATH=/runpod-volume
+
+# Enable/disable model loading at startup (both default to true)
+ENV CRAN2_ENABLED=true
+ENV PCDIFF_ENABLED=true
 
 # Pre-compile Python files for faster startup
 RUN python -m compileall /app/runpod_serverless /app/pcdiff /app/voxelization || true

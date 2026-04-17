@@ -1,0 +1,34 @@
+{
+  "defect_type": "parietotemporal",
+  "case_id": "058",
+  "status": "success",
+  "t_total_runpod_s": 16.07,
+  "t_inference_s": 0.4224,
+  "t_processing_s": 10.5798,
+  "t_download_s": 0.39,
+  "t_end_to_end_s": 16.46,
+  "s3_urls": {
+    "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant.ply",
+    "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant.stl",
+    "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant_volume.npy",
+    "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant_volume.nrrd"
+  },
+  "dice": 0.6741967052683085,
+  "hd95_mm": 4.019945465785789,
+  "bdice_10mm": 0.775084710453929,
+  "pred_shape": [
+    256,
+    256,
+    256
+  ],
+  "gt_shape": [
+    512,
+    512,
+    512
+  ],
+  "spacing": [
+    0.4,
+    0.4,
+    0.4
+  ]
+}

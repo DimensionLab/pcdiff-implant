@@ -22,7 +22,53 @@ import requests
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from voxelization.eval_metrics import bdc, dc, hd95
+from voxelization.eval_metrics import dc
+
+# --- memory-efficient HD95 + bDSC for low-RAM hosts (avoids 512^3 distance transforms) ---
+from scipy.ndimage import binary_erosion, distance_transform_edt, generate_binary_structure
+from scipy.spatial import cKDTree
+
+
+def _surface_points(mask, voxelspacing):
+    fp = generate_binary_structure(mask.ndim, 1)
+    border = mask & ~binary_erosion(mask, structure=fp, iterations=1, border_value=0)
+    pts = np.argwhere(border).astype(np.float32)
+    if voxelspacing is not None:
+        pts *= np.asarray(voxelspacing, dtype=np.float32)
+    return pts
+
+
+def hd95_kdtree(pred_bin, gt_bin, voxelspacing=None):
+    p = _surface_points(pred_bin.astype(bool), voxelspacing)
+    g = _surface_points(gt_bin.astype(bool), voxelspacing)
+    if len(p) == 0 or len(g) == 0:
+        return float("nan")
+    d_pg, _ = cKDTree(g).query(p)
+    d_gp, _ = cKDTree(p).query(g)
+    return float(np.percentile(np.concatenate([d_pg, d_gp]), 95))
+
+
+def bdc_cropped(pred_bin, gt_bin, def_bin, voxelspacing=None, distance=10):
+    """Crop to bbox around implants + margin so distance transform fits in RAM."""
+    union = (pred_bin | gt_bin).astype(bool)
+    if not union.any():
+        return 0.0
+    coords = np.argwhere(union)
+    mn = coords.min(axis=0); mx = coords.max(axis=0) + 1
+    if voxelspacing is None:
+        margin = int(distance) + 2
+        margins = np.array([margin] * pred_bin.ndim, dtype=int)
+    else:
+        margins = np.ceil(np.array(distance) / np.array(voxelspacing, dtype=float)).astype(int) + 2
+    mn = np.maximum(mn - margins, 0)
+    mx = np.minimum(mx + margins, np.array(pred_bin.shape))
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(mn, mx))
+    p_c = pred_bin[sl]; g_c = gt_bin[sl]; d_c = def_bin[sl]
+    dt = distance_transform_edt(~(d_c > 0), sampling=voxelspacing)
+    p_m = p_c.copy(); g_m = g_c.copy()
+    p_m[dt > distance] = 0
+    g_m[dt > distance] = 0
+    return dc(p_m, g_m)
 
 ENDPOINT_ID = "wferq1g3i1hhqd"
 DATASET_DIR = PROJECT_ROOT / "datasets" / "SkullBreak"
@@ -48,7 +94,7 @@ TEST_CASES = [
 
 
 def load_env():
-    env_path = PROJECT_ROOT / "web_viewer" / ".env"
+    env_path = PROJECT_ROOT / "crainial_app" / ".env"
     if env_path.exists():
         for line in env_path.read_text().splitlines():
             line = line.strip()
@@ -100,13 +146,30 @@ def wait_for_completion(api_key, job_id, timeout=300, poll_interval=3):
     raise TimeoutError(f"Job {job_id} did not complete within {timeout}s")
 
 
+def get_s3_client():
+    import boto3
+    return boto3.client(
+        "s3",
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+        region_name=os.environ.get("AWS_S3_REGION", "eu-central-1"),
+    )
+
+
 def download_nrrd_from_s3(url, local_path):
     start = time.time()
-    resp = requests.get(url, stream=True)
-    resp.raise_for_status()
-    with open(local_path, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            f.write(chunk)
+    bucket = os.environ.get("AWS_S3_BUCKET", "test-crainial")
+    prefix = f"https://{bucket}.s3.{os.environ.get('AWS_S3_REGION', 'eu-central-1')}.amazonaws.com/"
+    if url.startswith(prefix):
+        s3_key = url[len(prefix):]
+        s3 = get_s3_client()
+        s3.download_file(bucket, s3_key, str(local_path))
+    else:
+        resp = requests.get(url, stream=True)
+        resp.raise_for_status()
+        with open(local_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
     return time.time() - start
 
 
@@ -132,8 +195,8 @@ def compute_metrics(pred_path, gt_implant_path, defective_skull_path):
         pred_bin = (zoom(pred_bin.astype(np.float32), factors, order=0) > 0.5).astype(np.uint8)
 
     dice_val = dc(pred_bin, gt_bin)
-    hd95_val = hd95(pred_bin, gt_bin, voxelspacing=spacing)
-    bdice_val = bdc(pred_bin, gt_bin, def_bin, voxelspacing=spacing, distance=10)
+    hd95_val = hd95_kdtree(pred_bin, gt_bin, voxelspacing=spacing)
+    bdice_val = bdc_cropped(pred_bin, gt_bin, def_bin, voxelspacing=spacing, distance=10)
 
     return {
         "dice": float(dice_val),
@@ -187,8 +250,9 @@ def main():
         print(f"  Job ID: {job_id}")
 
         print("  Waiting for completion...")
+        job_timeout = 600 if i == 0 else 300
         try:
-            result = wait_for_completion(api_key, job_id, timeout=300)
+            result = wait_for_completion(api_key, job_id, timeout=job_timeout)
         except Exception as e:
             print(f"  FAILED: {e}")
             results.append({
@@ -269,6 +333,10 @@ def main():
 
         with open(case_dir / "result.json", "w") as f:
             json.dump(case_result, f, indent=2)
+
+        partial_path = OUTPUT_DIR / "results_partial.json"
+        with open(partial_path, "w") as f:
+            json.dump(results, f, indent=2)
 
     print("\n" + "=" * 80)
     print("SUMMARY")

@@ -17,8 +17,8 @@ def __surface_distances(result, reference, voxelspacing=None, connectivity=1):
     The distances between the surface voxel of binary objects in result and their
     nearest partner surface voxel of a binary object in reference.
     """
-    result = numpy.atleast_1d(result.astype(numpy.bool))
-    reference = numpy.atleast_1d(reference.astype(numpy.bool))
+    result = numpy.atleast_1d(result.astype(numpy.bool_))
+    reference = numpy.atleast_1d(reference.astype(numpy.bool_))
     if voxelspacing is not None:
         voxelspacing = _ni_support._normalize_sequence(voxelspacing, result.ndim)
         voxelspacing = numpy.asarray(voxelspacing, dtype=numpy.float64)
@@ -169,8 +169,8 @@ def dc(input1, input2):
     -----
     This is a real metric.
     """
-    input1 = numpy.atleast_1d(input1.astype(numpy.bool))
-    input2 = numpy.atleast_1d(input2.astype(numpy.bool))
+    input1 = numpy.atleast_1d(input1.astype(numpy.bool_))
+    input2 = numpy.atleast_1d(input2.astype(numpy.bool_))
 
     intersection = numpy.count_nonzero(input1 & input2)
 
@@ -183,6 +183,18 @@ def dc(input1, input2):
         dc = 0.0
 
     return dc
+
+
+def assd(result, reference, voxelspacing=None, connectivity=1):
+    """
+    Average Symmetric Surface Distance (ASSD).
+
+    Mean of all surface distances from predicted-to-reference and reference-to-predicted
+    combined. Unit matches ``voxelspacing`` (typically mm).
+    """
+    sds1 = __surface_distances(result, reference, voxelspacing, connectivity)
+    sds2 = __surface_distances(reference, result, voxelspacing, connectivity)
+    return float(numpy.mean(numpy.hstack((sds1, sds2))))
 
 
 def bdc(implant_1, implant_2, defective_skull, voxelspacing=None, distance=10):

@@ -14,7 +14,7 @@ This repo (`pcdiff-implant`) implements the core two-stage pipeline:
 1. **PCDiff** — Point cloud diffusion model (generates implant geometry from defective skulls)
 2. **Voxelization** — Neural surface reconstruction (point clouds → watertight, 3D-printable meshes)
 
-Product surface: **CrAInial** web viewer (`web_viewer/`) — a Next.js app for
+Product surface: **CrAInial** web viewer (`crainial_app/`) — a Next.js app for
 visualizing generated implants and managing clinical cases.
 
 Research origin: MICCAI 2023 paper "Point Cloud Diffusion Models for Automatic
@@ -56,7 +56,7 @@ source of truth. The Paperclip API is at `http://127.0.0.1:3100/api`.
 - Create visualizations of experiment results for team review
 
 ### Scope Rules
-- Primary deliverable surface: `web_viewer/` (CrAInial product)
+- Primary deliverable surface: `crainial_app/` (CrAInial product)
 - Adjacent context: `pcdiff/`, `voxelization/`, `autoresearch/`, `paper/`
 - Read code before changing it; verify with tests or direct inspection
 - Do not modify experiment parameters or ML hyperparameters without CTO approval
@@ -157,7 +157,7 @@ When assumptions are required, state them explicitly.
 4. **Post findings, don't hoard them.** Issue comments keep the team in sync.
 5. **Small changes, verified.** Prefer incremental commits over large refactors.
 6. **Medical AI rigor.** Geometry errors are clinical risks, not cosmetic bugs.
-7. **Don't break what works.** Run existing tests before pushing. Check `pnpm typecheck` for web_viewer.
+7. **Don't break what works.** Run existing tests before pushing. Check `pnpm typecheck` for crainial_app.
 
 ---
 
@@ -219,7 +219,7 @@ When assumptions are required, state them explicitly.
 ### Key Directories
 - `pcdiff/` — Point cloud diffusion model code
 - `voxelization/` — Voxelization network code
-- `web_viewer/` — CrAInial Next.js web application
+- `crainial_app/` — CrAInial Next.js web application
 - `autoresearch/` — Automated experiment framework
 - `benchmarking/` — Ablation study scripts and plots
 - `slurm/` — PERUN HPC Slurm job scripts

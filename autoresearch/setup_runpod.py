@@ -13,7 +13,7 @@ Usage:
     python setup_runpod.py --stop         # Stop running pods
     python setup_runpod.py --status       # Show pod status
 
-Requires RUNPOD_API_KEY in environment or web_viewer/.env
+Requires RUNPOD_API_KEY in environment or crainial_app/.env
 See RUNPOD_RUNBOOK.md for operational knowledge.
 """
 
@@ -40,7 +40,7 @@ GPU_PREFERENCES = [
 def get_api_key() -> str:
     key = os.environ.get("RUNPOD_API_KEY", "")
     if not key:
-        env_file = Path(__file__).resolve().parent.parent / "web_viewer" / ".env"
+        env_file = Path(__file__).resolve().parent.parent / "crainial_app" / ".env"
         if env_file.exists():
             for line in env_file.read_text().splitlines():
                 if line.startswith("RUNPOD_API_KEY="):

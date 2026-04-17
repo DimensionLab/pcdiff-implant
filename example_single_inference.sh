@@ -66,7 +66,7 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "To view in web browser:"
     echo "  1. python3 pcdiff/utils/convert_to_web.py $OUTPUT_DIR/$NAME"
-    echo "  2. cd web_viewer && ./start_dev.sh"
+    echo "  2. cd crainial_app && ./start_dev.sh"
     echo "  3. Open http://localhost:5173"
     echo ""
     echo "To view in MeshLab:"

@@ -178,7 +178,7 @@ Dataset CSV files (e.g., `pcdiff/datasets/SkullBreak/*.csv`) use **relative path
 Environment variables go in `.env` files (not tracked by git). Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-cp web_viewer/.env.example web_viewer/.env
+cp crainial_app/.env.example crainial_app/.env
 ```
 
 ## Next Steps

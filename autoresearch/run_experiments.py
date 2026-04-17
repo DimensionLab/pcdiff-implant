@@ -65,7 +65,7 @@ def call_llm(messages: list, temperature: float = 0.7) -> str:
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         # Try loading from .env
-        env_file = Path(__file__).resolve().parent.parent / "web_viewer" / ".env"
+        env_file = Path(__file__).resolve().parent.parent / "crainial_app" / ".env"
         if env_file.exists():
             for line in env_file.read_text().splitlines():
                 if line.startswith("OPENROUTER_API_KEY="):
@@ -73,7 +73,7 @@ def call_llm(messages: list, temperature: float = 0.7) -> str:
                     break
 
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY not set. Set it in environment or web_viewer/.env")
+        raise RuntimeError("OPENROUTER_API_KEY not set. Set it in environment or crainial_app/.env")
 
     payload = json.dumps(
         {

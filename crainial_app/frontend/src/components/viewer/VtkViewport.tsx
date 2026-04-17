@@ -11,6 +11,8 @@
 import { useRef, useEffect, useState } from 'react';
 import { scanApi } from '../../services/scan-api';
 
+import '@kitware/vtk.js/Rendering/Profiles/Volume';
+
 // @ts-ignore - vtk.js types are incomplete
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 // @ts-ignore
@@ -96,10 +98,12 @@ function makeImageData(
   return imageData;
 }
 
+const DEFAULT_OVERLAY_COLOR: [number, number, number] = [1.0, 0.2, 0.25];
+
 export function VtkViewport({
   scanId,
   overlayScanId = null,
-  overlayColor = [1.0, 0.2, 0.25],
+  overlayColor = DEFAULT_OVERLAY_COLOR,
   overlayOpacity = 0.7,
   onReady,
   onError,
@@ -107,6 +111,7 @@ export function VtkViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<any>(null);
   const [loading, setLoading] = useState(false);
+  const colorKey = overlayColor.join(',');
 
   useEffect(() => {
     if (!containerRef.current || !scanId) return;
@@ -205,7 +210,7 @@ export function VtkViewport({
         contextRef.current = null;
       }
     };
-  }, [scanId, overlayScanId, overlayColor, overlayOpacity]);
+  }, [scanId, overlayScanId, colorKey, overlayOpacity]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>

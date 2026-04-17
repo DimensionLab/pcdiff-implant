@@ -1,0 +1,34 @@
+{
+  "defect_type": "bilateral",
+  "case_id": "112",
+  "status": "success",
+  "t_total_runpod_s": 16.03,
+  "t_inference_s": 0.4254,
+  "t_processing_s": 13.7377,
+  "t_download_s": 0.36,
+  "t_end_to_end_s": 16.4,
+  "s3_urls": {
+    "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant.ply",
+    "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant.stl",
+    "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant_volume.npy",
+    "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant_volume.nrrd"
+  },
+  "dice": 0.8267294375668154,
+  "hd95_mm": 3.1496049905838253,
+  "bdice_10mm": 0.8651676805112536,
+  "pred_shape": [
+    256,
+    256,
+    256
+  ],
+  "gt_shape": [
+    512,
+    512,
+    512
+  ],
+  "spacing": [
+    0.4,
+    0.4,
+    0.4
+  ]
+}

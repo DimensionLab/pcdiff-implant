@@ -1,0 +1,499 @@
+{
+  "endpoint_id": "wferq1g3i1hhqd",
+  "num_cases": 13,
+  "num_failed": 2,
+  "metrics": {
+    "dice": {
+      "mean": 0.7237308065874158,
+      "std": 0.17320548581338843,
+      "min": 0.4170444875624398,
+      "max": 0.9227848976436351
+    },
+    "bdice_10mm": {
+      "mean": 0.8274855435166114,
+      "std": 0.0991256352628824,
+      "min": 0.6046425134472964,
+      "max": 0.9337976328660575
+    },
+    "hd95_mm": {
+      "mean": 7.203063110307538,
+      "std": 6.945427523782909,
+      "min": 1.1999969482421875,
+      "max": 21.91620437811429
+    }
+  },
+  "timing": {
+    "inference_s": {
+      "mean": 0.4316000000000001,
+      "std": 0.030089507499101095
+    },
+    "runpod_total_s": {
+      "mean": 63.657692307692315,
+      "std": 88.13879196199996
+    },
+    "download_s": {
+      "mean": 0.41000000000000003,
+      "std": 0.13473620951268503
+    },
+    "end_to_end_s": {
+      "mean": 64.06846153846155,
+      "std": 88.1232371211479
+    }
+  },
+  "per_case": [
+    {
+      "defect_type": "bilateral",
+      "case_id": "109",
+      "status": "success",
+      "t_total_runpod_s": 16.08,
+      "t_inference_s": 0.4204,
+      "t_processing_s": 12.556,
+      "t_download_s": 0.87,
+      "t_end_to_end_s": 16.95,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_109/20260416_101627/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_109/20260416_101627/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_109/20260416_101627/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_109/20260416_101627/implant_volume.nrrd"
+      },
+      "dice": 0.9049001883835426,
+      "hd95_mm": 1.49666254690823,
+      "bdice_10mm": 0.8864832175146137,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "bilateral",
+      "case_id": "112",
+      "status": "success",
+      "t_total_runpod_s": 16.03,
+      "t_inference_s": 0.4254,
+      "t_processing_s": 13.7377,
+      "t_download_s": 0.36,
+      "t_end_to_end_s": 16.4,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_112/20260416_101705/implant_volume.nrrd"
+      },
+      "dice": 0.8267294375668154,
+      "hd95_mm": 3.1496049905838253,
+      "bdice_10mm": 0.8651676805112536,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "bilateral",
+      "case_id": "051",
+      "status": "success",
+      "t_total_runpod_s": 12.86,
+      "t_inference_s": 0.4233,
+      "t_processing_s": 10.6417,
+      "t_download_s": 0.37,
+      "t_end_to_end_s": 13.23,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_051/20260416_101734/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_051/20260416_101734/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_051/20260416_101734/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_bilateral_051/20260416_101734/implant_volume.nrrd"
+      },
+      "dice": 0.8760622481297151,
+      "hd95_mm": 1.9595992694760016,
+      "bdice_10mm": 0.9224038102463396,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "frontoorbital",
+      "case_id": "091",
+      "status": "success",
+      "t_total_runpod_s": 12.86,
+      "t_inference_s": 0.4229,
+      "t_processing_s": 10.7923,
+      "t_download_s": 0.32,
+      "t_end_to_end_s": 13.18,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant_volume.nrrd"
+      },
+      "dice": 0.5891418647823223,
+      "hd95_mm": 11.579293175375046,
+      "bdice_10mm": 0.6718398333837213,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "frontoorbital",
+      "case_id": "062",
+      "status": "failed",
+      "error": "Job 1a3d6674-99db-494e-8562-c6dfcbde17da-e2 did not complete within 300s"
+    },
+    {
+      "defect_type": "frontoorbital",
+      "case_id": "095",
+      "status": "success",
+      "t_total_runpod_s": 240.11,
+      "t_inference_s": 0.5357,
+      "t_processing_s": 9.8084,
+      "t_download_s": 0.39,
+      "t_end_to_end_s": 240.5,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_095/20260416_102717/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_095/20260416_102717/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_095/20260416_102717/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_095/20260416_102717/implant_volume.nrrd"
+      },
+      "dice": 0.4866290139700062,
+      "hd95_mm": 9.516303149583242,
+      "bdice_10mm": 0.6046425134472964,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "parietotemporal",
+      "case_id": "009",
+      "status": "success",
+      "t_total_runpod_s": 252.5,
+      "t_inference_s": 0.424,
+      "t_processing_s": 10.6128,
+      "t_download_s": 0.36,
+      "t_end_to_end_s": 252.86,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_009/20260416_103147/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_009/20260416_103147/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_009/20260416_103147/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_009/20260416_103147/implant_volume.nrrd"
+      },
+      "dice": 0.4170444875624398,
+      "hd95_mm": 19.1415791375708,
+      "bdice_10mm": 0.7518494281685476,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "parietotemporal",
+      "case_id": "058",
+      "status": "success",
+      "t_total_runpod_s": 16.07,
+      "t_inference_s": 0.4224,
+      "t_processing_s": 10.5798,
+      "t_download_s": 0.39,
+      "t_end_to_end_s": 16.46,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_parietotemporal_058/20260416_103218/implant_volume.nrrd"
+      },
+      "dice": 0.6741967052683085,
+      "hd95_mm": 4.019945465785789,
+      "bdice_10mm": 0.775084710453929,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "parietotemporal",
+      "case_id": "026",
+      "status": "failed",
+      "error": "Job 200636af-e258-4eba-89df-26ecb8033136-e2 did not complete within 300s"
+    },
+    {
+      "defect_type": "random_1",
+      "case_id": "080",
+      "status": "success",
+      "t_total_runpod_s": 28.49,
+      "t_inference_s": 0.4224,
+      "t_processing_s": 9.555,
+      "t_download_s": 0.39,
+      "t_end_to_end_s": 28.88,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_080/20260416_103805/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_080/20260416_103805/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_080/20260416_103805/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_080/20260416_103805/implant_volume.nrrd"
+      },
+      "dice": 0.9111385581820199,
+      "hd95_mm": 1.600006103515625,
+      "bdice_10mm": 0.9337976328660575,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "random_1",
+      "case_id": "088",
+      "status": "success",
+      "t_total_runpod_s": 171.48,
+      "t_inference_s": 0.4226,
+      "t_processing_s": 10.415,
+      "t_download_s": 0.39,
+      "t_end_to_end_s": 171.88,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_088/20260416_104110/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_088/20260416_104110/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_088/20260416_104110/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_088/20260416_104110/implant_volume.nrrd"
+      },
+      "dice": 0.5882398640823935,
+      "hd95_mm": 21.91620437811429,
+      "bdice_10mm": 0.8566346863892744,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "random_1",
+      "case_id": "024",
+      "status": "success",
+      "t_total_runpod_s": 13.03,
+      "t_inference_s": 0.4207,
+      "t_processing_s": 11.325,
+      "t_download_s": 0.35,
+      "t_end_to_end_s": 13.37,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_024/20260416_104143/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_024/20260416_104143/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_024/20260416_104143/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_1_024/20260416_104143/implant_volume.nrrd"
+      },
+      "dice": 0.758311161963117,
+      "hd95_mm": 2.828428473445664,
+      "bdice_10mm": 0.8035132832362638,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "random_2",
+      "case_id": "000",
+      "status": "success",
+      "t_total_runpod_s": 15.96,
+      "t_inference_s": 0.4256,
+      "t_processing_s": 11.9759,
+      "t_download_s": 0.38,
+      "t_end_to_end_s": 16.34,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_000/20260416_104216/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_000/20260416_104216/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_000/20260416_104216/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_000/20260416_104216/implant_volume.nrrd"
+      },
+      "dice": 0.5560600927400603,
+      "hd95_mm": 13.535135845042984,
+      "bdice_10mm": 0.8391050835259124,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "random_2",
+      "case_id": "013",
+      "status": "success",
+      "t_total_runpod_s": 16.04,
+      "t_inference_s": 0.4214,
+      "t_processing_s": 14.0092,
+      "t_download_s": 0.35,
+      "t_end_to_end_s": 16.39,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant_volume.nrrd"
+      },
+      "dice": 0.9227848976436351,
+      "hd95_mm": 1.1999969482421875,
+      "bdice_10mm": 0.9337939493899841,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    },
+    {
+      "defect_type": "random_2",
+      "case_id": "062",
+      "status": "success",
+      "t_total_runpod_s": 16.04,
+      "t_inference_s": 0.424,
+      "t_processing_s": 13.8919,
+      "t_download_s": 0.41,
+      "t_end_to_end_s": 16.45,
+      "s3_urls": {
+        "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_062/20260416_104323/implant.ply",
+        "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_062/20260416_104323/implant.stl",
+        "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_062/20260416_104323/implant_volume.npy",
+        "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_062/20260416_104323/implant_volume.nrrd"
+      },
+      "dice": 0.8972619653620298,
+      "hd95_mm": 1.6970609503543057,
+      "bdice_10mm": 0.9129962365827585,
+      "pred_shape": [
+        256,
+        256,
+        256
+      ],
+      "gt_shape": [
+        512,
+        512,
+        512
+      ],
+      "spacing": [
+        0.4,
+        0.4,
+        0.4
+      ]
+    }
+  ]
+}

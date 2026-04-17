@@ -532,7 +532,7 @@ def main():
         print("\nWeb Viewer:")
         print(f"  - Copy {output_dir} to inference_results_ddim50/syn/")
         print(f"  - Run: python3 pcdiff/utils/convert_to_web.py {output_dir}")
-        print("  - Start viewer: cd web_viewer && ./start_dev.sh")
+        print("  - Start viewer: cd crainial_app && ./start_dev.sh")
 
         return 0
 

@@ -79,8 +79,8 @@ Both networks, the point cloud diffusion model and the voxelization network are 
 ## Web-Based 3D Viewer
 
 An interactive web viewer is available for visualizing inference results in 3D:
-* **[web_viewer/README.md](./web_viewer/README.md)** - Setup and usage guide
-* **[web_viewer/DEPLOYMENT.md](./web_viewer/DEPLOYMENT.md)** - Remote access deployment
+* **[crainial_app/README.md](./crainial_app/README.md)** - Setup and usage guide
+* **[crainial_app/DEPLOYMENT.md](./crainial_app/DEPLOYMENT.md)** - Remote access deployment
 
 **Features:**
 - 🔍 Interactive 3D visualization with Three.js
@@ -91,7 +91,7 @@ An interactive web viewer is available for visualizing inference results in 3D:
 
 **Quick Start:**
 ```bash
-cd web_viewer
+cd crainial_app
 ./start_dev.sh  # Development mode with hot-reload
 # OR
 ./start_server.sh  # Production mode for remote access

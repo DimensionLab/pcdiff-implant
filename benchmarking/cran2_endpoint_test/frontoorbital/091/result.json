@@ -1,0 +1,34 @@
+{
+  "defect_type": "frontoorbital",
+  "case_id": "091",
+  "status": "success",
+  "t_total_runpod_s": 12.86,
+  "t_inference_s": 0.4229,
+  "t_processing_s": 10.7923,
+  "t_download_s": 0.32,
+  "t_end_to_end_s": 13.18,
+  "s3_urls": {
+    "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant.ply",
+    "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant.stl",
+    "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant_volume.npy",
+    "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_frontoorbital_091/20260416_101804/implant_volume.nrrd"
+  },
+  "dice": 0.5891418647823223,
+  "hd95_mm": 11.579293175375046,
+  "bdice_10mm": 0.6718398333837213,
+  "pred_shape": [
+    256,
+    256,
+    256
+  ],
+  "gt_shape": [
+    512,
+    512,
+    512
+  ],
+  "spacing": [
+    0.4,
+    0.4,
+    0.4
+  ]
+}

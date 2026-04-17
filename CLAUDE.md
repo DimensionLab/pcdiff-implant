@@ -78,7 +78,7 @@ python run_single_inference.py \
 
 ### Web Viewer
 ```bash
-cd web_viewer && ./start_dev.sh   # Dev mode at localhost:5173
+cd crainial_app && ./start_dev.sh   # Dev mode at localhost:5173
 # Convert results: python pcdiff/utils/convert_to_web.py inference_results --batch
 ```
 

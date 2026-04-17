@@ -160,7 +160,7 @@ output_dir/
 python3 pcdiff/utils/convert_to_web.py pipeline_output/test_skull_077
 
 # Start web viewer
-cd web_viewer
+cd crainial_app
 ./start_dev.sh
 
 # Open http://localhost:5173
@@ -315,7 +315,7 @@ cp -r results/test_001/* inference_results_ddim50/syn/test_001/
 python3 pcdiff/utils/convert_to_web.py inference_results_ddim50/syn/test_001
 
 # 4. Start web viewer
-cd web_viewer && ./start_dev.sh
+cd crainial_app && ./start_dev.sh
 
 # 5. Open http://localhost:5173 and select test_001
 ```
@@ -355,8 +355,8 @@ done
 
 ## Related Documentation
 
-- **Web Viewer:** `web_viewer/README.md`
+- **Web Viewer:** `crainial_app/README.md`
 - **PCDiff Training:** `pcdiff/README.md`
 - **Voxelization Training:** `voxelization/README.md`
-- **Deployment:** `web_viewer/DEPLOYMENT.md`
+- **Deployment:** `crainial_app/DEPLOYMENT.md`
 

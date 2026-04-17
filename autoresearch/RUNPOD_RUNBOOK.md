@@ -156,7 +156,7 @@ python run_voxelization_variant_campaign.py --campaign vox_skullbreak_ablation_v
 Artifacts are written to `autoresearch/results/voxelization_campaigns/<campaign>/`.
 
 ## API Authentication
-- API key: stored in `/home/mike/pcdiff-implant/web_viewer/.env` as `RUNPOD_API_KEY`
+- API key: stored in `/home/mike/pcdiff-implant/crainial_app/.env` as `RUNPOD_API_KEY`
 - Auth header: `Authorization: Bearer <key>` (NOT `api-key:` header)
 - GraphQL endpoint: `https://api.runpod.io/graphql`
 - Balance check: query `myself { clientBalance }`

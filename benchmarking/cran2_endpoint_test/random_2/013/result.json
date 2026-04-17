@@ -1,0 +1,34 @@
+{
+  "defect_type": "random_2",
+  "case_id": "013",
+  "status": "success",
+  "t_total_runpod_s": 16.04,
+  "t_inference_s": 0.4214,
+  "t_processing_s": 14.0092,
+  "t_download_s": 0.35,
+  "t_end_to_end_s": 16.39,
+  "s3_urls": {
+    "implant_ply": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant.ply",
+    "implant_stl": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant.stl",
+    "implant_volume_npy": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant_volume.npy",
+    "implant_volume_nrrd": "https://test-crainial.s3.eu-central-1.amazonaws.com/inference_results/cran2_bench_random_2_013/20260416_104252/implant_volume.nrrd"
+  },
+  "dice": 0.9227848976436351,
+  "hd95_mm": 1.1999969482421875,
+  "bdice_10mm": 0.9337939493899841,
+  "pred_shape": [
+    256,
+    256,
+    256
+  ],
+  "gt_shape": [
+    512,
+    512,
+    512
+  ],
+  "spacing": [
+    0.4,
+    0.4,
+    0.4
+  ]
+}
