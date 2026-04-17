@@ -1,8 +1,13 @@
 """Generation Job endpoints for the cran-2 implant pipeline."""
 
+import json
 import logging
+import os
+import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from crainial_app.backend.database import SessionLocal, get_db
@@ -12,6 +17,7 @@ from crainial_app.backend.schemas.generation_job import (
 )
 from crainial_app.backend.services.audit_service import AuditService
 from crainial_app.backend.services.generation_service import GenerationService
+from crainial_app.backend.services.runpod_service import download_from_s3_url
 from crainial_app.backend.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -116,3 +122,118 @@ def cancel_job(job_id: str, service: GenerationService = Depends(_get_service)):
             detail=f"Cannot cancel job with status: {job.status}",
         )
     service.cancel_job(job_id)
+
+
+ARTIFACT_KEY_MAP = {
+    "nrrd": "implant_volume_nrrd",
+    "stl": "implant_stl",
+    "ply": "implant_ply",
+    "npy": "implant_volume_npy",
+}
+ARTIFACT_MEDIA = {
+    "nrrd": "application/octet-stream",
+    "stl": "model/stl",
+    "ply": "application/x-ply",
+    "npy": "application/octet-stream",
+}
+ARTIFACT_EXT = {
+    "nrrd": ".nrrd",
+    "stl": ".stl",
+    "ply": ".ply",
+    "npy": ".npy",
+}
+
+
+@router.get("/{job_id}/artifacts")
+def list_artifacts(job_id: str, service: GenerationService = Depends(_get_service)):
+    """List available downloadable artifacts for a completed job."""
+    job = service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed")
+
+    metrics = {}
+    if job.metrics_json:
+        try:
+            metrics = json.loads(job.metrics_json)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    s3_urls = metrics.get("s3_urls", {})
+    available = []
+    for fmt, key in ARTIFACT_KEY_MAP.items():
+        if key in s3_urls:
+            available.append({"format": fmt, "key": key})
+    return {"job_id": job_id, "artifacts": available}
+
+
+@router.get("/{job_id}/download/{fmt}")
+def download_artifact(
+    job_id: str,
+    fmt: str,
+    service: GenerationService = Depends(_get_service),
+    settings_service: SettingsService = Depends(_get_settings_service),
+):
+    """Download a specific artifact file from a completed job.
+
+    For NRRD, serves the local file if available. For STL/PLY/NPY,
+    proxies the download from S3.
+    """
+    if fmt not in ARTIFACT_KEY_MAP:
+        raise HTTPException(status_code=400, detail=f"Unknown format: {fmt}. Use one of: {list(ARTIFACT_KEY_MAP)}")
+
+    job = service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed")
+
+    filename = f"{job.name or job_id}{ARTIFACT_EXT[fmt]}"
+
+    # For NRRD, try the local registered scan file first
+    if fmt == "nrrd" and job.output_scan_id:
+        scan = service.db.query(service.db.registry.mappers[0].class_).get(job.output_scan_id) if hasattr(service.db, 'registry') else None
+        # Simpler: check the generated implants dir
+        from crainial_app.backend.services.generation_service import _generated_implants_dir
+        local = _generated_implants_dir() / f"{job.id}_implant.nrrd"
+        if local.is_file():
+            return FileResponse(
+                path=str(local),
+                media_type=ARTIFACT_MEDIA[fmt],
+                filename=filename,
+            )
+
+    # Otherwise, download from S3 URL stored in metrics_json
+    metrics = {}
+    if job.metrics_json:
+        try:
+            metrics = json.loads(job.metrics_json)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    s3_urls = metrics.get("s3_urls", {})
+    s3_key = ARTIFACT_KEY_MAP[fmt]
+    s3_url = s3_urls.get(s3_key)
+    if not s3_url:
+        raise HTTPException(status_code=404, detail=f"Artifact '{fmt}' not available for this job")
+
+    # Download to a temp file and serve
+    tmp = Path(tempfile.mkdtemp()) / f"{job_id}{ARTIFACT_EXT[fmt]}"
+    try:
+        download_from_s3_url(
+            s3_url=s3_url,
+            local_path=tmp,
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+            s3_region=settings_service.get_value("aws_s3_region", "eu-central-1"),
+        )
+    except Exception as e:
+        logger.exception("Failed to download artifact %s for job %s", fmt, job_id)
+        raise HTTPException(status_code=502, detail=f"Failed to download from S3: {e}")
+
+    return FileResponse(
+        path=str(tmp),
+        media_type=ARTIFACT_MEDIA[fmt],
+        filename=filename,
+    )

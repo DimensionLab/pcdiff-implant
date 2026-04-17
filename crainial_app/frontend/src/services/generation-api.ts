@@ -29,4 +29,13 @@ export const generationApi = {
   async cancelJob(jobId: string): Promise<void> {
     await apiV1.post(`/generation-jobs/${jobId}/cancel`);
   },
+
+  async listArtifacts(jobId: string): Promise<{ job_id: string; artifacts: Array<{ format: string; key: string }> }> {
+    const { data } = await apiV1.get(`/generation-jobs/${jobId}/artifacts`);
+    return data;
+  },
+
+  downloadUrl(jobId: string, format: string): string {
+    return `${apiV1.defaults.baseURL}/generation-jobs/${jobId}/download/${format}`;
+  },
 };

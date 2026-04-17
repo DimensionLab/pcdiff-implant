@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { scanApi } from '../services/scan-api';
-import type { ScanCreate, SkullBreakImportRequest } from '../types/scan';
+import type { ScanCreate, ScanUpdate, SkullBreakImportRequest } from '../types/scan';
 
 export function useScans(params?: {
   project_id?: string;
@@ -41,6 +41,15 @@ export function useCreateScan() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: ScanCreate) => scanApi.create(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['scans'] }),
+  });
+}
+
+export function useUpdateScan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ScanUpdate }) =>
+      scanApi.update(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['scans'] }),
   });
 }

@@ -1,18 +1,21 @@
 /**
- * Implant Checker — overlay an implant NRRD on a defective-skull NRRD.
+ * Implant Checker — professional overlay viewer for defective-skull + implant NRRDs.
  *
- * The cran-2 pipeline produces NRRD masks, so the checker is a thin volume
- * viewer: pick a project, optionally pick a completed cran-2 job (which
- * pairs an input skull with a generated implant), then visualize both
- * volumes blended in vtk.js. Manual scan pickers are exposed for cases
- * where you want to compare against an arbitrary implant NRRD.
+ * Features:
+ * - Automatic alignment: overlay is resampled server-side to match the base scan grid.
+ * - Skull controls: visibility toggle, opacity, window/level with presets.
+ * - Overlay controls: color picker, opacity, visibility toggle.
+ * - Cross-section clipping planes along X/Y/Z.
+ * - Camera view presets (anterior, posterior, left, right, superior, inferior).
  */
-import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from 'react';
 import { AppLayout } from '../components/layout/AppLayout';
-import { VtkViewport } from '../components/viewer/VtkViewport';
+import { VtkViewport, type VtkViewportHandle, type CameraPreset, type OverlayRenderMode } from '../components/viewer/VtkViewport';
 import { useProjects } from '../hooks/useProjects';
 import { useScans } from '../hooks/useScans';
 import { useProjectJobs } from '../hooks/useGeneration';
+import { JobDownloads } from '../components/generation/JobDownloads';
+import { generationApi } from '../services/generation-api';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#f59e0b',
@@ -30,13 +33,47 @@ const PRESET_COLORS: Array<{ label: string; rgb: [number, number, number] }> = [
   { label: 'Magenta', rgb: [1.0, 0.3, 0.9] },
 ];
 
+const WL_PRESETS: Array<{ label: string; window: number; level: number }> = [
+  { label: 'Bone', window: 175, level: 168 },
+  { label: 'Soft tissue', window: 100, level: 128 },
+  { label: 'Wide', window: 255, level: 128 },
+  { label: 'Dense bone', window: 120, level: 200 },
+];
+
+const CAMERA_VIEWS: Array<{ label: string; preset: CameraPreset }> = [
+  { label: 'A', preset: 'anterior' },
+  { label: 'P', preset: 'posterior' },
+  { label: 'L', preset: 'left' },
+  { label: 'R', preset: 'right' },
+  { label: 'S', preset: 'superior' },
+  { label: 'I', preset: 'inferior' },
+];
+
 export function ImplantCheckerPage() {
+  const viewportRef = useRef<VtkViewportHandle>(null);
+
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [baseScanId, setBaseScanId] = useState<string | null>(null);
   const [overlayScanId, setOverlayScanId] = useState<string | null>(null);
-  const [overlayColor, setOverlayColor] = useState<[number, number, number]>(PRESET_COLORS[0].rgb);
+
+  // Overlay controls
+  const [overlayColor, setOverlayColor] = useState<[number, number, number]>(PRESET_COLORS[1].rgb);
   const [overlayOpacity, setOverlayOpacity] = useState(0.75);
+  const [overlayVisible, setOverlayVisible] = useState(true);
+
+  // Skull controls
+  const [baseVisible, setBaseVisible] = useState(true);
+  const [baseOpacity, setBaseOpacity] = useState(1.0);
+  const [windowWidth, setWindowWidth] = useState(175);
+  const [windowLevel, setWindowLevel] = useState(168);
+
+  // Render mode
+  const [overlayRenderMode, setOverlayRenderMode] = useState<OverlayRenderMode>('volume');
+
+  // Clipping plane
+  const [clipAxis, setClipAxis] = useState<'x' | 'y' | 'z' | 'none'>('none');
+  const [clipPosition, setClipPosition] = useState(0.5);
 
   const { data: projects = [] } = useProjects();
   const { data: projectScans = [] } = useScans(
@@ -62,7 +99,6 @@ export function ImplantCheckerPage() {
     [nrrdScans],
   );
 
-  // Selecting a job auto-fills both base and overlay scans.
   useEffect(() => {
     if (!selectedJobId) return;
     const job = completedJobs.find((j) => j.id === selectedJobId);
@@ -71,7 +107,12 @@ export function ImplantCheckerPage() {
     if (job.output_scan_id) setOverlayScanId(job.output_scan_id);
   }, [selectedJobId, completedJobs]);
 
-  // Reset job-driven selection when the user manually overrides scans.
+  // Derive mesh download URL from the selected job for mesh render mode
+  const overlayMeshUrl = useMemo(() => {
+    if (overlayRenderMode !== 'mesh' || !selectedJobId) return null;
+    return generationApi.downloadUrl(selectedJobId, 'stl');
+  }, [overlayRenderMode, selectedJobId]);
+
   const handleManualBase = (id: string | null) => {
     setBaseScanId(id);
     setSelectedJobId(null);
@@ -80,6 +121,46 @@ export function ImplantCheckerPage() {
     setOverlayScanId(id);
     setSelectedJobId(null);
   };
+
+  // Propagate skull visibility/opacity/window-level changes to the viewport
+  const handleBaseVisibleToggle = useCallback(() => {
+    const next = !baseVisible;
+    setBaseVisible(next);
+    viewportRef.current?.setBaseVisible(next);
+  }, [baseVisible]);
+
+  const handleOverlayVisibleToggle = useCallback(() => {
+    const next = !overlayVisible;
+    setOverlayVisible(next);
+    viewportRef.current?.setOverlayVisible(next);
+  }, [overlayVisible]);
+
+  const handleBaseOpacityChange = useCallback((val: number) => {
+    setBaseOpacity(val);
+    viewportRef.current?.setBaseOpacity(val);
+  }, []);
+
+  const handleWindowLevel = useCallback((w: number, l: number) => {
+    setWindowWidth(w);
+    setWindowLevel(l);
+    viewportRef.current?.setBaseWindowLevel(w, l);
+  }, []);
+
+  const handleClipAxisChange = useCallback((axis: 'x' | 'y' | 'z' | 'none') => {
+    setClipAxis(axis);
+    if (axis === 'none') {
+      viewportRef.current?.clearClippingPlanes();
+    } else {
+      viewportRef.current?.setClippingPlane(axis, clipPosition);
+    }
+  }, [clipPosition]);
+
+  const handleClipPositionChange = useCallback((pos: number) => {
+    setClipPosition(pos);
+    if (clipAxis !== 'none') {
+      viewportRef.current?.setClippingPlane(clipAxis, pos);
+    }
+  }, [clipAxis]);
 
   return (
     <AppLayout
@@ -145,6 +226,9 @@ export function ImplantCheckerPage() {
                   ))}
                 </div>
               )}
+              {selectedJobId && (
+                <JobDownloads jobId={selectedJobId} />
+              )}
             </section>
           )}
 
@@ -189,10 +273,13 @@ export function ImplantCheckerPage() {
         <div style={styles.mainViewport}>
           {baseScanId ? (
             <VtkViewport
+              ref={viewportRef}
               scanId={baseScanId}
-              overlayScanId={overlayScanId}
+              overlayScanId={overlayRenderMode === 'volume' ? overlayScanId : null}
               overlayColor={overlayColor}
               overlayOpacity={overlayOpacity}
+              overlayRenderMode={overlayRenderMode}
+              overlayMeshUrl={overlayMeshUrl}
             />
           ) : (
             <div style={styles.placeholder}>
@@ -207,8 +294,152 @@ export function ImplantCheckerPage() {
       }
       controls={
         <div style={styles.controlsPanel}>
+          {/* Camera views */}
           <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>Overlay Style</h3>
+            <h3 style={styles.sectionTitle}>Camera</h3>
+            <div style={styles.viewGrid}>
+              {CAMERA_VIEWS.map((v) => (
+                <button
+                  key={v.preset}
+                  onClick={() => viewportRef.current?.setCameraPreset(v.preset)}
+                  style={styles.viewBtn}
+                  title={v.preset}
+                >
+                  {v.label}
+                </button>
+              ))}
+              <button
+                onClick={() => viewportRef.current?.resetCamera()}
+                style={{ ...styles.viewBtn, gridColumn: 'span 2' }}
+                title="Reset camera"
+              >
+                Reset
+              </button>
+            </div>
+          </section>
+
+          {/* Skull volume controls */}
+          <section style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <h3 style={styles.sectionTitle}>Skull Volume</h3>
+              <button
+                onClick={handleBaseVisibleToggle}
+                style={{
+                  ...styles.toggleBtn,
+                  color: baseVisible ? '#10b981' : '#666',
+                }}
+                title={baseVisible ? 'Hide skull' : 'Show skull'}
+              >
+                {baseVisible ? '👁' : '👁‍🗨'}
+              </button>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Opacity: {baseOpacity.toFixed(2)}
+              </label>
+              <input
+                type="range"
+                min={0.0}
+                max={1.0}
+                step={0.05}
+                value={baseOpacity}
+                onChange={(e) => handleBaseOpacityChange(Number(e.target.value))}
+                style={styles.slider}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Window / Level Presets</label>
+              <div style={styles.presetRow}>
+                {WL_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    onClick={() => handleWindowLevel(p.window, p.level)}
+                    style={{
+                      ...styles.presetBtn,
+                      background:
+                        windowWidth === p.window && windowLevel === p.level
+                          ? '#2563eb'
+                          : '#222',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Window: {windowWidth}
+              </label>
+              <input
+                type="range"
+                min={10}
+                max={255}
+                step={5}
+                value={windowWidth}
+                onChange={(e) => handleWindowLevel(Number(e.target.value), windowLevel)}
+                style={styles.slider}
+              />
+            </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Level: {windowLevel}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={255}
+                step={5}
+                value={windowLevel}
+                onChange={(e) => handleWindowLevel(windowWidth, Number(e.target.value))}
+                style={styles.slider}
+              />
+            </div>
+          </section>
+
+          {/* Render mode */}
+          <section style={styles.section}>
+            <h3 style={styles.sectionTitle}>Render Mode</h3>
+            <div style={styles.formGroup}>
+              <div style={styles.clipAxisRow}>
+                {(['volume', 'mesh'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setOverlayRenderMode(mode)}
+                    style={{
+                      ...styles.clipAxisBtn,
+                      background: overlayRenderMode === mode ? '#2563eb' : '#222',
+                      color: overlayRenderMode === mode ? '#fff' : '#999',
+                    }}
+                  >
+                    {mode === 'volume' ? 'NRRD Volume' : 'STL Mesh'}
+                  </button>
+                ))}
+              </div>
+              {overlayRenderMode === 'mesh' && !selectedJobId && (
+                <p style={styles.hintText}>Select a completed job to load the STL mesh.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Implant overlay controls */}
+          <section style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <h3 style={styles.sectionTitle}>Implant Overlay</h3>
+              <button
+                onClick={handleOverlayVisibleToggle}
+                style={{
+                  ...styles.toggleBtn,
+                  color: overlayVisible ? '#10b981' : '#666',
+                }}
+                title={overlayVisible ? 'Hide overlay' : 'Show overlay'}
+              >
+                {overlayVisible ? '👁' : '👁‍🗨'}
+              </button>
+            </div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Color</label>
@@ -250,12 +481,56 @@ export function ImplantCheckerPage() {
             </div>
           </section>
 
+          {/* Cross-section clipping */}
+          <section style={styles.section}>
+            <h3 style={styles.sectionTitle}>Cross-Section</h3>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Clipping Axis</label>
+              <div style={styles.clipAxisRow}>
+                {(['none', 'x', 'y', 'z'] as const).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => handleClipAxisChange(a)}
+                    style={{
+                      ...styles.clipAxisBtn,
+                      background: clipAxis === a ? '#2563eb' : '#222',
+                      color: clipAxis === a ? '#fff' : '#999',
+                    }}
+                  >
+                    {a === 'none' ? 'Off' : a.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {clipAxis !== 'none' && (
+              <div style={styles.formGroup}>
+                <label style={styles.label}>
+                  Position: {(clipPosition * 100).toFixed(0)}%
+                </label>
+                <input
+                  type="range"
+                  min={0.0}
+                  max={1.0}
+                  step={0.01}
+                  value={clipPosition}
+                  onChange={(e) => handleClipPositionChange(Number(e.target.value))}
+                  style={styles.slider}
+                />
+              </div>
+            )}
+          </section>
+
           <section style={styles.section}>
             <h3 style={styles.sectionTitle}>About</h3>
             <p style={styles.aboutText}>
-              The checker overlays an implant NRRD on top of the defective skull NRRD using
-              vtk.js volume rendering. Use the color and opacity controls to make the
-              implant region stand out.
+              The Implant Checker overlays a cran-2 generated implant on the defective skull
+              using vtk.js volume rendering. The overlay is automatically resampled to match
+              the skull's voxel grid for accurate alignment.
+            </p>
+            <p style={styles.aboutText}>
+              Use Window/Level to adjust bone contrast. Cross-section clipping lets you
+              inspect the implant fit along any axis. Camera presets provide standard
+              anatomical viewing angles.
             </p>
           </section>
         </div>
@@ -270,6 +545,12 @@ const styles: Record<string, CSSProperties> = {
     paddingBottom: '12px',
     marginBottom: '12px',
     borderBottom: '1px solid #222',
+  },
+  sectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '8px',
   },
   sectionTitle: {
     margin: '0 0 8px',
@@ -356,6 +637,63 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '4px',
     border: 'none',
     cursor: 'pointer',
+  },
+  toggleBtn: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '16px',
+    padding: '2px 4px',
+  },
+  viewGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: '4px',
+  },
+  viewBtn: {
+    padding: '6px 4px',
+    background: '#222',
+    color: '#ccc',
+    border: '1px solid #333',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    fontWeight: 600,
+    textAlign: 'center',
+  },
+  presetRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '4px',
+  },
+  presetBtn: {
+    padding: '4px 8px',
+    borderRadius: '4px',
+    border: '1px solid #333',
+    color: '#ccc',
+    cursor: 'pointer',
+    fontSize: '10px',
+    fontWeight: 500,
+  },
+  clipAxisRow: {
+    display: 'flex',
+    gap: '4px',
+  },
+  clipAxisBtn: {
+    flex: 1,
+    padding: '6px 4px',
+    borderRadius: '4px',
+    border: '1px solid #333',
+    cursor: 'pointer',
+    fontSize: '11px',
+    fontWeight: 600,
+    textAlign: 'center',
+  },
+  hintText: {
+    fontSize: '10px',
+    color: '#666',
+    fontStyle: 'italic',
+    margin: '4px 0 0',
   },
   aboutText: {
     fontSize: '11px',

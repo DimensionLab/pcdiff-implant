@@ -282,7 +282,8 @@ class GenerationService:
         job.current_step = "Done"
         job.completed_at = completed_at
         if job.started_at:
-            job.generation_time_ms = int((completed_at - job.started_at).total_seconds() * 1000)
+            started = job.started_at.replace(tzinfo=timezone.utc) if job.started_at.tzinfo is None else job.started_at
+            job.generation_time_ms = int((completed_at - started).total_seconds() * 1000)
         if inference_seconds is not None:
             job.inference_time_ms = int(float(inference_seconds) * 1000)
         job.metrics_json = json.dumps(

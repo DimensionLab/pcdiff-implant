@@ -1,5 +1,5 @@
 import { apiV1, viewerUrl } from './api-v1';
-import type { Scan, ScanCreate, SkullBreakImportRequest, ImportResult, VolumeMetadata } from '../types/scan';
+import type { Scan, ScanCreate, ScanUpdate, SkullBreakImportRequest, ImportResult, VolumeMetadata } from '../types/scan';
 import type { PointCloud } from '../types/point-cloud';
 
 export const scanApi = {
@@ -21,6 +21,11 @@ export const scanApi = {
 
   async create(body: ScanCreate): Promise<Scan> {
     const { data } = await apiV1.post<Scan>('/scans/', body);
+    return data;
+  },
+
+  async update(scanId: string, body: ScanUpdate): Promise<Scan> {
+    const { data } = await apiV1.put<Scan>(`/scans/${scanId}`, body);
     return data;
   },
 
@@ -53,8 +58,10 @@ export const scanApi = {
     return viewerUrl(`/scans/${scanId}/volume-data`);
   },
 
-  /** Fetch parsed volume data and metadata from backend */
-  async loadVolumeData(scanId: string): Promise<{
+  /** Fetch parsed volume data and metadata from backend.
+   *  When alignTo is provided, the backend resamples this volume to match
+   *  the reference scan's grid so both occupy the same world-space box. */
+  async loadVolumeData(scanId: string, alignTo?: string): Promise<{
     data: Uint8Array;
     metadata: {
       dims: number[];
@@ -64,7 +71,8 @@ export const scanApi = {
       scalar_range: [number, number];
     };
   }> {
-    const response = await fetch(viewerUrl(`/scans/${scanId}/volume-data`));
+    const params = alignTo ? `?align_to=${encodeURIComponent(alignTo)}` : '';
+    const response = await fetch(viewerUrl(`/scans/${scanId}/volume-data${params}`));
     if (!response.ok) throw new Error(`Failed to load volume: ${response.statusText}`);
 
     const metaHeader = response.headers.get('X-Volume-Metadata');

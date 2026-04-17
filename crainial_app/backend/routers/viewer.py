@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -72,13 +72,45 @@ def get_scan_metadata(scan_id: str, services=Depends(_get_services)):
     }
 
 
+def _parse_nrrd_spatial(header: dict) -> tuple[list[float], list[float]]:
+    """Extract [spacing_x, spacing_y, spacing_z] and [origin_x, origin_y, origin_z] from an NRRD header."""
+    spacing = header.get("space directions", None)
+    if spacing is not None:
+        try:
+            spacing = [abs(float(spacing[i][i])) for i in range(3)]
+        except (IndexError, TypeError):
+            spacing = [1.0, 1.0, 1.0]
+    else:
+        spacings_field = header.get("spacings", None)
+        if spacings_field is not None:
+            spacing = [float(s) for s in spacings_field]
+        else:
+            spacing = [1.0, 1.0, 1.0]
+
+    origin = header.get("space origin", None)
+    if origin is not None:
+        origin = [float(o) for o in origin]
+    else:
+        origin = [0.0, 0.0, 0.0]
+
+    return spacing, origin
+
+
 @router.get("/scans/{scan_id}/volume-data")
-def serve_volume_data(scan_id: str, services=Depends(_get_services)):
+def serve_volume_data(
+    scan_id: str,
+    align_to: str | None = Query(None, description="Resample this volume to match another scan's grid"),
+    services=Depends(_get_services),
+):
     """Parse NRRD and return raw voxel data as binary with metadata in headers.
 
     vtk.js does not include an NRRDReader. This endpoint reads the NRRD
     server-side and returns raw uint8 voxel data that the frontend can
     directly load into a vtkImageData object.
+
+    When ``align_to`` is provided, the volume is resampled (nearest-neighbor
+    for masks, linear for general data) to match the reference scan's grid
+    so both volumes occupy the same world-space bounding box.
     """
     import nrrd
 
@@ -95,6 +127,37 @@ def serve_volume_data(scan_id: str, services=Depends(_get_services)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read NRRD: {e}")
 
+    spacing, origin = _parse_nrrd_spatial(header)
+
+    # If align_to is set, resample this volume to match the reference scan's grid.
+    if align_to:
+        ref_scan = services["scan"].get_scan(align_to)
+        if ref_scan:
+            ref_path = Path(ref_scan.file_path)
+            if ref_path.exists():
+                try:
+                    ref_data, ref_header = nrrd.read(str(ref_path))
+                    ref_spacing, ref_origin = _parse_nrrd_spatial(ref_header)
+                    ref_dims = list(ref_data.shape)
+
+                    from scipy.ndimage import zoom as ndizoom
+
+                    src_shape = np.array(data.shape, dtype=np.float64)
+                    dst_shape = np.array(ref_dims, dtype=np.float64)
+                    factors = dst_shape / src_shape
+
+                    is_binary = scan.scan_category in ("implant", "generated_implant") or np.unique(data).size <= 3
+                    order = 0 if is_binary else 1
+                    data = ndizoom(data.astype(np.float32), factors, order=order)
+                    if is_binary:
+                        data = (data > 0.5).astype(np.float32)
+
+                    spacing = ref_spacing
+                    origin = ref_origin
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("align_to resample failed: %s", e)
+
     # Normalize to uint8 for volume rendering
     data_f = data.astype(np.float64)
     d_min, d_max = data_f.min(), data_f.max()
@@ -103,33 +166,10 @@ def serve_volume_data(scan_id: str, services=Depends(_get_services)):
     else:
         data_u8 = np.zeros_like(data, dtype=np.uint8)
 
-    # Ensure C-contiguous / Fortran order matching vtk.js expectations
     data_u8 = np.ascontiguousarray(data_u8)
 
-    dims = list(data_u8.shape)
-    spacing = header.get("space directions", None)
-    origin = header.get("space origin", None)
-
-    # Parse spacing from space directions (diagonal of 3x3 matrix)
-    if spacing is not None:
-        try:
-            spacing = [abs(float(spacing[i][i])) for i in range(3)]
-        except (IndexError, TypeError):
-            spacing = [1.0, 1.0, 1.0]
-    else:
-        spacings_field = header.get("spacings", None)
-        if spacings_field is not None:
-            spacing = [float(s) for s in spacings_field]
-        else:
-            spacing = [1.0, 1.0, 1.0]
-
-    if origin is not None:
-        origin = [float(o) for o in origin]
-    else:
-        origin = [0.0, 0.0, 0.0]
-
     metadata = {
-        "dims": dims,
+        "dims": list(data_u8.shape),
         "spacing": spacing,
         "origin": origin,
         "dtype": "uint8",
@@ -140,7 +180,7 @@ def serve_volume_data(scan_id: str, services=Depends(_get_services)):
         action="scan.view",
         entity_type="scan",
         entity_id=scan_id,
-        details={"served_format": "raw_volume"},
+        details={"served_format": "raw_volume", "aligned_to": align_to},
     )
 
     return Response(

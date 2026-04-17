@@ -32,6 +32,15 @@ export interface ScanCreate {
   description?: string;
 }
 
+export interface ScanUpdate {
+  name?: string;
+  description?: string;
+  scan_category?: string;
+  defect_type?: string;
+  skull_id?: string;
+  project_id?: string | null;
+}
+
 export interface SkullBreakImportRequest {
   base_dir: string;
   project_id?: string;

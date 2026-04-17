@@ -20,6 +20,7 @@ import {
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useScans } from '../hooks/useScans';
 import { useSettings } from '../hooks/useSettings';
+import { JobDownloads } from '../components/generation/JobDownloads';
 import type { Scan } from '../types/scan';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -49,8 +50,9 @@ function formatMs(ms?: number): string {
 export function ImplantGeneratorPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const jobIdFromUrl = searchParams.get('job');
+  const projectIdFromUrl = searchParams.get('project');
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectIdFromUrl);
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(jobIdFromUrl);
   const [threshold, setThreshold] = useState<number | null>(null);
@@ -462,6 +464,9 @@ export function ImplantGeneratorPage() {
                   label="Completed"
                   value={new Date(selectedJob.completed_at).toLocaleTimeString()}
                 />
+              )}
+              {selectedJob.status === 'completed' && (
+                <JobDownloads jobId={selectedJob.id} />
               )}
             </section>
           )}

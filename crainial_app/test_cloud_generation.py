@@ -96,7 +96,7 @@ def configure_cloud_settings():
     # Update settings
     update_data = {
         "cloud_generation_enabled": True,
-        "runpod_endpoint_id": "6on3tc0nzlyt42",
+        "runpod_endpoint_id": "wferq1g3i1hhqd",
         "runpod_api_key": api_key,
     }
 

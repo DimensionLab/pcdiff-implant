@@ -30,11 +30,9 @@ export function DataBrowser({
   const { data: projects = [] } = useProjects();
   const defaultProject = defaultProjectId ? projects.find(p => p.id === defaultProjectId) : null;
 
-  // Auto-switch to Point Clouds tab if coming from Implant Generator with a project
+  // Pre-filter to defective skulls when coming from Implant Generator with a project
   useEffect(() => {
     if (defaultProjectId) {
-      setActiveTab('point-clouds');
-      // Pre-filter to defective skulls since that's what Implant Generator needs
       setCategoryFilter('defective_skull');
     }
   }, [defaultProjectId]);
@@ -45,7 +43,7 @@ export function DataBrowser({
       {defaultProject && (
         <div style={styles.projectBanner}>
           <span>📁 Assign data to: <strong>{defaultProject.name}</strong></span>
-          <div style={styles.projectHint}>Click 📁 next to any point cloud to assign it</div>
+          <div style={styles.projectHint}>Click 📁 next to any item to assign it to this project</div>
         </div>
       )}
 
@@ -113,6 +111,8 @@ export function DataBrowser({
             onSelect={onSelectScan}
             selectedId={selectedScanId}
             categoryFilter={categoryFilter}
+            showAssignButton={true}
+            defaultProjectId={defaultProjectId}
           />
         )}
         {activeTab === 'point-clouds' && (
