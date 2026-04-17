@@ -25,13 +25,10 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: '#6b7280',
 };
 
-const PRESET_COLORS: Array<{ label: string; rgb: [number, number, number] }> = [
-  { label: 'Red', rgb: [1.0, 0.2, 0.25] },
-  { label: 'Cyan', rgb: [0.2, 0.85, 1.0] },
-  { label: 'Green', rgb: [0.25, 1.0, 0.4] },
-  { label: 'Yellow', rgb: [1.0, 0.85, 0.2] },
-  { label: 'Magenta', rgb: [1.0, 0.3, 0.9] },
-];
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
+}
 
 const WL_PRESETS: Array<{ label: string; window: number; level: number }> = [
   { label: 'Bone', window: 175, level: 168 },
@@ -58,7 +55,8 @@ export function ImplantCheckerPage() {
   const [overlayScanId, setOverlayScanId] = useState<string | null>(null);
 
   // Overlay controls
-  const [overlayColor, setOverlayColor] = useState<[number, number, number]>(PRESET_COLORS[1].rgb);
+  const [overlayColor, setOverlayColor] = useState<[number, number, number]>([1.0, 0.2, 0.25]);
+  const [overlayColorHex, setOverlayColorHex] = useState('#ff3340');
   const [overlayOpacity, setOverlayOpacity] = useState(0.75);
   const [overlayVisible, setOverlayVisible] = useState(true);
 
@@ -134,6 +132,18 @@ export function ImplantCheckerPage() {
     setOverlayVisible(next);
     viewportRef.current?.setOverlayVisible(next);
   }, [overlayVisible]);
+
+  const handleOverlayColorChange = useCallback((hex: string) => {
+    setOverlayColorHex(hex);
+    const rgb = hexToRgb(hex);
+    setOverlayColor(rgb);
+    viewportRef.current?.setOverlayColor(rgb[0], rgb[1], rgb[2]);
+  }, []);
+
+  const handleOverlayOpacityChange = useCallback((val: number) => {
+    setOverlayOpacity(val);
+    viewportRef.current?.setOverlayOpacity(val);
+  }, []);
 
   const handleBaseOpacityChange = useCallback((val: number) => {
     setBaseOpacity(val);
@@ -443,25 +453,16 @@ export function ImplantCheckerPage() {
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Color</label>
-              <div style={styles.colorRow}>
-                {PRESET_COLORS.map((c) => {
-                  const active =
-                    c.rgb[0] === overlayColor[0] &&
-                    c.rgb[1] === overlayColor[1] &&
-                    c.rgb[2] === overlayColor[2];
-                  return (
-                    <button
-                      key={c.label}
-                      onClick={() => setOverlayColor(c.rgb)}
-                      title={c.label}
-                      style={{
-                        ...styles.colorSwatch,
-                        background: `rgb(${c.rgb[0] * 255}, ${c.rgb[1] * 255}, ${c.rgb[2] * 255})`,
-                        outline: active ? '2px solid #fff' : '1px solid #333',
-                      }}
-                    />
-                  );
-                })}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="color"
+                  value={overlayColorHex}
+                  onChange={(e) => handleOverlayColorChange(e.target.value)}
+                  style={styles.colorPicker}
+                />
+                <span style={{ fontSize: '11px', color: '#999', fontFamily: 'monospace' }}>
+                  {overlayColorHex.toUpperCase()}
+                </span>
               </div>
             </div>
 
@@ -475,7 +476,7 @@ export function ImplantCheckerPage() {
                 max={1.0}
                 step={0.05}
                 value={overlayOpacity}
-                onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+                onChange={(e) => handleOverlayOpacityChange(Number(e.target.value))}
                 style={styles.slider}
               />
             </div>
@@ -630,13 +631,14 @@ const styles: Record<string, CSSProperties> = {
   formGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' },
   label: { fontSize: '12px', fontWeight: 500, color: '#aaa' },
   slider: { width: '100%', accentColor: '#2563eb' },
-  colorRow: { display: 'flex', gap: '6px' },
-  colorSwatch: {
-    width: '28px',
+  colorPicker: {
+    width: '40px',
     height: '28px',
+    padding: 0,
+    border: '1px solid #444',
     borderRadius: '4px',
-    border: 'none',
     cursor: 'pointer',
+    background: 'transparent',
   },
   toggleBtn: {
     background: 'transparent',

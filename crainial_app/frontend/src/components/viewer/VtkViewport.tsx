@@ -51,6 +51,8 @@ export interface VtkViewportHandle {
   setBaseWindowLevel: (window: number, level: number) => void;
   setBaseVisible: (visible: boolean) => void;
   setOverlayVisible: (visible: boolean) => void;
+  setOverlayColor: (r: number, g: number, b: number) => void;
+  setOverlayOpacity: (opacity: number) => void;
   render: () => void;
 }
 
@@ -168,7 +170,6 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
   const renderWindowRef = useRef<any>(null);
   const baseImageRef = useRef<any>(null);
   const [loading, setLoading] = useState(false);
-  const colorKey = overlayColor.join(',');
 
   useImperativeHandle(ref, () => ({
     resetCamera: () => {
@@ -265,6 +266,40 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
       renderWindowRef.current.render();
     },
 
+    setOverlayColor: (r: number, g: number, b: number) => {
+      if (!overlayActorRef.current || !renderWindowRef.current) return;
+      // For mesh/geometry actors, setColor works directly
+      if (overlayActorRef.current.getProperty().setColor) {
+        overlayActorRef.current.getProperty().setColor(r, g, b);
+      }
+      // For volume actors, update the RGB transfer function
+      if (overlayActorRef.current.getProperty().setRGBTransferFunction) {
+        const ctfun = vtkColorTransferFunction.newInstance();
+        ctfun.addRGBPoint(0, r, g, b);
+        ctfun.addRGBPoint(255, r, g, b);
+        overlayActorRef.current.getProperty().setRGBTransferFunction(0, ctfun);
+      }
+      renderWindowRef.current.render();
+    },
+
+    setOverlayOpacity: (opacity: number) => {
+      if (!overlayActorRef.current || !renderWindowRef.current) return;
+      // For mesh/geometry actors
+      if (overlayActorRef.current.getProperty().setOpacity) {
+        overlayActorRef.current.getProperty().setOpacity(opacity);
+      }
+      // For volume actors, update the scalar opacity function
+      if (overlayActorRef.current.getProperty().setScalarOpacity) {
+        const ofun = vtkPiecewiseFunction.newInstance();
+        ofun.addPoint(0, 0.0);
+        ofun.addPoint(127, 0.0);
+        ofun.addPoint(128, opacity);
+        ofun.addPoint(255, opacity);
+        overlayActorRef.current.getProperty().setScalarOpacity(0, ofun);
+      }
+      renderWindowRef.current.render();
+    },
+
     render: () => {
       renderWindowRef.current?.render();
     },
@@ -353,29 +388,43 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
 
           const meshMapper = vtkMapper.newInstance();
           meshMapper.setInputConnection(reader.getOutputPort());
+          meshMapper.setScalarVisibility(false);
           overlayMapperRef.current = meshMapper;
 
           const meshActor = vtkActor.newInstance();
           meshActor.setMapper(meshMapper);
           meshActor.getProperty().setColor(r, g, b);
           meshActor.getProperty().setOpacity(overlayOpacity);
-          meshActor.getProperty().setLighting(true);
+          meshActor.getProperty().setAmbient(0.5);
+          meshActor.getProperty().setDiffuse(0.6);
+          meshActor.getProperty().setSpecular(0.2);
 
-          // Build a 4x4 affine matrix to map from 256^3 mesh space to skull world space.
-          // The mesh vertices are in [0, ~256] (marching_cubes with spacing=1).
-          // Skull world space: origin + index * spacing, where index ranges [0, dims-1].
+          // Build a 4x4 affine matrix to map from 256^3 mesh space to skull world
+          // space. marching_cubes produces vertices in numpy index order (axis0,
+          // axis1, axis2). vtk.js vtkImageData maps X=numpy-axis2, Y=numpy-axis1,
+          // Z=numpy-axis0 (C-order bytes with Fortran-order indexing). So we need:
+          //   vtk_x = mesh_v2 * scale2 + origin_x
+          //   vtk_y = mesh_v1 * scale1 + origin_y
+          //   vtk_z = mesh_v0 * scale0 + origin_z
+          // This is a permutation (swap axis 0 ↔ axis 2) plus scale + translate.
           const implantRes = 256;
           const { dims, spacing, origin: orig } = base.metadata;
-          const sx = (dims[0] * spacing[0]) / implantRes;
-          const sy = (dims[1] * spacing[1]) / implantRes;
-          const sz = (dims[2] * spacing[2]) / implantRes;
-          // vtk.js uses row-major 4x4 matrix
+          // dims[0]=numpy-axis0, dims[1]=numpy-axis1, dims[2]=numpy-axis2
+          // vtk X extent = dims[2]*spacing[2], vtk Y = dims[1]*spacing[1], vtk Z = dims[0]*spacing[0]
+          const scaleX = (dims[2] * spacing[2]) / implantRes;  // mesh axis2 → vtk X
+          const scaleY = (dims[1] * spacing[1]) / implantRes;  // mesh axis1 → vtk Y
+          const scaleZ = (dims[0] * spacing[0]) / implantRes;  // mesh axis0 → vtk Z
+          // Row-major 4x4: mesh (v0, v1, v2) → vtk (v2*scaleX + ox, v1*scaleY + oy, v0*scaleZ + oz)
+          // Column vector convention: [v0, v1, v2, 1]^T
+          // Row 0 (vtk X): takes mesh v2 → col 2
+          // Row 1 (vtk Y): takes mesh v1 → col 1
+          // Row 2 (vtk Z): takes mesh v0 → col 0
           // prettier-ignore
           const userMatrix = new Float64Array([
-            sx, 0,  0,  orig[0],
-            0,  sy, 0,  orig[1],
-            0,  0,  sz, orig[2],
-            0,  0,  0,  1,
+            0,       0,       scaleX,  orig[0],
+            0,       scaleY,  0,       orig[1],
+            scaleZ,  0,       0,       orig[2],
+            0,       0,       0,       1,
           ]);
           meshActor.setUserMatrix(userMatrix as any);
 
@@ -436,7 +485,9 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
         contextRef.current = null;
       }
     };
-  }, [scanId, overlayScanId, colorKey, overlayOpacity, overlayRenderMode, overlayMeshUrl]);
+  // Color and opacity are handled imperatively via the ref handle, so they
+  // are NOT in the dependency array — changing them won't reload the scene.
+  }, [scanId, overlayScanId, overlayRenderMode, overlayMeshUrl]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
