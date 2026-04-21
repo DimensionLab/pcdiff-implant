@@ -69,6 +69,15 @@ export function ImplantCheckerPage() {
   // Render mode
   const [overlayRenderMode, setOverlayRenderMode] = useState<OverlayRenderMode>('volume');
 
+  // Mesh rendering controls
+  const [edgeVisible, setEdgeVisible] = useState(false);
+  const [smoothIterations, setSmoothIterations] = useState(0);
+
+  // Lighting
+  const [lightIntensity, setLightIntensity] = useState(1.0);
+  const [lightElevation, setLightElevation] = useState(45);
+  const [twoSidedLighting, setTwoSidedLighting] = useState(true);
+
   // Clipping plane
   const [clipAxis, setClipAxis] = useState<'x' | 'y' | 'z' | 'none'>('none');
   const [clipPosition, setClipPosition] = useState(0.5);
@@ -155,6 +164,33 @@ export function ImplantCheckerPage() {
     setWindowLevel(l);
     viewportRef.current?.setBaseWindowLevel(w, l);
   }, []);
+
+  const handleEdgeToggle = useCallback(() => {
+    const next = !edgeVisible;
+    setEdgeVisible(next);
+    viewportRef.current?.setOverlayEdgeVisibility(next);
+  }, [edgeVisible]);
+
+  const handleSmoothChange = useCallback((val: number) => {
+    setSmoothIterations(val);
+    viewportRef.current?.setOverlaySmoothing(val);
+  }, []);
+
+  const handleLightIntensity = useCallback((val: number) => {
+    setLightIntensity(val);
+    viewportRef.current?.setLightIntensity(val);
+  }, []);
+
+  const handleLightElevation = useCallback((val: number) => {
+    setLightElevation(val);
+    viewportRef.current?.setLightElevation(val);
+  }, []);
+
+  const handleTwoSidedToggle = useCallback(() => {
+    const next = !twoSidedLighting;
+    setTwoSidedLighting(next);
+    viewportRef.current?.setTwoSidedLighting(next);
+  }, [twoSidedLighting]);
 
   const handleClipAxisChange = useCallback((axis: 'x' | 'y' | 'z' | 'none') => {
     setClipAxis(axis);
@@ -479,6 +515,92 @@ export function ImplantCheckerPage() {
                 onChange={(e) => handleOverlayOpacityChange(Number(e.target.value))}
                 style={styles.slider}
               />
+            </div>
+          </section>
+
+          {/* Mesh quality (only in mesh mode) */}
+          {overlayRenderMode === 'mesh' && (
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Mesh Quality</h3>
+              <div style={styles.formGroup}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <label style={styles.label}>Edge Wireframe</label>
+                  <button
+                    onClick={handleEdgeToggle}
+                    style={{
+                      ...styles.toggleBtn,
+                      color: edgeVisible ? '#10b981' : '#666',
+                    }}
+                    title={edgeVisible ? 'Hide edges' : 'Show edges'}
+                  >
+                    {edgeVisible ? '▦' : '▧'}
+                  </button>
+                </div>
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>
+                  Smoothing: {smoothIterations === 0 ? 'Off' : `${smoothIterations} iters`}
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={smoothIterations}
+                  onChange={(e) => handleSmoothChange(Number(e.target.value))}
+                  style={styles.slider}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#666' }}>
+                  <span>Voxel</span>
+                  <span>Smooth</span>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Lighting */}
+          <section style={styles.section}>
+            <h3 style={styles.sectionTitle}>Lighting</h3>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Intensity: {lightIntensity.toFixed(1)}
+              </label>
+              <input
+                type="range"
+                min={0.1}
+                max={3.0}
+                step={0.1}
+                value={lightIntensity}
+                onChange={(e) => handleLightIntensity(Number(e.target.value))}
+                style={styles.slider}
+              />
+            </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Elevation: {lightElevation}°
+              </label>
+              <input
+                type="range"
+                min={-90}
+                max={90}
+                step={5}
+                value={lightElevation}
+                onChange={(e) => handleLightElevation(Number(e.target.value))}
+                style={styles.slider}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label style={styles.label}>Two-sided</label>
+              <button
+                onClick={handleTwoSidedToggle}
+                style={{
+                  ...styles.toggleBtn,
+                  color: twoSidedLighting ? '#10b981' : '#666',
+                }}
+                title={twoSidedLighting ? 'Disable two-sided lighting' : 'Enable two-sided lighting'}
+              >
+                {twoSidedLighting ? '☀' : '☀'}
+              </button>
             </div>
           </section>
 

@@ -5,6 +5,7 @@
 
 # Data related directories and files
 .DS_Store
+node_modules
 /datasets
 /pcdiff/datasets/Skull*
 /.venv/

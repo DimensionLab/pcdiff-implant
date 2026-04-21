@@ -41,6 +41,12 @@ import vtkSTLReader from '@kitware/vtk.js/IO/Geometry/STLReader';
 import vtkPLYReader from '@kitware/vtk.js/IO/Geometry/PLYReader';
 // @ts-ignore
 import vtkPolyData from '@kitware/vtk.js/Common/DataModel/PolyData';
+// @ts-ignore
+import vtkLight from '@kitware/vtk.js/Rendering/Core/Light';
+// @ts-ignore
+import vtkWindowedSincPolyDataFilter from '@kitware/vtk.js/Filters/General/WindowedSincPolyDataFilter';
+// @ts-ignore
+import vtkPolyDataNormals from '@kitware/vtk.js/Filters/Core/PolyDataNormals';
 
 export interface VtkViewportHandle {
   resetCamera: () => void;
@@ -53,6 +59,11 @@ export interface VtkViewportHandle {
   setOverlayVisible: (visible: boolean) => void;
   setOverlayColor: (r: number, g: number, b: number) => void;
   setOverlayOpacity: (opacity: number) => void;
+  setOverlayEdgeVisibility: (visible: boolean) => void;
+  setOverlaySmoothing: (iterations: number) => void;
+  setLightIntensity: (intensity: number) => void;
+  setLightElevation: (elevation: number) => void;
+  setTwoSidedLighting: (enabled: boolean) => void;
   render: () => void;
 }
 
@@ -168,6 +179,12 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
   const overlayMapperRef = useRef<any>(null);
   const rendererRef = useRef<any>(null);
   const renderWindowRef = useRef<any>(null);
+  // Mesh smoothing pipeline: keep reader output so we can re-smooth
+  const meshReaderRef = useRef<any>(null);
+  const meshSmoothFilterRef = useRef<any>(null);
+  const meshNormalsFilterRef = useRef<any>(null);
+  // Lighting
+  const keyLightRef = useRef<any>(null);
   const baseImageRef = useRef<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -300,6 +317,45 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
       renderWindowRef.current.render();
     },
 
+    setOverlayEdgeVisibility: (visible: boolean) => {
+      if (!overlayActorRef.current || !renderWindowRef.current) return;
+      const prop = overlayActorRef.current.getProperty();
+      if (prop.setEdgeVisibility) {
+        prop.setEdgeVisibility(visible);
+        if (visible) {
+          prop.setEdgeColor(0.15, 0.15, 0.15);
+        }
+      }
+      renderWindowRef.current.render();
+    },
+
+    setOverlaySmoothing: (iterations: number) => {
+      if (!meshSmoothFilterRef.current || !overlayMapperRef.current || !renderWindowRef.current) return;
+      meshSmoothFilterRef.current.setNumberOfIterations(iterations);
+      if (meshNormalsFilterRef.current) {
+        meshNormalsFilterRef.current.update();
+      }
+      renderWindowRef.current.render();
+    },
+
+    setLightIntensity: (intensity: number) => {
+      if (!keyLightRef.current || !renderWindowRef.current) return;
+      keyLightRef.current.setIntensity(intensity);
+      renderWindowRef.current.render();
+    },
+
+    setLightElevation: (elevation: number) => {
+      if (!keyLightRef.current || !renderWindowRef.current) return;
+      keyLightRef.current.setDirectionAngle(elevation, 45);
+      renderWindowRef.current.render();
+    },
+
+    setTwoSidedLighting: (enabled: boolean) => {
+      if (!rendererRef.current || !renderWindowRef.current) return;
+      rendererRef.current.setTwoSidedLighting(enabled);
+      renderWindowRef.current.render();
+    },
+
     render: () => {
       renderWindowRef.current?.render();
     },
@@ -317,6 +373,10 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
     baseMapperRef.current = null;
     overlayMapperRef.current = null;
     baseImageRef.current = null;
+    meshReaderRef.current = null;
+    meshSmoothFilterRef.current = null;
+    meshNormalsFilterRef.current = null;
+    keyLightRef.current = null;
 
     setLoading(true);
     let cancelled = false;
@@ -334,6 +394,24 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
     renderer.setUseDepthPeeling(true);
     renderer.setMaximumNumberOfPeels(6);
     renderer.setOcclusionRatio(0.1);
+
+    // Configurable scene lighting
+    renderer.removeAllLights();
+    renderer.setTwoSidedLighting(true);
+    const keyLight = vtkLight.newInstance();
+    keyLight.setLightTypeToSceneLight();
+    keyLight.setDirectionAngle(45, 45);
+    keyLight.setIntensity(1.0);
+    keyLight.setColor(1, 1, 1);
+    renderer.addLight(keyLight);
+    keyLightRef.current = keyLight;
+    // Soft fill light from opposite side
+    const fillLight = vtkLight.newInstance();
+    fillLight.setLightTypeToSceneLight();
+    fillLight.setDirectionAngle(-30, -135);
+    fillLight.setIntensity(0.4);
+    fillLight.setColor(0.9, 0.9, 1.0);
+    renderer.addLight(fillLight);
 
     const baseLoad = scanApi.loadVolumeData(scanId);
 
@@ -385,9 +463,29 @@ export const VtkViewport = forwardRef<VtkViewportHandle, VtkViewportProps>(funct
           const isStl = url.toLowerCase().includes('.stl') || url.toLowerCase().includes('/stl');
           const reader = isStl ? vtkSTLReader.newInstance() : vtkPLYReader.newInstance();
           reader.parseAsArrayBuffer(overlayData);
+          meshReaderRef.current = reader;
+
+          // Smoothing filter: Windowed Sinc (0 iterations = no smoothing by default)
+          const smoother = vtkWindowedSincPolyDataFilter.newInstance({
+            numberOfIterations: 0,
+            passBand: 0.1,
+            boundarySmoothing: false,
+            nonManifoldSmoothing: false,
+          });
+          smoother.setInputConnection(reader.getOutputPort());
+          meshSmoothFilterRef.current = smoother;
+
+          // Recompute normals after smoothing for correct shading
+          const normals = vtkPolyDataNormals.newInstance({
+            computePointNormals: true,
+            computeCellNormals: false,
+            splitting: false,
+          });
+          normals.setInputConnection(smoother.getOutputPort());
+          meshNormalsFilterRef.current = normals;
 
           const meshMapper = vtkMapper.newInstance();
-          meshMapper.setInputConnection(reader.getOutputPort());
+          meshMapper.setInputConnection(normals.getOutputPort());
           meshMapper.setScalarVisibility(false);
           overlayMapperRef.current = meshMapper;
 
